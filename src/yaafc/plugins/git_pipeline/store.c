@@ -25,7 +25,7 @@ struct job_entry {
     int used;
 };
 
-struct [[clang::annotate("class@git_pipeline:store")]] git_pipeline_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@git_pipeline:store") git_pipeline_store_data {
     struct job_entry entries[PIPE_MAX];
     size_t count;
     uint32_t next_id;
@@ -36,7 +36,7 @@ static struct git_pipeline_store_data *gp(struct object *obj)
     return (struct git_pipeline_store_data *)((char *)obj + sizeof(struct object));
 }
 
-[[clang::annotate("override@git_pipeline:store:store_enqueue")]]
+YAAFC_CLASS_ANNOTATE("override@git_pipeline:store:store_enqueue")
 struct yaafc_uint32_result git_pipeline_store_enqueue_impl(struct ctx *ctx, struct object *obj,
                                                            uint32_t repo_id)
 {
@@ -57,7 +57,7 @@ struct yaafc_uint32_result git_pipeline_store_enqueue_impl(struct ctx *ctx, stru
     return YAAFC_ERR(yaafc_uint32, "git_pipeline_enqueue: queue full");
 }
 
-[[clang::annotate("override@git_pipeline:store:store_lease")]]
+YAAFC_CLASS_ANNOTATE("override@git_pipeline:store:store_lease")
 struct yaafc_uint32_result git_pipeline_store_lease_impl(struct ctx *ctx, struct object *obj,
                                                          uint32_t runner_id)
 {
@@ -76,7 +76,7 @@ struct yaafc_uint32_result git_pipeline_store_lease_impl(struct ctx *ctx, struct
     return YAAFC_OK(yaafc_uint32, 0);
 }
 
-[[clang::annotate("override@git_pipeline:store:store_complete")]]
+YAAFC_CLASS_ANNOTATE("override@git_pipeline:store:store_complete")
 struct yaafc_int_result git_pipeline_store_complete_impl(struct ctx *ctx, struct object *obj,
                                                          uint32_t job_id, int32_t status)
 {
@@ -101,21 +101,21 @@ static size_t count_status(const struct git_pipeline_store_data *d, int status)
     return n;
 }
 
-[[clang::annotate("override@git_pipeline:store:store_count_pending")]]
+YAAFC_CLASS_ANNOTATE("override@git_pipeline:store:store_count_pending")
 struct yaafc_size_result git_pipeline_store_count_pending_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;
     return YAAFC_OK(yaafc_size, count_status(gp(obj), 0));
 }
 
-[[clang::annotate("override@git_pipeline:store:store_count_running")]]
+YAAFC_CLASS_ANNOTATE("override@git_pipeline:store:store_count_running")
 struct yaafc_size_result git_pipeline_store_count_running_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;
     return YAAFC_OK(yaafc_size, count_status(gp(obj), 1));
 }
 
-[[clang::annotate("override@git_pipeline:store:store_count_done")]]
+YAAFC_CLASS_ANNOTATE("override@git_pipeline:store:store_count_done")
 struct yaafc_size_result git_pipeline_store_count_done_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

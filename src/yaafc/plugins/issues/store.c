@@ -26,7 +26,7 @@ struct issue_entry {
     int used;
 };
 
-struct [[clang::annotate("class@issues:store")]] issues_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@issues:store") issues_store_data {
     struct issue_entry entries[ISSUES_MAX];
     size_t count;
     uint32_t next_id;
@@ -37,7 +37,7 @@ static struct issues_store_data *is_(struct object *obj)
     return (struct issues_store_data *)((char *)obj + sizeof(struct object));
 }
 
-[[clang::annotate("override@issues:store:store_open")]]
+YAAFC_CLASS_ANNOTATE("override@issues:store:store_open")
 struct yaafc_uint32_result issues_store_open_impl(struct ctx *ctx, struct object *obj,
                                                   uint32_t repo_id, uint32_t author_id)
 {
@@ -59,7 +59,7 @@ struct yaafc_uint32_result issues_store_open_impl(struct ctx *ctx, struct object
     return YAAFC_ERR(yaafc_uint32, "issues_open: table full");
 }
 
-[[clang::annotate("override@issues:store:store_close")]]
+YAAFC_CLASS_ANNOTATE("override@issues:store:store_close")
 struct yaafc_int_result issues_store_close_impl(struct ctx *ctx, struct object *obj,
                                                 uint32_t issue_id)
 {
@@ -75,7 +75,7 @@ struct yaafc_int_result issues_store_close_impl(struct ctx *ctx, struct object *
     return YAAFC_OK(yaafc_int, 0);
 }
 
-[[clang::annotate("override@issues:store:store_status")]]
+YAAFC_CLASS_ANNOTATE("override@issues:store:store_status")
 struct yaafc_int_result issues_store_status_impl(struct ctx *ctx, struct object *obj,
                                                  uint32_t issue_id)
 {
@@ -89,7 +89,7 @@ struct yaafc_int_result issues_store_status_impl(struct ctx *ctx, struct object 
     return YAAFC_OK(yaafc_int, 0);
 }
 
-[[clang::annotate("override@issues:store:store_count_open_in_repo")]]
+YAAFC_CLASS_ANNOTATE("override@issues:store:store_count_open_in_repo")
 struct yaafc_size_result issues_store_count_open_in_repo_impl(struct ctx *ctx, struct object *obj,
                                                               uint32_t repo_id)
 {
@@ -104,7 +104,7 @@ struct yaafc_size_result issues_store_count_open_in_repo_impl(struct ctx *ctx, s
     return YAAFC_OK(yaafc_size, n);
 }
 
-[[clang::annotate("override@issues:store:store_count_total")]]
+YAAFC_CLASS_ANNOTATE("override@issues:store:store_count_total")
 struct yaafc_size_result issues_store_count_total_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

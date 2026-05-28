@@ -68,6 +68,11 @@ linux-aarch64)
     CC="${CROSS_PREFIX}gcc"
     AR="${CROSS_PREFIX}ar"
     ;;
+linux-riscv64)
+    : "${CROSS_PREFIX:=riscv64-linux-gnu-}"
+    CC="${CROSS_PREFIX}gcc"
+    AR="${CROSS_PREFIX}ar"
+    ;;
 macos-x86_64) CC=clang; CFLAGS_BASE="$CFLAGS_BASE -arch x86_64" ;;
 macos-arm64)  CC=clang; CFLAGS_BASE="$CFLAGS_BASE -arch arm64"  ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;

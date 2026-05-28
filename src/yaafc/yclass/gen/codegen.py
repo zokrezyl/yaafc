@@ -141,15 +141,44 @@ def ast_dump(path: Path, include_dirs: list) -> dict:
     return json.loads(r.stdout)
 
 
+def _loc_offset(loc: dict) -> tuple:
+    """Get (offset, tokLen) from a clang AST location.
+
+    For tokens that come from a macro expansion the location nests
+    `expansionLoc` (where the macro is used in the .c file) and
+    `spellingLoc` (the macro definition). We want the EXPANSION offset
+    so substring reads land in the .c source, not in the header
+    holding the macro. For tokens that aren't macro-expanded the
+    offset sits at the top level.
+    """
+    if "offset" in loc:
+        return loc["offset"], loc.get("tokLen", 1)
+    exp = loc.get("expansionLoc")
+    if exp and "offset" in exp:
+        return exp["offset"], exp.get("tokLen", 1)
+    return None, 0
+
+
 def _annotate_value(attr_node: dict, src: bytes):
     rng = attr_node.get("range", {})
-    beg = rng.get("begin", {}); end = rng.get("end", {})
-    if "offset" not in beg or "offset" not in end:
+    beg_off, _      = _loc_offset(rng.get("begin", {}))
+    end_off, end_tok = _loc_offset(rng.get("end", {}))
+    if beg_off is None or end_off is None:
         return None
-    start = beg["offset"]
-    stop = end["offset"] + end.get("tokLen", 1)
-    blob = src[start:stop].decode("utf-8", errors="replace")
-    m = re.search(r'annotate\s*\(\s*"([^"]*)"', blob)
+    # Clang collapses the source range of a macro-expanded attribute to
+    # just the macro identifier (e.g. begin=end=offset-of-`YAAFC_CLASS_
+    # ANNOTATE`, tokLen=len("YAAFC_CLASS_ANNOTATE")). The annotation
+    # string sits AFTER that token in `("foo")`. Read a generous window
+    # past the token-end so the regex catches the quoted string. 512
+    # bytes is plenty — annotation strings are short and the macro call
+    # fits on one source line in practice.
+    stop = end_off + end_tok + 512
+    blob = src[beg_off:stop].decode("utf-8", errors="replace")
+    # Match either the raw `[[clang::annotate("x")]]` form or the
+    # YAAFC_CLASS_ANNOTATE("x") macro form. The macro keeps plugin
+    # sources compilable under gcc (cross-compiles), while clang's
+    # AST dump still produces an AnnotateAttr from the expansion.
+    m = re.search(r'(?:annotate|ANNOTATE)\s*\(\s*"([^"]*)"', blob)
     return m.group(1) if m else None
 
 

@@ -23,7 +23,7 @@ struct entry {
     int used;
 };
 
-struct [[clang::annotate("class@storage:kv")]] storage_kv_data {
+struct YAAFC_CLASS_ANNOTATE("class@storage:kv") storage_kv_data {
     struct entry entries[KV_MAX_ENTRIES];
     size_t count;
 };
@@ -33,7 +33,7 @@ static struct storage_kv_data *kv_data(struct object *obj)
     return (struct storage_kv_data *)((char *)obj + sizeof(struct object));
 }
 
-[[clang::annotate("override@storage:kv:kv_set")]]
+YAAFC_CLASS_ANNOTATE("override@storage:kv:kv_set")
 struct yaafc_int_result storage_kv_set_impl(struct ctx *ctx, struct object *obj,
                                              uint32_t key_id, int32_t value)
 {
@@ -62,7 +62,7 @@ struct yaafc_int_result storage_kv_set_impl(struct ctx *ctx, struct object *obj,
     return YAAFC_ERR(yaafc_int, "kv_set: store full");
 }
 
-[[clang::annotate("override@storage:kv:kv_get")]]
+YAAFC_CLASS_ANNOTATE("override@storage:kv:kv_get")
 struct yaafc_int_result storage_kv_get_impl(struct ctx *ctx, struct object *obj,
                                              uint32_t key_id)
 {
@@ -80,7 +80,7 @@ struct yaafc_int_result storage_kv_get_impl(struct ctx *ctx, struct object *obj,
     return YAAFC_ERR(yaafc_int, "kv_get: key not found");
 }
 
-[[clang::annotate("override@storage:kv:kv_count")]]
+YAAFC_CLASS_ANNOTATE("override@storage:kv:kv_count")
 struct yaafc_size_result storage_kv_count_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

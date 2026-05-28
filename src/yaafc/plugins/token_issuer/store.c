@@ -28,7 +28,7 @@ struct ti_entry {
     int used;
 };
 
-struct [[clang::annotate("class@token_issuer:store")]] token_issuer_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@token_issuer:store") token_issuer_store_data {
     struct ti_entry entries[TI_MAX];
     size_t count;
     uint32_t next_id;
@@ -56,7 +56,7 @@ static uint32_t ti_alloc(struct token_issuer_store_data *d, uint32_t user_id,
     return 0;
 }
 
-[[clang::annotate("override@token_issuer:store:store_login")]]
+YAAFC_CLASS_ANNOTATE("override@token_issuer:store:store_login")
 struct yaafc_uint32_result token_issuer_store_login_impl(struct ctx *ctx, struct object *obj,
                                                          uint32_t user_id, uint32_t provider_id)
 {
@@ -67,7 +67,7 @@ struct yaafc_uint32_result token_issuer_store_login_impl(struct ctx *ctx, struct
     return YAAFC_OK(yaafc_uint32, tid);
 }
 
-[[clang::annotate("override@token_issuer:store:store_validate")]]
+YAAFC_CLASS_ANNOTATE("override@token_issuer:store:store_validate")
 struct yaafc_uint32_result token_issuer_store_validate_impl(struct ctx *ctx, struct object *obj,
                                                             uint32_t token_id)
 {
@@ -81,7 +81,7 @@ struct yaafc_uint32_result token_issuer_store_validate_impl(struct ctx *ctx, str
     return YAAFC_OK(yaafc_uint32, 0);
 }
 
-[[clang::annotate("override@token_issuer:store:store_refresh")]]
+YAAFC_CLASS_ANNOTATE("override@token_issuer:store:store_refresh")
 struct yaafc_uint32_result token_issuer_store_refresh_impl(struct ctx *ctx, struct object *obj,
                                                            uint32_t token_id)
 {
@@ -101,7 +101,7 @@ struct yaafc_uint32_result token_issuer_store_refresh_impl(struct ctx *ctx, stru
     return YAAFC_OK(yaafc_uint32, 0);
 }
 
-[[clang::annotate("override@token_issuer:store:store_revoke")]]
+YAAFC_CLASS_ANNOTATE("override@token_issuer:store:store_revoke")
 struct yaafc_int_result token_issuer_store_revoke_impl(struct ctx *ctx, struct object *obj,
                                                        uint32_t token_id)
 {
@@ -117,7 +117,7 @@ struct yaafc_int_result token_issuer_store_revoke_impl(struct ctx *ctx, struct o
     return YAAFC_OK(yaafc_int, 0);
 }
 
-[[clang::annotate("override@token_issuer:store:store_count_active")]]
+YAAFC_CLASS_ANNOTATE("override@token_issuer:store:store_count_active")
 struct yaafc_size_result token_issuer_store_count_active_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

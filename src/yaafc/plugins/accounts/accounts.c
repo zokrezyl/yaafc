@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct [[clang::annotate("class@accounts:store")]] accounts_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@accounts:store") accounts_store_data {
     char _unused;
 };
 
@@ -87,7 +87,7 @@ static int kv_exists(struct acc_storage_handle *h, const char *key)
     return present;
 }
 
-[[clang::annotate("override@accounts:store:store_register")]]
+YAAFC_CLASS_ANNOTATE("override@accounts:store:store_register")
 struct yaafc_int_result accounts_store_register_impl(struct ctx *ctx, struct object *obj,
                                                     uint32_t uid)
 {
@@ -111,7 +111,7 @@ struct yaafc_int_result accounts_store_register_impl(struct ctx *ctx, struct obj
     return YAAFC_OK(yaafc_int, 1);
 }
 
-[[clang::annotate("override@accounts:store:store_exists")]]
+YAAFC_CLASS_ANNOTATE("override@accounts:store:store_exists")
 struct yaafc_int_result accounts_store_exists_impl(struct ctx *ctx, struct object *obj,
                                                   uint32_t uid)
 {
@@ -126,7 +126,7 @@ struct yaafc_int_result accounts_store_exists_impl(struct ctx *ctx, struct objec
     return YAAFC_OK(yaafc_int, present);
 }
 
-[[clang::annotate("override@accounts:store:store_set_balance")]]
+YAAFC_CLASS_ANNOTATE("override@accounts:store:store_set_balance")
 struct yaafc_int_result accounts_store_set_balance_impl(struct ctx *ctx, struct object *obj,
                                                         uint32_t uid, int64_t n)
 {
@@ -147,7 +147,7 @@ struct yaafc_int_result accounts_store_set_balance_impl(struct ctx *ctx, struct 
     return YAAFC_OK(yaafc_int, 1);
 }
 
-[[clang::annotate("override@accounts:store:store_balance")]]
+YAAFC_CLASS_ANNOTATE("override@accounts:store:store_balance")
 struct yaafc_int64_result accounts_store_balance_impl(struct ctx *ctx, struct object *obj,
                                                       uint32_t uid)
 {
@@ -167,7 +167,7 @@ struct yaafc_int64_result accounts_store_balance_impl(struct ctx *ctx, struct ob
     return YAAFC_OK(yaafc_int64, bal);
 }
 
-[[clang::annotate("override@accounts:store:store_count")]]
+YAAFC_CLASS_ANNOTATE("override@accounts:store:store_count")
 struct yaafc_size_result accounts_store_count_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx; (void)obj;

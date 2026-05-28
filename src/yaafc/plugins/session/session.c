@@ -31,7 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct [[clang::annotate("class@session:store")]] session_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@session:store") session_store_data {
     /* Empty — the plugin holds no per-object state. Codegen still wants
      * a struct annotated with the class accessor; a dummy byte keeps it
      * a complete type so object_alloc has something to size. */
@@ -82,7 +82,7 @@ static int64_t kv_get_or_zero(struct storage_handle *h, const char *key)
     return r.value;
 }
 
-[[clang::annotate("override@session:store:store_start")]]
+YAAFC_CLASS_ANNOTATE("override@session:store:store_start")
 struct yaafc_uint32_result session_store_start_impl(struct ctx *ctx, struct object *obj,
                                                     uint32_t user_id, uint32_t provider_id)
 {
@@ -108,7 +108,7 @@ struct yaafc_uint32_result session_store_start_impl(struct ctx *ctx, struct obje
     return YAAFC_OK(yaafc_uint32, sid);
 }
 
-[[clang::annotate("override@session:store:store_lookup")]]
+YAAFC_CLASS_ANNOTATE("override@session:store:store_lookup")
 struct yaafc_uint32_result session_store_lookup_impl(struct ctx *ctx, struct object *obj,
                                                      uint32_t sid)
 {
@@ -124,7 +124,7 @@ struct yaafc_uint32_result session_store_lookup_impl(struct ctx *ctx, struct obj
     return YAAFC_OK(yaafc_uint32, (uint32_t)uid);
 }
 
-[[clang::annotate("override@session:store:store_destroy")]]
+YAAFC_CLASS_ANNOTATE("override@session:store:store_destroy")
 struct yaafc_int_result session_store_destroy_impl(struct ctx *ctx, struct object *obj,
                                                    uint32_t sid)
 {
@@ -151,7 +151,7 @@ struct yaafc_int_result session_store_destroy_impl(struct ctx *ctx, struct objec
     return YAAFC_OK(yaafc_int, 1);
 }
 
-[[clang::annotate("override@session:store:store_count_active")]]
+YAAFC_CLASS_ANNOTATE("override@session:store:store_count_active")
 struct yaafc_size_result session_store_count_active_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx; (void)obj;

@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct [[clang::annotate("class@storage:db")]] storage_data {
+struct YAAFC_CLASS_ANNOTATE("class@storage:db") storage_data {
     enum storage_backend backend;
     const struct backend_ops *vt;
     union {
@@ -106,7 +106,7 @@ static const char *rc_msg(enum storage_rc rc)
     return "unknown rc";
 }
 
-[[clang::annotate("override@storage:db:set")]]
+YAAFC_CLASS_ANNOTATE("override@storage:db:set")
 struct yaafc_int_result storage_set_impl(struct ctx *ctx, struct object *obj,
                                          const char *context, const char *key,
                                          int64_t value)
@@ -121,7 +121,7 @@ struct yaafc_int_result storage_set_impl(struct ctx *ctx, struct object *obj,
     return YAAFC_OK(yaafc_int, 1);
 }
 
-[[clang::annotate("override@storage:db:get")]]
+YAAFC_CLASS_ANNOTATE("override@storage:db:get")
 struct yaafc_int64_result storage_get_impl(struct ctx *ctx, struct object *obj,
                                            const char *context, const char *key)
 {
@@ -135,7 +135,7 @@ struct yaafc_int64_result storage_get_impl(struct ctx *ctx, struct object *obj,
     return YAAFC_OK(yaafc_int64, v);
 }
 
-[[clang::annotate("override@storage:db:exists")]]
+YAAFC_CLASS_ANNOTATE("override@storage:db:exists")
 struct yaafc_int_result storage_exists_impl(struct ctx *ctx, struct object *obj,
                                             const char *context, const char *key)
 {
@@ -149,7 +149,7 @@ struct yaafc_int_result storage_exists_impl(struct ctx *ctx, struct object *obj,
     return YAAFC_OK(yaafc_int, present);
 }
 
-[[clang::annotate("override@storage:db:del")]]
+YAAFC_CLASS_ANNOTATE("override@storage:db:del")
 struct yaafc_int_result storage_del_impl(struct ctx *ctx, struct object *obj,
                                          const char *context, const char *key)
 {
@@ -163,7 +163,7 @@ struct yaafc_int_result storage_del_impl(struct ctx *ctx, struct object *obj,
     return YAAFC_OK(yaafc_int, removed);
 }
 
-[[clang::annotate("override@storage:db:count")]]
+YAAFC_CLASS_ANNOTATE("override@storage:db:count")
 struct yaafc_size_result storage_count_impl(struct ctx *ctx, struct object *obj,
                                             const char *context)
 {

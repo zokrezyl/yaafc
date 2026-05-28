@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct [[clang::annotate("class@password_authn:store")]] password_authn_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@password_authn:store") password_authn_store_data {
     char _unused;
 };
 
@@ -79,7 +79,7 @@ static int kv_exists(struct pw_storage_handle *h, const char *key)
     return present;
 }
 
-[[clang::annotate("override@password_authn:store:store_register")]]
+YAAFC_CLASS_ANNOTATE("override@password_authn:store:store_register")
 struct yaafc_int_result password_authn_store_register_impl(struct ctx *ctx, struct object *obj,
                                                            uint32_t user_id, int64_t hash)
 {
@@ -99,7 +99,7 @@ struct yaafc_int_result password_authn_store_register_impl(struct ctx *ctx, stru
     return YAAFC_OK(yaafc_int, 1);
 }
 
-[[clang::annotate("override@password_authn:store:store_authenticate")]]
+YAAFC_CLASS_ANNOTATE("override@password_authn:store:store_authenticate")
 struct yaafc_int_result password_authn_store_authenticate_impl(struct ctx *ctx,
                                                                struct object *obj,
                                                                uint32_t user_id, int64_t hash)
@@ -116,7 +116,7 @@ struct yaafc_int_result password_authn_store_authenticate_impl(struct ctx *ctx,
     return YAAFC_OK(yaafc_int, stored == hash ? 1 : 0);
 }
 
-[[clang::annotate("override@password_authn:store:store_change_password")]]
+YAAFC_CLASS_ANNOTATE("override@password_authn:store:store_change_password")
 struct yaafc_int_result password_authn_store_change_password_impl(struct ctx *ctx,
                                                                   struct object *obj,
                                                                   uint32_t user_id, int64_t hash)
@@ -133,7 +133,7 @@ struct yaafc_int_result password_authn_store_change_password_impl(struct ctx *ct
     return YAAFC_OK(yaafc_int, 1);
 }
 
-[[clang::annotate("override@password_authn:store:store_count_registered")]]
+YAAFC_CLASS_ANNOTATE("override@password_authn:store:store_count_registered")
 struct yaafc_size_result password_authn_store_count_registered_impl(struct ctx *ctx,
                                                                     struct object *obj)
 {

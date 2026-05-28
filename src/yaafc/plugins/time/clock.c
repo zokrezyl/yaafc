@@ -20,11 +20,11 @@
 
 #include <stdint.h>
 
-struct [[clang::annotate("class@time:clock")]] time_clock_data {
+struct YAAFC_CLASS_ANNOTATE("class@time:clock") time_clock_data {
     char _placeholder;
 };
 
-[[clang::annotate("override@time:clock:clock_now_ms")]]
+YAAFC_CLASS_ANNOTATE("override@time:clock:clock_now_ms")
 struct yaafc_int64_result time_clock_now_ms_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx; (void)obj;
@@ -33,7 +33,7 @@ struct yaafc_int64_result time_clock_now_ms_impl(struct ctx *ctx, struct object 
     return YAAFC_OK(yaafc_int64, ms);
 }
 
-[[clang::annotate("override@time:clock:clock_sleep_ms")]]
+YAAFC_CLASS_ANNOTATE("override@time:clock:clock_sleep_ms")
 struct yaafc_int64_result time_clock_sleep_ms_impl(struct ctx *ctx, struct object *obj,
                                                    uint32_t ms)
 {

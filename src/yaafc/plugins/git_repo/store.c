@@ -58,7 +58,7 @@ struct repo_entry {
     int used;
 };
 
-struct [[clang::annotate("class@git_repo:store")]] git_repo_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@git_repo:store") git_repo_store_data {
     struct repo_entry entries[REPOS_MAX];
     size_t count;
     uint32_t next_id;
@@ -170,7 +170,7 @@ static int rm_rf(const char *path)
     return nftw(path, rm_entry, 16, FTW_DEPTH | FTW_PHYS);
 }
 
-[[clang::annotate("override@git_repo:store:store_make")]]
+YAAFC_CLASS_ANNOTATE("override@git_repo:store:store_make")
 struct yaafc_uint32_result git_repo_store_make_impl(struct ctx *ctx, struct object *obj,
                                                       uint32_t owner_id,
                                                       const char *owner_name,
@@ -249,7 +249,7 @@ struct yaafc_uint32_result git_repo_store_make_impl(struct ctx *ctx, struct obje
     return YAAFC_ERR(yaafc_uint32, "git_repo_create: table full");
 }
 
-[[clang::annotate("override@git_repo:store:store_delete")]]
+YAAFC_CLASS_ANNOTATE("override@git_repo:store:store_delete")
 struct yaafc_int_result git_repo_store_delete_impl(struct ctx *ctx, struct object *obj,
                                                    uint32_t repo_id)
 {
@@ -276,7 +276,7 @@ struct yaafc_int_result git_repo_store_delete_impl(struct ctx *ctx, struct objec
     return YAAFC_OK(yaafc_int, 0);
 }
 
-[[clang::annotate("override@git_repo:store:store_owner_of")]]
+YAAFC_CLASS_ANNOTATE("override@git_repo:store:store_owner_of")
 struct yaafc_uint32_result git_repo_store_owner_of_impl(struct ctx *ctx, struct object *obj,
                                                         uint32_t repo_id)
 {
@@ -290,7 +290,7 @@ struct yaafc_uint32_result git_repo_store_owner_of_impl(struct ctx *ctx, struct 
     return YAAFC_OK(yaafc_uint32, 0);
 }
 
-[[clang::annotate("override@git_repo:store:store_count_for_owner")]]
+YAAFC_CLASS_ANNOTATE("override@git_repo:store:store_count_for_owner")
 struct yaafc_size_result git_repo_store_count_for_owner_impl(struct ctx *ctx, struct object *obj,
                                                              uint32_t owner_id)
 {
@@ -303,7 +303,7 @@ struct yaafc_size_result git_repo_store_count_for_owner_impl(struct ctx *ctx, st
     return YAAFC_OK(yaafc_size, n);
 }
 
-[[clang::annotate("override@git_repo:store:store_count_total")]]
+YAAFC_CLASS_ANNOTATE("override@git_repo:store:store_count_total")
 struct yaafc_size_result git_repo_store_count_total_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

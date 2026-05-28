@@ -24,6 +24,27 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Plugin sources tag data structs and impl functions with
+ *   YAAFC_CLASS_ANNOTATE("class@DOMAIN:CLASS")
+ *   YAAFC_CLASS_ANNOTATE("override@DOMAIN:CLASS:SLOT")
+ *
+ * The codegen (src/yaafc/yclass/gen/codegen.py) reads the literal
+ * `[[clang::annotate(...)]]` form via clang's `-fsyntax-only` AST dump.
+ * At normal compile time the attribute is just dropped — clang ignores
+ * `[[clang::annotate]]` for the actual compilation.
+ *
+ * gcc 13/14 only parses `[[ns::name]]` scoped attributes for the
+ * standardized namespaces (`gnu`, `_Noreturn`, …); `clang::annotate`
+ * is unknown to gcc and produces "expected ']' before ':'". Gate the
+ * attribute behind `__clang__` so cross-compiles with gcc (linux-riscv64,
+ * etc.) skip it entirely. The codegen still sees the literal text
+ * because it invokes clang directly. */
+#ifdef __clang__
+#define YAAFC_CLASS_ANNOTATE(x) [[clang::annotate(x)]]
+#else
+#define YAAFC_CLASS_ANNOTATE(x)
+#endif
+
 struct object;
 struct class;
 struct slot_table;

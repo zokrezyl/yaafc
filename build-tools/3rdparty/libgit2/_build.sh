@@ -65,6 +65,13 @@ linux-aarch64)
     CMAKE_EXTRA+=("-DCMAKE_SYSTEM_NAME=Linux"
                   "-DCMAKE_SYSTEM_PROCESSOR=aarch64")
     ;;
+linux-riscv64)
+    : "${CROSS_PREFIX:=riscv64-linux-gnu-}"
+    CC="${CROSS_PREFIX}gcc"
+    CXX="${CROSS_PREFIX}g++"
+    CMAKE_EXTRA+=("-DCMAKE_SYSTEM_NAME=Linux"
+                  "-DCMAKE_SYSTEM_PROCESSOR=riscv64")
+    ;;
 macos-x86_64) CC=clang; CXX=clang++; CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=x86_64") ;;
 macos-arm64)  CC=clang; CXX=clang++; CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=arm64")  ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;

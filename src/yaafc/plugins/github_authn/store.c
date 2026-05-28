@@ -28,7 +28,7 @@ struct gh_code_entry {
     int used;
 };
 
-struct [[clang::annotate("class@github_authn:store")]] github_authn_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@github_authn:store") github_authn_store_data {
     uint32_t client_id;
     uint32_t secret_id;     /* opaque secret token id from yconfig substitution */
     struct gh_code_entry codes[GH_MAX_CODES];
@@ -40,7 +40,7 @@ static struct github_authn_store_data *gh(struct object *obj)
     return (struct github_authn_store_data *)((char *)obj + sizeof(struct object));
 }
 
-[[clang::annotate("override@github_authn:store:store_set_credentials")]]
+YAAFC_CLASS_ANNOTATE("override@github_authn:store:store_set_credentials")
 struct yaafc_int_result github_authn_store_set_credentials_impl(struct ctx *ctx,
                                                                 struct object *obj,
                                                                 uint32_t client_id,
@@ -54,7 +54,7 @@ struct yaafc_int_result github_authn_store_set_credentials_impl(struct ctx *ctx,
     return YAAFC_OK(yaafc_int, 1);
 }
 
-[[clang::annotate("override@github_authn:store:store_register_code")]]
+YAAFC_CLASS_ANNOTATE("override@github_authn:store:store_register_code")
 struct yaafc_int_result github_authn_store_register_code_impl(struct ctx *ctx,
                                                               struct object *obj,
                                                               uint32_t code, uint32_t user_id)
@@ -73,7 +73,7 @@ struct yaafc_int_result github_authn_store_register_code_impl(struct ctx *ctx,
     return YAAFC_ERR(yaafc_int, "github_authn_register_code: table full");
 }
 
-[[clang::annotate("override@github_authn:store:store_resolve")]]
+YAAFC_CLASS_ANNOTATE("override@github_authn:store:store_resolve")
 struct yaafc_uint32_result github_authn_store_resolve_impl(struct ctx *ctx, struct object *obj,
                                                            uint32_t code)
 {
@@ -87,7 +87,7 @@ struct yaafc_uint32_result github_authn_store_resolve_impl(struct ctx *ctx, stru
     return YAAFC_OK(yaafc_uint32, 0);
 }
 
-[[clang::annotate("override@github_authn:store:store_count_codes")]]
+YAAFC_CLASS_ANNOTATE("override@github_authn:store:store_count_codes")
 struct yaafc_size_result github_authn_store_count_codes_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

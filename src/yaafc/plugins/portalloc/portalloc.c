@@ -28,7 +28,7 @@ struct port_entry {
     int used;
 };
 
-struct [[clang::annotate("class@portalloc:store")]] portalloc_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@portalloc:store") portalloc_store_data {
     struct port_entry entries[PORTALLOC_MAX_ENTRIES];
     size_t count;
 };
@@ -38,7 +38,7 @@ static struct portalloc_store_data *pa(struct object *obj)
     return (struct portalloc_store_data *)((char *)obj + sizeof(struct object));
 }
 
-[[clang::annotate("override@portalloc:store:store_allocate")]]
+YAAFC_CLASS_ANNOTATE("override@portalloc:store:store_allocate")
 struct yaafc_uint32_result portalloc_store_allocate_impl(struct ctx *ctx, struct object *obj,
                                                          uint32_t service_id)
 {
@@ -71,7 +71,7 @@ struct yaafc_uint32_result portalloc_store_allocate_impl(struct ctx *ctx, struct
     return YAAFC_ERR(yaafc_uint32, "portalloc_allocate: no ports left in range");
 }
 
-[[clang::annotate("override@portalloc:store:store_release")]]
+YAAFC_CLASS_ANNOTATE("override@portalloc:store:store_release")
 struct yaafc_int_result portalloc_store_release_impl(struct ctx *ctx, struct object *obj,
                                                      uint32_t port)
 {
@@ -88,7 +88,7 @@ struct yaafc_int_result portalloc_store_release_impl(struct ctx *ctx, struct obj
     return YAAFC_OK(yaafc_int, 0);
 }
 
-[[clang::annotate("override@portalloc:store:store_count_used")]]
+YAAFC_CLASS_ANNOTATE("override@portalloc:store:store_count_used")
 struct yaafc_size_result portalloc_store_count_used_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

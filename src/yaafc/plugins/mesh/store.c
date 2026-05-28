@@ -48,7 +48,7 @@ struct mesh_child_entry {
     int exit_status;
 };
 
-struct [[clang::annotate("class@mesh:store")]] mesh_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@mesh:store") mesh_store_data {
     struct mesh_service_entry entries[MESH_MAX_SERVICES];
     struct mesh_child_entry children[MESH_MAX_CHILDREN];
     size_t count;
@@ -60,7 +60,7 @@ static struct mesh_store_data *ms(struct object *obj)
     return (struct mesh_store_data *)((char *)obj + sizeof(struct object));
 }
 
-[[clang::annotate("override@mesh:store:store_register_service")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_register_service")
 struct yaafc_int_result mesh_store_register_service_impl(struct ctx *ctx, struct object *obj,
                                                          uint32_t service_id, uint32_t port)
 {
@@ -86,7 +86,7 @@ struct yaafc_int_result mesh_store_register_service_impl(struct ctx *ctx, struct
     return YAAFC_ERR(yaafc_int, "mesh_register_service: table full");
 }
 
-[[clang::annotate("override@mesh:store:store_resolve")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_resolve")
 struct yaafc_uint32_result mesh_store_resolve_impl(struct ctx *ctx, struct object *obj,
                                                    uint32_t service_id)
 {
@@ -100,7 +100,7 @@ struct yaafc_uint32_result mesh_store_resolve_impl(struct ctx *ctx, struct objec
     return YAAFC_OK(yaafc_uint32, 0);
 }
 
-[[clang::annotate("override@mesh:store:store_forget")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_forget")
 struct yaafc_int_result mesh_store_forget_impl(struct ctx *ctx, struct object *obj,
                                                uint32_t service_id)
 {
@@ -116,7 +116,7 @@ struct yaafc_int_result mesh_store_forget_impl(struct ctx *ctx, struct object *o
     return YAAFC_OK(yaafc_int, 0);
 }
 
-[[clang::annotate("override@mesh:store:store_count_services")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_count_services")
 struct yaafc_size_result mesh_store_count_services_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;
@@ -188,7 +188,7 @@ static void mesh_child_exit_cb_real(struct yloop_process *p, int64_t exit_status
     free(c);
 }
 
-[[clang::annotate("override@mesh:store:store_spawn_yaafc")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_spawn_yaafc")
 struct yaafc_int_result mesh_store_spawn_yaafc_impl(struct ctx *ctx, struct object *obj,
                                                     uint32_t port)
 {
@@ -242,7 +242,7 @@ struct yaafc_int_result mesh_store_spawn_yaafc_impl(struct ctx *ctx, struct obje
     return YAAFC_OK(yaafc_int, pid);
 }
 
-[[clang::annotate("override@mesh:store:store_kill_pid")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_kill_pid")
 struct yaafc_int_result mesh_store_kill_pid_impl(struct ctx *ctx, struct object *obj,
                                                  int32_t pid)
 {
@@ -257,7 +257,7 @@ struct yaafc_int_result mesh_store_kill_pid_impl(struct ctx *ctx, struct object 
     return YAAFC_OK(yaafc_int, rc == 0 ? 1 : 0);
 }
 
-[[clang::annotate("override@mesh:store:store_count_children")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_count_children")
 struct yaafc_size_result mesh_store_count_children_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;
@@ -364,7 +364,7 @@ static int reconcile_walk_cb(const char *service_name,
     return 0;
 }
 
-[[clang::annotate("override@mesh:store:store_reconcile_from_config")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_reconcile_from_config")
 struct yaafc_int_result mesh_store_reconcile_from_config_impl(struct ctx *ctx,
                                                               struct object *obj)
 {
@@ -387,7 +387,7 @@ struct yaafc_int_result mesh_store_reconcile_from_config_impl(struct ctx *ctx,
     return YAAFC_OK(yaafc_int, rc.spawned);
 }
 
-[[clang::annotate("override@mesh:store:store_reconcile")]]
+YAAFC_CLASS_ANNOTATE("override@mesh:store:store_reconcile")
 struct yaafc_int_result mesh_store_reconcile_impl(struct ctx *ctx, struct object *obj)
 {
     (void)ctx;

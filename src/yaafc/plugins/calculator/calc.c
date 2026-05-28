@@ -14,11 +14,11 @@
 
 #include <stdint.h>
 
-struct [[clang::annotate("class@calculator:calc")]] calculator_calc_data {
+struct YAAFC_CLASS_ANNOTATE("class@calculator:calc") calculator_calc_data {
     char _placeholder;
 };
 
-[[clang::annotate("override@calculator:calc:calc_add")]]
+YAAFC_CLASS_ANNOTATE("override@calculator:calc:calc_add")
 struct yaafc_int64_result calculator_calc_add_impl(struct ctx *ctx, struct object *obj,
                                                    int64_t x, int64_t y)
 {
@@ -27,7 +27,7 @@ struct yaafc_int64_result calculator_calc_add_impl(struct ctx *ctx, struct objec
     return YAAFC_OK(yaafc_int64, x + y);
 }
 
-[[clang::annotate("override@calculator:calc:calc_sub")]]
+YAAFC_CLASS_ANNOTATE("override@calculator:calc:calc_sub")
 struct yaafc_int64_result calculator_calc_sub_impl(struct ctx *ctx, struct object *obj,
                                                    int64_t x, int64_t y)
 {
@@ -36,7 +36,7 @@ struct yaafc_int64_result calculator_calc_sub_impl(struct ctx *ctx, struct objec
     return YAAFC_OK(yaafc_int64, x - y);
 }
 
-[[clang::annotate("override@calculator:calc:calc_mul")]]
+YAAFC_CLASS_ANNOTATE("override@calculator:calc:calc_mul")
 struct yaafc_int64_result calculator_calc_mul_impl(struct ctx *ctx, struct object *obj,
                                                    int64_t x, int64_t y)
 {
@@ -45,7 +45,7 @@ struct yaafc_int64_result calculator_calc_mul_impl(struct ctx *ctx, struct objec
     return YAAFC_OK(yaafc_int64, x * y);
 }
 
-[[clang::annotate("override@calculator:calc:calc_div")]]
+YAAFC_CLASS_ANNOTATE("override@calculator:calc:calc_div")
 struct yaafc_int64_result calculator_calc_div_impl(struct ctx *ctx, struct object *obj,
                                                    int64_t x, int64_t y)
 {

@@ -26,7 +26,7 @@ struct pat_entry {
     int used;
 };
 
-struct [[clang::annotate("class@personal_access_tokens:store")]] personal_access_tokens_store_data {
+struct YAAFC_CLASS_ANNOTATE("class@personal_access_tokens:store") personal_access_tokens_store_data {
     struct pat_entry entries[PAT_MAX];
     size_t count;
     uint32_t next_id;
@@ -38,7 +38,7 @@ static struct personal_access_tokens_store_data *pat(struct object *obj)
            ((char *)obj + sizeof(struct object));
 }
 
-[[clang::annotate("override@personal_access_tokens:store:store_mint")]]
+YAAFC_CLASS_ANNOTATE("override@personal_access_tokens:store:store_mint")
 struct yaafc_uint32_result personal_access_tokens_store_mint_impl(struct ctx *ctx,
                                                                   struct object *obj,
                                                                   uint32_t user_id)
@@ -59,7 +59,7 @@ struct yaafc_uint32_result personal_access_tokens_store_mint_impl(struct ctx *ct
     return YAAFC_ERR(yaafc_uint32, "pat_mint: table full");
 }
 
-[[clang::annotate("override@personal_access_tokens:store:store_lookup")]]
+YAAFC_CLASS_ANNOTATE("override@personal_access_tokens:store:store_lookup")
 struct yaafc_uint32_result personal_access_tokens_store_lookup_impl(struct ctx *ctx,
                                                                     struct object *obj,
                                                                     uint32_t pat_id)
@@ -74,7 +74,7 @@ struct yaafc_uint32_result personal_access_tokens_store_lookup_impl(struct ctx *
     return YAAFC_OK(yaafc_uint32, 0);
 }
 
-[[clang::annotate("override@personal_access_tokens:store:store_revoke")]]
+YAAFC_CLASS_ANNOTATE("override@personal_access_tokens:store:store_revoke")
 struct yaafc_int_result personal_access_tokens_store_revoke_impl(struct ctx *ctx,
                                                                  struct object *obj,
                                                                  uint32_t pat_id)
@@ -91,7 +91,7 @@ struct yaafc_int_result personal_access_tokens_store_revoke_impl(struct ctx *ctx
     return YAAFC_OK(yaafc_int, 0);
 }
 
-[[clang::annotate("override@personal_access_tokens:store:store_list_for_user")]]
+YAAFC_CLASS_ANNOTATE("override@personal_access_tokens:store:store_list_for_user")
 struct yaafc_size_result personal_access_tokens_store_list_for_user_impl(
     struct ctx *ctx, struct object *obj, uint32_t user_id)
 {
@@ -104,7 +104,7 @@ struct yaafc_size_result personal_access_tokens_store_list_for_user_impl(
     return YAAFC_OK(yaafc_size, n);
 }
 
-[[clang::annotate("override@personal_access_tokens:store:store_count_active")]]
+YAAFC_CLASS_ANNOTATE("override@personal_access_tokens:store:store_count_active")
 struct yaafc_size_result personal_access_tokens_store_count_active_impl(struct ctx *ctx,
                                                                         struct object *obj)
 {

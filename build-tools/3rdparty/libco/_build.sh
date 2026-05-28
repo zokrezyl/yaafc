@@ -69,6 +69,11 @@ linux-aarch64)
     CC="${CROSS_PREFIX}gcc"
     AR="${CROSS_PREFIX}ar"
     ;;
+linux-riscv64)
+    : "${CROSS_PREFIX:=riscv64-linux-gnu-}"
+    CC="${CROSS_PREFIX}gcc"
+    AR="${CROSS_PREFIX}ar"
+    ;;
 macos-x86_64)
     CC=clang
     CFLAGS_EXTRA="-arch x86_64"
