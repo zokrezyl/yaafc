@@ -4,10 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/git_repo/rpc.gen.h>
-#include <yaafc/plugin/git_repo/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/git_repo/store.h>
+#include "git_repo.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

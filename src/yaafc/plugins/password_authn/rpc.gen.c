@@ -4,10 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/password_authn/rpc.gen.h>
-#include <yaafc/plugin/password_authn/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/password_authn/store.h>
+#include "password_authn.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

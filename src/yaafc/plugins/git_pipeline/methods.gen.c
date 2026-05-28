@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/git_pipeline/methods.gen.h>
+#include "git_pipeline.internal.h"
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
 #include <yaafc/yclass/rpc.h>

@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/accounts/methods.gen.h>
+#include "accounts.internal.h"
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
 #include <yaafc/yclass/rpc.h>

@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/personal_access_tokens/methods.gen.h>
+#include "personal_access_tokens.internal.h"
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
 #include <yaafc/yclass/rpc.h>

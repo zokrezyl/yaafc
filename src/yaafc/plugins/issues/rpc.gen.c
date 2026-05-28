@@ -4,10 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/issues/rpc.gen.h>
-#include <yaafc/plugin/issues/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/issues/store.h>
+#include "issues.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

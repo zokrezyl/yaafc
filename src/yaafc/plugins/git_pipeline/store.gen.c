@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/git_pipeline/store.h>
+#include "git_pipeline.internal.h"
 
 __attribute__((unused))
 static git_pipeline_store_enqueue_fn _git_pipeline_store_git_pipeline_store_enqueue_check = git_pipeline_store_enqueue_impl;

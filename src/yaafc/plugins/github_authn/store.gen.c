@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/github_authn/store.h>
+#include "github_authn.internal.h"
 
 __attribute__((unused))
 static github_authn_store_set_credentials_fn _github_authn_store_github_authn_store_set_credentials_check = github_authn_store_set_credentials_impl;

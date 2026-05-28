@@ -110,20 +110,23 @@ function(yaafc_add_plugin NAME)
         set(_EXTRA_INCLUDE_PATH "${_EXTRA_INCLUDE_PATH}:${_d}")
     endforeach()
 
-    set(_GEN_PUBLIC "")
-    set(_GEN_INTERNAL "")
-    foreach(src ${PLUG_SOURCES})
-        get_filename_component(_stem "${src}" NAME_WE)
-        list(APPEND _GEN_PUBLIC "${_PUB_DIR}/${_stem}.h")
-        list(APPEND _GEN_INTERNAL "${_SRC_DIR}/${_stem}.gen.c")
-    endforeach()
-    list(APPEND _GEN_PUBLIC
-         "${_PUB_DIR}/methods.gen.h"
-         "${_PUB_DIR}/rpc.gen.h")
-    list(APPEND _GEN_INTERNAL
+    # Outputs that codegen.py writes for this plugin:
+    #   include/yaafc/plugin/<name>/<name>.h       — combined public API
+    #   src/yaafc/plugins/<name>/<name>.internal.h — codegen-only types
+    #   src/yaafc/plugins/<name>/<stem>.gen.c      — class-accessor body
+    #   src/yaafc/plugins/<name>/methods.gen.c     — public-stub bodies
+    #   src/yaafc/plugins/<name>/rpc.gen.c         — skel + jinvoke + create
+    #   src/yaafc/plugins/<name>/model.yaml        — parsed model echo
+    set(_GEN_PUBLIC "${_PUB_DIR}/${NAME}.h")
+    set(_GEN_INTERNAL
+         "${_SRC_DIR}/${NAME}.internal.h"
          "${_SRC_DIR}/methods.gen.c"
          "${_SRC_DIR}/rpc.gen.c"
          "${_SRC_DIR}/model.yaml")
+    foreach(src ${PLUG_SOURCES})
+        get_filename_component(_stem "${src}" NAME_WE)
+        list(APPEND _GEN_INTERNAL "${_SRC_DIR}/${_stem}.gen.c")
+    endforeach()
 
     set(_SOURCES_FULL "")
     foreach(src ${PLUG_SOURCES})

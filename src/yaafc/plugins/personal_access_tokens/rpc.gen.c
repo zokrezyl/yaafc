@@ -4,10 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/personal_access_tokens/rpc.gen.h>
-#include <yaafc/plugin/personal_access_tokens/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/personal_access_tokens/store.h>
+#include "personal_access_tokens.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

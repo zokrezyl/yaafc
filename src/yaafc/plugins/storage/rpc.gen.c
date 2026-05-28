@@ -4,11 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/storage/rpc.gen.h>
-#include <yaafc/plugin/storage/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/storage/kv.h>
-#include <yaafc/plugin/storage/sql.h>
+#include "storage.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

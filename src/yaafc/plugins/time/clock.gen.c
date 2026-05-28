@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/time/clock.h>
+#include "time.internal.h"
 
 __attribute__((unused))
 static time_clock_now_ms_fn _time_clock_time_clock_now_ms_check = time_clock_now_ms_impl;

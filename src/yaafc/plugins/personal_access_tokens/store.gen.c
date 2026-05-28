@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/personal_access_tokens/store.h>
+#include "personal_access_tokens.internal.h"
 
 __attribute__((unused))
 static personal_access_tokens_store_mint_fn _personal_access_tokens_store_personal_access_tokens_store_mint_check = personal_access_tokens_store_mint_impl;

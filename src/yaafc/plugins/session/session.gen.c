@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/session/store.h>
+#include "session.internal.h"
 
 __attribute__((unused))
 static session_store_start_fn _session_store_session_store_start_check = session_store_start_impl;

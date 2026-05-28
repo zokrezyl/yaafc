@@ -246,6 +246,9 @@ static void on_connection(uv_stream_t *server, int status)
         uv_close((uv_handle_t *)&s->tcp, on_handle_close);
         return;
     }
+    /* Kill Nagle on every accepted peer. Without this, request/response
+     * traffic on loopback eats a ~40 ms delayed-ACK timer per RTT. */
+    uv_tcp_nodelay(&s->tcp, 1);
 
     rc = uv_read_start((uv_stream_t *)&s->tcp, on_alloc, on_read);
     if (rc < 0) {

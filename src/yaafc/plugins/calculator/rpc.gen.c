@@ -4,10 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/calculator/rpc.gen.h>
-#include <yaafc/plugin/calculator/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/calculator/calc.h>
+#include "calculator.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

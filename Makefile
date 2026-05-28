@@ -40,6 +40,3 @@ build-desktop-debug:
 	$(CMAKE) --build $(BUILD_DIR_DEBUG) --parallel $(JOBS) 
 	@echo "build-desktop-debug: see tmp/build-debug.log"
 
-## clean                  remove every build-* directory and tmp/
-clean:
-	rm -rf build-* tmp compile_commands.json

@@ -12,14 +12,10 @@
  * `client` runs the built-in smoke against a running server.
  * Plugin classes self-register at load via codegen constructor hooks. */
 
-#include <yaafc/plugin/storage/kv.h>
-#include <yaafc/plugin/calculator/calc.h>
-#include <yaafc/plugin/time/clock.h>
-#include <yaafc/plugin/accounts/store.h>
-#include <yaafc/plugin/storage/rpc.gen.h>
-#include <yaafc/plugin/calculator/rpc.gen.h>
-#include <yaafc/plugin/time/rpc.gen.h>
-#include <yaafc/plugin/accounts/rpc.gen.h>
+#include <yaafc/plugin/storage/storage.h>
+#include <yaafc/plugin/calculator/calculator.h>
+#include <yaafc/plugin/time/time.h>
+#include <yaafc/plugin/accounts/accounts.h>
 
 #include <yaafc/yengine/engine.h>
 #include <yaafc/yclass/class.h>

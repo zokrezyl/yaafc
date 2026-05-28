@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/storage/kv.h>
+#include "storage.internal.h"
 
 __attribute__((unused))
 static storage_kv_set_fn _storage_kv_storage_kv_set_check = storage_kv_set_impl;

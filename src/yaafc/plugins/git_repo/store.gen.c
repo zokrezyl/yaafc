@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/git_repo/store.h>
+#include "git_repo.internal.h"
 
 __attribute__((unused))
 static git_repo_store_make_fn _git_repo_store_git_repo_store_make_check = git_repo_store_make_impl;

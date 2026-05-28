@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/password_authn/store.h>
+#include "password_authn.internal.h"
 
 __attribute__((unused))
 static password_authn_store_register_fn _password_authn_store_password_authn_store_register_check = password_authn_store_register_impl;

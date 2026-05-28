@@ -4,10 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/mesh/rpc.gen.h>
-#include <yaafc/plugin/mesh/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/mesh/store.h>
+#include "mesh.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/token_issuer/store.h>
+#include "token_issuer.internal.h"
 
 __attribute__((unused))
 static token_issuer_store_login_fn _token_issuer_store_token_issuer_store_login_check = token_issuer_store_login_impl;

@@ -41,24 +41,15 @@
 #include <yaafc/ycore/ytrace.h>
 
 /* Each service header brings in its create() + method stubs. */
-#include <yaafc/plugin/storage/sql.h>
-#include <yaafc/plugin/storage/rpc.gen.h>
-#include <yaafc/plugin/accounts/store.h>
-#include <yaafc/plugin/accounts/rpc.gen.h>
-#include <yaafc/plugin/password_authn/store.h>
-#include <yaafc/plugin/password_authn/rpc.gen.h>
-#include <yaafc/plugin/token_issuer/store.h>
-#include <yaafc/plugin/token_issuer/rpc.gen.h>
-#include <yaafc/plugin/session/store.h>
-#include <yaafc/plugin/session/rpc.gen.h>
-#include <yaafc/plugin/issues/store.h>
-#include <yaafc/plugin/issues/rpc.gen.h>
-#include <yaafc/plugin/git_repo/store.h>
-#include <yaafc/plugin/git_repo/rpc.gen.h>
-#include <yaafc/plugin/git_pipeline/store.h>
-#include <yaafc/plugin/git_pipeline/rpc.gen.h>
-#include <yaafc/plugin/personal_access_tokens/store.h>
-#include <yaafc/plugin/personal_access_tokens/rpc.gen.h>
+#include <yaafc/plugin/storage/storage.h>
+#include <yaafc/plugin/accounts/accounts.h>
+#include <yaafc/plugin/password_authn/password_authn.h>
+#include <yaafc/plugin/token_issuer/token_issuer.h>
+#include <yaafc/plugin/session/session.h>
+#include <yaafc/plugin/issues/issues.h>
+#include <yaafc/plugin/git_repo/git_repo.h>
+#include <yaafc/plugin/git_pipeline/git_pipeline.h>
+#include <yaafc/plugin/personal_access_tokens/personal_access_tokens.h>
 
 #include <ctype.h>
 #include <stdarg.h>

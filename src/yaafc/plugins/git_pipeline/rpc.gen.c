@@ -4,10 +4,8 @@
 #include <yaafc/yjson/yjson.h>
 #include <yaafc/ycore/result.h>
 #include <yaafc/ycore/ytrace.h>
-#include <yaafc/plugin/git_pipeline/rpc.gen.h>
-#include <yaafc/plugin/git_pipeline/methods.gen.h>
 #include <yaafc/yclass/class.h>
-#include <yaafc/plugin/git_pipeline/store.h>
+#include "git_pipeline.internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

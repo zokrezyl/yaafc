@@ -16,6 +16,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -155,6 +156,11 @@ static int dial_tcp(const char *host, int port)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
+    /* Disable Nagle: yrpc traffic is request/response with small
+     * (header+body_len+body) frames; the default 40 ms delayed-ACK +
+     * Nagle interaction kills loopback latency. */
+    int one = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {

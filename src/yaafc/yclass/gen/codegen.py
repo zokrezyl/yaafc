@@ -423,14 +423,13 @@ def args_struct_body(args: list, indent: str) -> str:
     return "".join(f"{indent}{wire_type(a['type'])} {wire_name(a)};\n" for a in args)
 
 
-# ---------------- methods.gen.h ------------------------------------------
+# ---------------- public + internal headers ------------------------------
 
-def emit_methods_h(model: dict, module: str, out_path: Path):
-    guard = f"YAAFC_{module.upper()}_METHODS_GEN_H"
-    parts = [HEADER]
-    parts.append(f"#ifndef {guard}\n#define {guard}\n\n")
-    parts.append('#include <yaafc/yclass/class.h>\n\n')
-
+def collect_result_struct_decls(model: dict) -> list:
+    """Return forward `struct X;` declarations for every result type used
+    in the model's method signatures. These let consumers include the
+    module's public header without separately including the result-type
+    macros."""
     structs = set()
     for m in model["methods"]:
         structs |= struct_names_in(m["return_type"])
@@ -438,15 +437,77 @@ def emit_methods_h(model: dict, module: str, out_path: Path):
             structs |= struct_names_in(a["type"])
     for known in ("ctx", "object", "class", "yaafc_str"):
         structs.discard(known)
-    for s in sorted(structs):
-        parts.append(f"struct {s};\n")
+    return [f"struct {s};\n" for s in sorted(structs)]
+
+
+def emit_public_header(model: dict, module: str, out_path: Path):
+    """Single combined public header for the plugin module.
+
+    Replaces the old (methods.gen.h + rpc.gen.h + per-class .h) trio.
+    Exposes only what an EXTERNAL consumer needs:
+      - forward-decls of result types,
+      - class accessors  <qname>_class_get() / <qname>_mixin_get(),
+      - constructors     <qname>_create(),
+      - method prototypes for the local/remote-aware public stubs.
+
+    Function-pointer typedefs (`*_fn`) used by the codegen-emitted
+    dispatch tables live in `<module>.internal.h` instead — that's
+    private kitchen, not user-facing API.
+    """
+    guard = f"YAAFC_PLUGIN_{module.upper()}_H"
+    parts = [HEADER,
+             f"/* Public interface for plugin `{module}` — GENERATED.\n"
+             f" * Edit the annotated sources under src/yaafc/plugins/{module}/. */\n",
+             f"#ifndef {guard}\n#define {guard}\n\n",
+             '#include <yaafc/yclass/class.h>\n',
+             '#include <yaafc/yclass/rpc.h>\n\n']
+
+    parts.extend(collect_result_struct_decls(model))
+    parts.append("struct object_ptr_result;\n")
+    parts.append("struct class_ptr_result;\n\n")
+
+    # Class accessors (one per declared class, regular or mixin).
+    parts.append("/* ---- class accessors ---- */\n")
+    for cls in model.get("classes", []):
+        is_mixin = cls["type"] == "mixin"
+        suffix = "_mixin_get" if is_mixin else "_class_get"
+        parts.append(f"struct class_ptr_result {qualified_class(cls)}{suffix}(void);\n")
     parts.append("\n")
 
+    # Constructors (regular classes only — mixins aren't instantiated).
+    if any(c.get("type") == "regular" for c in model.get("classes", [])):
+        parts.append("/* ---- constructors ---- */\n")
+        for c in regular_classes(model):
+            parts.append(
+                f"struct object_ptr_result {qualified_class(c)}_create(struct ctx *ctx);\n")
+        parts.append("\n")
+
+    # Method prototypes (no typedefs here).
+    parts.append("/* ---- methods ---- */\n")
     for m in model["methods"]:
         params = ", ".join(f"{a['type']} {a['name']}" for a in m["args"])
-        type_only = ", ".join(a["type"] for a in m["args"])
         rt = result_type(m["return_type"])
         parts.append(f"{rt} {qualified_slot(m)}({params});\n")
+
+    parts.append("\n#endif\n")
+    out_path.write_text("".join(parts))
+
+
+def emit_internal_header(model: dict, module: str, out_path: Path):
+    """Codegen-private header — lives in the module's src dir, never
+    included by external consumers. Holds the function-pointer typedefs
+    the generated dispatch tables need.
+    """
+    guard = f"YAAFC_{module.upper()}_INTERNAL_H"
+    parts = [HEADER,
+             f"/* Internal codegen-only header for plugin `{module}`.\n"
+             f" * NEVER include this from outside src/yaafc/plugins/{module}/. */\n",
+             f"#ifndef {guard}\n#define {guard}\n\n",
+             f'#include <yaafc/plugin/{module}/{module}.h>\n\n']
+
+    for m in model["methods"]:
+        type_only = ", ".join(a["type"] for a in m["args"])
+        rt = result_type(m["return_type"])
         parts.append(f"typedef {rt} (*{qualified_slot(m)}_fn)({type_only});\n")
 
     parts.append("\n#endif\n")
@@ -592,7 +653,7 @@ def emit_dispatch_body(m: dict) -> str:
 
 def emit_methods_c(model: dict, module: str, out_path: Path):
     parts = [HEADER,
-             f'#include <yaafc/plugin/{module}/methods.gen.h>\n',
+             f'#include "{module}.internal.h"\n',
              '#include <yaafc/ycore/result.h>\n',
              '#include <yaafc/ycore/ytrace.h>\n',
              '#include <yaafc/yclass/rpc.h>\n',
@@ -698,25 +759,11 @@ struct class_ptr_result {accessor}(void)
 
 
 def emit_class_public_headers(model: dict, module: str, include_module_dir: Path):
-    for cls in model.get("classes", []):
-        is_mixin = cls["type"] == "mixin"
-        suffix = "_mixin_get" if is_mixin else "_class_get"
-        kind = "mixin" if is_mixin else "regular class"
-        name = cls["name"]
-        qname = qualified_class(cls)
-        guard = f"YAAFC_{module.upper()}_{name.upper()}_H"
-        header_path = include_module_dir / f"{name}.h"
-        header_path.write_text(
-            HEADER
-            + f"/* Public interface for {kind} `{name}` (module: {module}).\n"
-            + " * GENERATED — do not edit. Edit the annotated source under "
-            + f"src/{module}/ instead. */\n"
-            + f"#ifndef {guard}\n#define {guard}\n\n"
-            + '#include <yaafc/yclass/class.h>\n'
-            + '#include "methods.gen.h"\n\n'
-            + f"struct class_ptr_result {qname}{suffix}(void);\n\n"
-            + "#endif\n"
-        )
+    """Stub — per-class public headers no longer exist; all of that
+    moved into the single combined `<module>.h`. Kept as a no-op for
+    grep-find compatibility; remove once the call site stops invoking
+    it. """
+    (void := model, void := module, void := include_module_dir)
 
 
 def emit_class_gen_c(model: dict, module: str, module_dir: Path):
@@ -726,18 +773,22 @@ def emit_class_gen_c(model: dict, module: str, module_dir: Path):
     for src_path, classes in groups.items():
         inc_path = module_dir / (Path(src_path).stem + ".gen.c")
         needed = set()
+        # Pull in our own internal codegen header (typedefs etc.)
+        # plus the public header of any sibling module whose classes
+        # appear as parents / mixins / slot-domain providers.
+        needed.add(f"\"{module}.internal.h\"")
         for c in classes:
-            needed.add(f"yaafc/plugin/{c['domain']}/{c['name']}.h")
             p = c.get("parent")
-            if p:
-                needed.add(f"yaafc/plugin/{p['domain']}/{p['name']}.h")
+            if p and p["domain"] != module:
+                needed.add(f"<yaafc/plugin/{p['domain']}/{p['domain']}.h>")
             for mx in c.get("mixins", []):
-                needed.add(f"yaafc/plugin/{mx['domain']}/{mx['name']}.h")
+                if mx["domain"] != module:
+                    needed.add(f"<yaafc/plugin/{mx['domain']}/{mx['domain']}.h>")
             for op in c.get("ops", []):
                 sd = op.get("slot_domain", c["domain"])
-                if sd != c["domain"]:
-                    needed.add(f"yaafc/plugin/{sd}/methods.gen.h")
-        include_block = "".join(f'#include <{h}>\n' for h in sorted(needed))
+                if sd != module:
+                    needed.add(f"<yaafc/plugin/{sd}/{sd}.h>")
+        include_block = "".join(f'#include {h}\n' for h in sorted(needed))
 
         body = HEADER + include_block + "\n" \
              + "\n".join(emit_class_accessor(c) for c in classes)
@@ -751,11 +802,10 @@ def regular_classes(model: dict) -> list:
 
 
 def class_header_for(cls: dict, module: str) -> str:
-    # Public header is named after the *class*, not the source-file
-    # stem — emit_class_public_headers creates `<class_name>.h`. The
-    # two diverge when one source file declares multiple classes, or
-    # when the file stem happens to differ from the class.
-    return f"yaafc/plugin/{module}/{cls['name']}.h"
+    """Now a single public header per plugin module. Kept as a helper
+    so any leftover caller still resolves to the right path."""
+    (void := cls)
+    return f"yaafc/plugin/{module}/{module}.h"
 
 
 def emit_unpack_arg(a: dict, idx: int) -> tuple:
@@ -988,19 +1038,8 @@ static void {module}_install_hooks(void)
 """
 
 
-def emit_rpc_h(model: dict, module: str, out_path: Path):
-    guard = f"YAAFC_{module.upper()}_RPC_GEN_H"
-    decls = "\n".join(
-        f"struct object_ptr_result {qualified_class(c)}_create(struct ctx *ctx);"
-        for c in regular_classes(model)
-    )
-    out_path.write_text(
-        HEADER
-        + f"#ifndef {guard}\n#define {guard}\n\n"
-        + '#include <yaafc/yclass/rpc.h>\n\n'
-        + (decls + "\n\n" if decls else "")
-        + "#endif\n"
-    )
+# emit_rpc_h removed; its content (the `*_create` prototypes) now
+# lives in the consolidated public header emit_public_header writes.
 
 
 def emit_jinvoke(m: dict) -> str:
@@ -1113,20 +1152,14 @@ static jinvoke_fn {module}_jinvoke_lookup(const char *qname)
 
 
 def emit_rpc_c(model: dict, module: str, out_path: Path):
-    class_includes = "".join(
-        f'#include <{class_header_for(c, module)}>\n'
-        for c in model.get("classes", [])
-    )
     parts = [HEADER,
              '#include <yaafc/yclass/rpc.h>\n',
              '#include <yaafc/yclass/jinvoke.h>\n',
              '#include <yaafc/yjson/yjson.h>\n',
              '#include <yaafc/ycore/result.h>\n',
              '#include <yaafc/ycore/ytrace.h>\n',
-             f'#include <yaafc/plugin/{module}/rpc.gen.h>\n',
-             f'#include <yaafc/plugin/{module}/methods.gen.h>\n',
              '#include <yaafc/yclass/class.h>\n',
-             class_includes,
+             f'#include "{module}.internal.h"\n',
              '#include <stdint.h>\n#include <stdio.h>\n#include <stdlib.h>\n'
              '#include <string.h>\n\n']
     for m in model["methods"]:
@@ -1161,29 +1194,31 @@ def main():
     include_module.mkdir(parents=True, exist_ok=True)
     module_src.mkdir(parents=True, exist_ok=True)
 
-    placeholder_class_h = '#include <yaafc/yclass/class.h>\n'
+    # Stub-create the .gen.c siblings + the combined public header
+    # and the codegen-private internal header before the AST dump
+    # runs, so the annotated TU's preprocess cleanly even on a cold
+    # build (chicken-and-egg between AST input and codegen output).
+    placeholder = '#include <yaafc/yclass/class.h>\n'
+    pub_header = include_module / f"{module}.h"
+    int_header = module_src / f"{module}.internal.h"
+    if not pub_header.exists():
+        pub_header.write_text(placeholder)
+    if not int_header.exists():
+        int_header.write_text(placeholder)
     for s in sources:
         if s.suffix == ".c":
             inc = module_src / (s.stem + ".gen.c")
             if not inc.exists():
                 inc.write_text("")
-            hdr = include_module / (s.stem + ".h")
-            if not hdr.exists():
-                hdr.write_text(placeholder_class_h)
-    for stub in ("methods.gen.h", "rpc.gen.h"):
-        p = include_module / stub
-        if not p.exists():
-            p.write_text(placeholder_class_h)
 
     model = parse_sources([include_base, include_module, module_src], sources, module)
     for m in model["methods"]:
         validate_method(m)
 
-    emit_class_public_headers(model, module, include_module)
-    emit_methods_h(model, module, include_module / "methods.gen.h")
+    emit_public_header(model, module, pub_header)
+    emit_internal_header(model, module, int_header)
     emit_methods_c(model, module, module_src / "methods.gen.c")
     emit_class_gen_c(model, module, module_src)
-    emit_rpc_h(model, module, include_module / "rpc.gen.h")
     emit_rpc_c(model, module, module_src / "rpc.gen.c")
 
     (module_src / "model.yaml").write_text(yaml_dump(model) + "\n")

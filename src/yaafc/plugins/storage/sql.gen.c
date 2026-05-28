@@ -1,5 +1,5 @@
 /* GENERATED — do not edit. */
-#include <yaafc/plugin/storage/sql.h>
+#include "storage.internal.h"
 
 __attribute__((unused))
 static storage_sql_set_fn _storage_sql_storage_sql_set_check = storage_sql_set_impl;
