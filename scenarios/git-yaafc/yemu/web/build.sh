@@ -44,26 +44,21 @@ if ! command -v emcmake >/dev/null 2>&1; then
     exit 1
 fi
 
-for asset in kernel-riscv64.bin alpine-rootfs.img; do
+for asset in kernel-riscv64.bin opensbi-fw_jump.elf alpine-rootfs.img; do
     if [ ! -f "$YEMU_BUILD/$asset" ]; then
         echo "FAIL: missing $YEMU_BUILD/$asset" >&2
-        echo "  run scenarios/git-yaafc/yemu/build-image.sh first." >&2
+        echo "  run: make -C $REPO_ROOT build-yemu-release" >&2
         exit 1
     fi
 done
 
-# tinyemu has no UART. The QEMU-targeted opensbi-fw_dynamic.bin emits via
-# uart8250 which goes into the void here. We use the sibling yetty
-# project's opensbi-fw_jump.elf which is built for tinyemu's virt
-# machine (htif/SBI-console) and produces actual output through the
-# bridge_console_write path.
-YETTY_OPENSBI="$REPO_ROOT/../yetty/build-webasm-ytrace-release/3rdparty/opensbi/opensbi-fw_jump.elf"
-if [ ! -f "$YETTY_OPENSBI" ]; then
-    echo "FAIL: missing yetty's tinyemu-compatible opensbi:" >&2
-    echo "  $YETTY_OPENSBI" >&2
-    echo "  build yetty's webasm target first (sibling repo)." >&2
-    exit 1
-fi
+# tinyemu has no UART. The QEMU-targeted opensbi-fw_dynamic.bin emits
+# via uart8250 → goes into the void under wasm. opensbi-fw_jump.elf
+# from build-tools/3rdparty/opensbi/ uses htif/SBI-console which
+# produces actual output through the bridge_console_write path. Both
+# variants are emitted by the same opensbi recipe in build-yemu-release/
+# under build-image.sh — we just pick the right one here.
+LOCAL_OPENSBI="$YEMU_BUILD/opensbi-fw_jump.elf"
 
 mkdir -p "$OUT"
 
@@ -75,9 +70,9 @@ cmake --build "$OUT" --parallel
 
 echo "==> staging VM assets under $OUT/assets/"
 mkdir -p "$OUT/assets"
-cp -v "$YEMU_BUILD/kernel-riscv64.bin" "$OUT/assets/"
-cp -v "$YETTY_OPENSBI"                 "$OUT/assets/opensbi-fw_jump.elf"
-cp -v "$YEMU_BUILD/alpine-rootfs.img"  "$OUT/assets/"
+cp -vL "$YEMU_BUILD/kernel-riscv64.bin" "$OUT/assets/"
+cp -vL "$LOCAL_OPENSBI"                 "$OUT/assets/opensbi-fw_jump.elf"
+cp -vL "$YEMU_BUILD/alpine-rootfs.img"  "$OUT/assets/"
 
 echo
 echo "Build ready under $OUT/:"

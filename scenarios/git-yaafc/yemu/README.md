@@ -10,7 +10,8 @@ userland — there's nothing to provision on first boot.
 ```sh
 sudo apt-get install -y \
     gcc-riscv64-linux-gnu g++-riscv64-linux-gnu \
-    qemu-system-misc brotli e2fsprogs util-linux curl
+    qemu-system-misc e2fsprogs util-linux curl \
+    bc bison flex libssl-dev libelf-dev cpio rsync
 ```
 
 You also need passwordless `sudo` for `losetup` / `mount` (used by
@@ -19,9 +20,16 @@ You also need passwordless `sudo` for `losetup` / `mount` (used by
 ## Build the image
 
 ```sh
-# One target chains it all: cross-compile yaafc for riscv64, stage the
-# host-runnable build-deploy/ tree, fetch yetty's kernel + opensbi +
-# alpine-disk, and bake everything into a bootable ext4 image.
+# One target chains everything:
+#   1. cross-compile yaafc for riscv64
+#   2. stage the host-runnable build-deploy/ tree
+#   3. build opensbi locally (build-tools/3rdparty/opensbi/)
+#   4. build the linux kernel locally (build-tools/3rdparty/linux/)
+#   5. fetch alpine minirootfs from dl-cdn.alpinelinux.org
+#   6. bake the bootable ext4 image
+#
+# First run takes ~15 minutes (kernel build). Subsequent runs are
+# instant — the artefacts are stamped in build-yemu-release/3rdparty/.
 make -C ../../.. build-yemu-release
 ```
 
@@ -30,11 +38,22 @@ Outputs land under `build-yemu-release/` at the repo root:
 ```
 build-yemu-release/
 ├── alpine-rootfs.img        256 MiB rootfs (with /opt/git-yaafc/ injected)
-├── kernel-riscv64.bin       riscv64 linux 7.0 (from yetty release)
-├── opensbi-fw_dynamic.bin   opensbi 1.4 (from yetty release)
-├── cache/                   downloaded yetty release tarballs
-└── work/                    sudo loop-mount scratch
+├── kernel-riscv64.bin       → 3rdparty/linux/lib/kernel-riscv64.bin
+├── opensbi-fw_dynamic.bin   → 3rdparty/opensbi/lib/opensbi-fw_dynamic.bin
+├── opensbi-fw_jump.elf      → 3rdparty/opensbi/lib/opensbi-fw_jump.elf
+├── 3rdparty/{linux,opensbi}/lib/  extracted recipe outputs
+├── 3rdparty-cache/                produced tarballs
+└── work/                          sudo loop-mount scratch
 ```
+
+No more `yetty/releases/download` URLs — the kernel + opensbi come from
+local recipes under `build-tools/3rdparty/{linux,opensbi}/`, the alpine
+minirootfs comes straight from `dl-cdn.alpinelinux.org`. Same fetcher
+pattern as yetty's `build-tools/3rdparty/<lib>/`: each recipe has a
+`version` file + `_build.sh` that produces a tarball under
+`3rdparty-cache/`, then build-image.sh extracts into `3rdparty/<lib>/`
+with a `.fetched-<version>` stamp to skip on subsequent runs. Bump the
+`version` file to force a rebuild.
 
 The yaafc payload comes from `build-deploy/` (staged from
 `scenarios/git-yaafc/{yaafc.yaml,frontend/static,deploy/run.sh.tmpl}`

@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
 # Assemble a bootable riscv64 alpine VM with the cross-compiled
-# yaafc + yaafc-frontend binaries baked in. Mirrors yaapp/tmp/yemu/
-# but yaafc is fully static (no python venv, no uv) so the image
-# only needs alpine's base userland — nothing to provision at first
-# boot.
+# yaafc binary baked in. No yetty project dependency: kernel + opensbi
+# are built locally via build-tools/3rdparty/{linux,opensbi}/, alpine
+# minirootfs is fetched straight from alpinelinux.org.
 #
-# Inputs (downloaded into ./cache/):
-#   yetty alpine-disk → small minirootfs ext4 image (~2.7 MB tarball)
-#   yetty opensbi     → fw_dynamic.bin
-#   yetty linux       → kernel-riscv64.bin (9p/virtio/ext4 built-in)
+# Inputs:
+#   build-tools/3rdparty/opensbi/      opensbi recipe + version
+#   build-tools/3rdparty/linux/        kernel recipe + version + .config
+#   build-deploy/                      host-runnable yaafc tree
+#                                      (built by scenarios/git-yaafc/deploy/stage.sh)
+#   build-linux-riscv64-release/yaafc  cross-compiled binary
 #
-# Built locally (host):
-#   build-linux-riscv64-release/yaafc           static riscv64 ELF
-#   build-linux-riscv64-release/yaafc-frontend  static riscv64 ELF
+# Output ($REPO_ROOT/build-yemu-release/):
+#   kernel-riscv64.bin              (from build-tools/3rdparty/linux)
+#   opensbi-fw_dynamic.bin          (from build-tools/3rdparty/opensbi)
+#   opensbi-fw_jump.elf             (from build-tools/3rdparty/opensbi)
+#   alpine-rootfs.img               (alpine minirootfs + /opt/git-yaafc/)
+#   cache/                          shared with $HOME/.cache/yaafc-3rdparty
+#   work/                           scratch (loop mount, kernel build, …)
 #
-# Outputs (under ./build/):
-#   alpine-rootfs.img        ext4 disk grown to ${DISK_MIB:-256} MiB with
-#                            /usr/local/bin/yaafc + yaafc-frontend +
-#                            /opt/git-yaafc/ (scenario yaml, frontend
-#                            static dir) injected
-#   kernel-riscv64.bin       yetty kernel
-#   opensbi-fw_dynamic.bin   yetty opensbi
-#
-# Needs: curl, brotli, tar, e2fsprogs, util-linux (losetup/mount),
-# passwordless sudo.
+# Needs: curl, tar, e2fsprogs (mkfs.ext4, resize2fs, e2fsck),
+# util-linux (losetup, mount), passwordless sudo, the RISC-V cross
+# toolchain (riscv64-linux-gnu-{gcc,g++,…}), and the kernel build deps
+# (bc, bison, flex, libssl-dev, libelf-dev, cpio, rsync) — first run
+# of the linux recipe takes ~5-15 minutes; subsequent runs cache.
 
 set -Eeuo pipefail
 trap 'rc=$?; echo "FAILED: rc=$rc line=$LINENO cmd: $BASH_COMMAND" >&2' ERR
@@ -32,77 +32,106 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 # All build artifacts live at repo-root under build-yemu-release/.
-# Sources stay in scenarios/. NO build output ever lands beside the
-# source tree.
 BUILD="$REPO_ROOT/build-yemu-release"
-CACHE="$BUILD/cache"
 WORK="$BUILD/work"
-
-ALPINE_VER="${ALPINE_VER:-3.23.4-riscv64-1}"
-OPENSBI_VER="${OPENSBI_VER:-1.4-1}"
-LINUX_VER="${LINUX_VER:-7.0-1}"
-
-URL_BASE="${YETTY_3RDPARTY_URL_BASE:-https://github.com/zokrezyl/yetty/releases/download}"
-ALPINE_URL="$URL_BASE/lib-alpine-disk-${ALPINE_VER}/alpine-disk-${ALPINE_VER}.tar.gz"
-OPENSBI_URL="$URL_BASE/lib-opensbi-${OPENSBI_VER}/opensbi-${OPENSBI_VER}.tar.gz"
-LINUX_URL="$URL_BASE/lib-linux-${LINUX_VER}/linux-${LINUX_VER}.tar.gz"
+THIRD_PARTY_OUT="$BUILD/3rdparty"
+THIRD_PARTY_CACHE="$BUILD/3rdparty-cache"
+USER_CACHE="${YAAFC_3RDPARTY_CACHE_DIR:-$HOME/.cache/yaafc-3rdparty}"
 
 YAAFC_BIN="$REPO_ROOT/build-linux-riscv64-release/yaafc"
-YAAFC_FRONTEND_BIN="$REPO_ROOT/build-linux-riscv64-release/yaafc-frontend"
-
-if [ ! -x "$YAAFC_BIN" ] || [ ! -x "$YAAFC_FRONTEND_BIN" ]; then
-    echo "FAILED: yaafc riscv64 binaries missing. Build them first with:" >&2
+if [ ! -x "$YAAFC_BIN" ]; then
+    echo "FAILED: $YAAFC_BIN missing. Build it first with:" >&2
     echo "    make -C $REPO_ROOT build-linux-riscv64-release" >&2
     exit 1
 fi
 
-mkdir -p "$CACHE" "$BUILD" "$WORK"
+DEPLOY="$REPO_ROOT/build-deploy"
+if [ ! -d "$DEPLOY" ]; then
+    echo "FAIL: $DEPLOY missing — run:" >&2
+    echo "    make -C $REPO_ROOT build-deploy" >&2
+    exit 1
+fi
+for f in yaafc.yaml run.sh frontend/static/style.css; do
+    [ -e "$DEPLOY/$f" ] || { echo "FAIL: $DEPLOY/$f missing" >&2; exit 1; }
+done
 
-fetch() {
-    local url="$1" cache="$2" descr="$3"
-    [ -f "$cache" ] && return 0
-    echo "==> downloading $descr"
-    local part="$cache.part.$$"
-    curl -fL --retry 8 --retry-delay 5 -o "$part" "$url"
-    mv "$part" "$cache"
-}
-
-ALPINE_TGZ="$CACHE/alpine-disk-${ALPINE_VER}.tar.gz"
-OPENSBI_TGZ="$CACHE/opensbi-${OPENSBI_VER}.tar.gz"
-LINUX_TGZ="$CACHE/linux-${LINUX_VER}.tar.gz"
-
-fetch "$ALPINE_URL"  "$ALPINE_TGZ"  "yetty alpine-disk ${ALPINE_VER}"
-fetch "$OPENSBI_URL" "$OPENSBI_TGZ" "yetty opensbi ${OPENSBI_VER}"
-fetch "$LINUX_URL"   "$LINUX_TGZ"   "yetty linux ${LINUX_VER}"
-
-EXTRACT="$WORK/extract"
-rm -rf "$EXTRACT"
-mkdir -p "$EXTRACT/alpine" "$EXTRACT/opensbi" "$EXTRACT/linux"
-tar -C "$EXTRACT/alpine"  -xzf "$ALPINE_TGZ"
-tar -C "$EXTRACT/opensbi" -xzf "$OPENSBI_TGZ"
-tar -C "$EXTRACT/linux"   -xzf "$LINUX_TGZ"
-
-decompress() {
-    local src="$1" dst="$2"
-    [ -f "$src" ] || { echo "missing $src" >&2; exit 1; }
-    echo "==> brotli -d $(basename "$src") -> $(basename "$dst")"
-    brotli -d -f -o "$dst" "$src"
-}
-decompress "$EXTRACT/opensbi/opensbi-fw_dynamic.bin.br" "$BUILD/opensbi-fw_dynamic.bin"
-decompress "$EXTRACT/linux/kernel-riscv64.bin.br"       "$BUILD/kernel-riscv64.bin"
-decompress "$EXTRACT/alpine/alpine-rootfs.img.br"       "$BUILD/alpine-rootfs.img"
-
-# yaafc is fully static — we don't need a venv or apk add at provision
-# time, so the image stays small. 256 MiB is plenty of headroom for
-# the binaries + sqlite/mdbx working set.
-TARGET_MIB="${DISK_MIB:-256}"
-echo "==> growing alpine-rootfs.img to ${TARGET_MIB} MiB"
-truncate -s "${TARGET_MIB}M" "$BUILD/alpine-rootfs.img"
-e2fsck -fy "$BUILD/alpine-rootfs.img" >/dev/null 2>&1 || true
-resize2fs "$BUILD/alpine-rootfs.img" 2>&1 | tail -1
+mkdir -p "$BUILD" "$WORK" "$THIRD_PARTY_OUT" "$THIRD_PARTY_CACHE" "$USER_CACHE"
 
 #-----------------------------------------------------------------------
-# Inject the binaries + scenario assets via loopback mount (sudo).
+# Local kernel + opensbi recipes — same pattern as yetty's 3rdparty
+# fetch: run _build.sh to produce a tarball under 3rdparty-cache/,
+# extract into 3rdparty/<lib>/, stamp with the version so we skip on
+# subsequent runs.
+#-----------------------------------------------------------------------
+
+fetch_recipe() {
+    local name="$1"
+    local recipe_dir="$REPO_ROOT/build-tools/3rdparty/$name"
+    [ -d "$recipe_dir" ] || { echo "missing recipe: $recipe_dir" >&2; exit 1; }
+    local version
+    version="$(tr -d '[:space:]' < "$recipe_dir/version")"
+    local dest="$THIRD_PARTY_OUT/$name"
+    local stamp="$dest/.fetched-$version"
+    if [ -f "$stamp" ]; then
+        return 0
+    fi
+    local tarball="$THIRD_PARTY_CACHE/$name-$version.tar.gz"
+    if [ ! -f "$tarball" ]; then
+        echo "==> building $name @${version}"
+        OUTPUT_DIR="$THIRD_PARTY_CACHE" \
+        CACHE_DIR="$USER_CACHE" \
+        WORK_DIR="$WORK/3rdparty-build-$name" \
+            bash "$recipe_dir/_build.sh"
+    fi
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    tar -C "$dest" -xzf "$tarball"
+    touch "$stamp"
+    echo "==> extracted $name @${version} into $dest"
+}
+
+fetch_recipe opensbi
+fetch_recipe linux
+
+# Symlink (preferred over copy: zero duplication, paths stay obvious) the
+# 3rdparty/<lib>/lib/ outputs into $BUILD/ so the operator + run-vm.sh +
+# web/build.sh can see kernel/opensbi paths at predictable locations.
+ln -sf "$THIRD_PARTY_OUT/linux/lib/kernel-riscv64.bin"        "$BUILD/kernel-riscv64.bin"
+ln -sf "$THIRD_PARTY_OUT/opensbi/lib/opensbi-fw_dynamic.bin"  "$BUILD/opensbi-fw_dynamic.bin"
+ln -sf "$THIRD_PARTY_OUT/opensbi/lib/opensbi-fw_jump.elf"     "$BUILD/opensbi-fw_jump.elf"
+
+#-----------------------------------------------------------------------
+# Alpine minirootfs — straight from alpinelinux.org. We turn the
+# tarball into an ext4 image at $BUILD/alpine-rootfs.img.
+#-----------------------------------------------------------------------
+
+ALPINE_RELEASE="${ALPINE_RELEASE:-3.23.4}"
+ALPINE_BRANCH="${ALPINE_RELEASE%.*}"
+ALPINE_TARBALL_NAME="alpine-minirootfs-${ALPINE_RELEASE}-riscv64.tar.gz"
+ALPINE_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_BRANCH}/releases/riscv64/${ALPINE_TARBALL_NAME}"
+ALPINE_TARBALL="$USER_CACHE/${ALPINE_TARBALL_NAME}"
+
+if [ ! -f "$ALPINE_TARBALL" ]; then
+    echo "==> downloading alpine minirootfs ${ALPINE_RELEASE}"
+    curl -fL --retry 8 --retry-delay 5 -o "$ALPINE_TARBALL.part" "$ALPINE_URL"
+    mv "$ALPINE_TARBALL.part" "$ALPINE_TARBALL"
+fi
+
+# Size: 256 MiB by default — plenty for yaafc's static binary + sqlite/
+# mdbx working set. Override with DISK_MIB=512 etc.
+TARGET_MIB="${DISK_MIB:-256}"
+ROOTFS_IMG="$BUILD/alpine-rootfs.img"
+
+# Fresh image every run (we rsync the minirootfs in below). Cheap.
+echo "==> creating ${TARGET_MIB} MiB ext4 image at $ROOTFS_IMG"
+rm -f "$ROOTFS_IMG"
+truncate -s "${TARGET_MIB}M" "$ROOTFS_IMG"
+mkfs.ext4 -q -L yaafc-rootfs "$ROOTFS_IMG"
+
+#-----------------------------------------------------------------------
+# Mount the empty image, unpack the alpine minirootfs into it, then
+# inject the yaafc payload. All sudo'd because losetup/mount require
+# root.
 #-----------------------------------------------------------------------
 
 MNT="$WORK/mnt"
@@ -115,20 +144,36 @@ trap 'cleanup; rc=$?; echo "FAILED: rc=$rc line=$LINENO cmd: $BASH_COMMAND" >&2'
 trap cleanup EXIT
 
 mkdir -p "$MNT"
-LOOP="$(sudo losetup -f --show "$BUILD/alpine-rootfs.img")"
+LOOP="$(sudo losetup -f --show "$ROOTFS_IMG")"
 sudo mount "$LOOP" "$MNT"
 
-# build-deploy/ is the single source of truth: it's tested locally
-# (cd build-deploy && ./run.sh) and copied verbatim into the rootfs
-# here. yaafc binary is the only thing we swap (host x86_64 → riscv64).
-DEPLOY="$REPO_ROOT/build-deploy"
-if [ ! -d "$DEPLOY" ]; then
-    echo "FAIL: $DEPLOY missing — run scenarios/git-yaafc/deploy/stage.sh first" >&2
-    exit 1
-fi
-for f in yaafc.yaml run.sh frontend/static/style.css; do
-    [ -e "$DEPLOY/$f" ] || { echo "FAIL: $DEPLOY/$f missing" >&2; exit 1; }
-done
+echo "==> unpacking alpine minirootfs into image"
+sudo tar -C "$MNT" -xzf "$ALPINE_TARBALL"
+
+# Write a /init that boots straight into our /opt/git-yaafc/run.sh.
+# The kernel cmdline (set in run-vm.sh) is `init=/opt/git-yaafc/run.sh`,
+# so /init here is fall-back only — kept around because /init is the
+# alpine minirootfs convention.
+echo "==> installing fallback /init"
+sudo tee "$MNT/init" >/dev/null <<'INIT_EOF'
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev 2>/dev/null || true
+hostname yaafc-yemu
+ip link set lo up
+ip link set eth0 up                       2>/dev/null
+ip addr add 10.0.2.15/24 dev eth0         2>/dev/null
+ip route add default via 10.0.2.2         2>/dev/null
+echo "nameserver 10.0.2.3" > /etc/resolv.conf
+exec /bin/sh
+INIT_EOF
+sudo chmod 755 "$MNT/init"
+
+#-----------------------------------------------------------------------
+# Inject the yaafc payload — same shape as before, only the source
+# (build-deploy/) and the binary swap (riscv64) are unchanged.
+#-----------------------------------------------------------------------
 
 echo "==> staging build-deploy/ → /opt/git-yaafc/"
 sudo install -d -m 755 "$MNT/opt/git-yaafc"
@@ -145,17 +190,11 @@ sudo install -m 755 "$YAAFC_BIN" "$MNT/opt/git-yaafc/yaafc"
 sudo install -d -m 755 "$MNT/usr/local/bin"
 sudo ln -sf /opt/git-yaafc/yaafc "$MNT/usr/local/bin/yaafc"
 
-# Legacy yaafc-frontend (standalone HTML server) — kept only because
-# its CLI signature is referenced by tests, not used by the demo.
-sudo install -m 755 "$YAAFC_FRONTEND_BIN" "$MNT/usr/local/bin/yaafc-frontend"
-
 sync
 sudo umount "$MNT"
 sudo losetup -d "$LOOP"
 LOOP=""
 
-rm -rf "$EXTRACT"
-
 echo
 echo "Build ready under $BUILD/:"
-ls -lh "$BUILD/"
+ls -lh "$BUILD/" | grep -vE "^(d|total)" | head -10
