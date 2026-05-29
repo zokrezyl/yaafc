@@ -1,0 +1,1684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>yaafc-yemu — RISC-V Linux boot in the browser</title>
+    <style>
+        html, body { margin: 0; padding: 0; background: #000; color: #E0E5E4;
+                     font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
+                     height: 100%; }
+        body { display: flex; flex-direction: column; }
+
+        body > header { padding: 8px 14px; background: #141A1F;
+                        border-bottom: 1px solid #364A47; flex: none; }
+        body > header h1 { margin: 0; font-size: 14px; color: #6BA892; }
+        body > header small { color: #9FA7A8; }
+
+        /* Floating boot-status overlay — mirrors postStatus() lines so
+         * the operator sees the bridge phases + kernel boot in one
+         * minimizable panel. Same pattern as yetty's parent overlay,
+         * but rendered locally instead of postMessage'd to a (non-
+         * existent) parent. */
+        #overlay { position: fixed; top: 56px; right: 18px;
+                   width: 520px; max-height: 78vh; min-width: 200px;
+                   background: #141A1F; border: 1px solid #364A47;
+                   border-radius: 6px;
+                   box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+                   z-index: 50; display: flex; flex-direction: column; }
+        #overlay.minimized #overlay-body { display: none; }
+        #overlay.minimized { width: 220px; max-height: none; }
+        #overlay-hdr { padding: 6px 10px; cursor: pointer;
+                       background: #1E262C; border-bottom: 1px solid #364A47;
+                       border-radius: 6px 6px 0 0;
+                       display: flex; justify-content: space-between;
+                       user-select: none; }
+        #overlay.minimized #overlay-hdr { border-bottom: 0; border-radius: 6px; }
+        #overlay-hdr strong { color: #6BA892; }
+        #overlay-tog { color: #9FA7A8; }
+        #overlay-body { padding: 6px 10px; overflow: auto; flex: 1; min-height: 0;
+                        font-size: 12px; }
+        #overlay-body .ok    { color: #74C5A5; }
+        #overlay-body .err   { color: #F08080; }
+        #overlay-body .dim   { color: #6B7578; }
+        #overlay-body .phase { color: #6BA892; }
+        #overlay-body div    { white-space: pre-wrap; word-break: break-all; }
+
+        main { padding: 0; flex: 1; display: flex; flex-direction: column;
+               min-height: 0; }
+
+        /* In-VM service panel + iframe. */
+        /* Hidden until the in-VM yaafc gateway is reachable —
+         * the post-output watcher flips it to `display: flex` when
+         * it spots the "mesh up" marker from run.sh. */
+        section#svc { flex: 1; min-height: 0; margin: 8px;
+                      border: 1px solid #364A47; border-radius: 4px;
+                      background: #141A1F;
+                      display: none; flex-direction: column; }
+        section#svc header { display: flex; align-items: center;
+                             gap: 14px; padding: 8px 12px;
+                             border-bottom: 1px solid #364A47; flex: none; }
+        section#svc h2 { margin: 0; font-size: 13px; color: #6BA892; }
+        section#svc form { display: flex; align-items: center; gap: 6px; flex: 1; }
+        section#svc input { background: #1E262C; color: #E0E5E4;
+                            border: 1px solid #364A47; padding: 4px 6px;
+                            border-radius: 3px; font: inherit; }
+        section#svc button { background: #6BA892; color: #0B1014; border: 0;
+                             padding: 4px 12px; border-radius: 3px; cursor: pointer; }
+        section#svc button:hover { background: #74C5A5; }
+        section#svc #svc-status { color: #9FA7A8; font-size: 11px; }
+        section#svc iframe { flex: 1; width: 100%; border: 0;
+                             background: #fff; border-radius: 0 0 4px 4px;
+                             min-height: 0; }
+
+        /* Network panel — dev-tools-style request log at the bottom.
+         * Always visible (collapsible). Each request through the slirp
+         * pipe lands as one row with method/path/status/size/timings. */
+        section#netlog { flex: 0 0 28vh; min-height: 0;
+                         border-top: 1px solid #364A47;
+                         background: #141A1F;
+                         display: flex; flex-direction: column; }
+        section#netlog.minimized { flex: 0 0 28px; }
+        section#netlog.minimized .netlog-body { display: none; }
+        section#netlog > header {
+            padding: 4px 12px; cursor: pointer; background: #1E262C;
+            border-bottom: 1px solid #364A47; user-select: none;
+            display: flex; justify-content: space-between; align-items: center;
+            flex: none; font-size: 12px; }
+        section#netlog > header strong { color: #6BA892; }
+        section#netlog .netlog-controls { display: flex; gap: 10px;
+                                          color: #9FA7A8; }
+        section#netlog .netlog-controls a { color: #9FA7A8; text-decoration: none; }
+        section#netlog .netlog-controls a:hover { color: #74C5A5; }
+        .netlog-body { flex: 1; overflow: auto; min-height: 0;
+                       font: 11.5px ui-monospace, Menlo, Consolas, monospace; }
+        .netlog-table { width: 100%; border-collapse: collapse; }
+        .netlog-table th, .netlog-table td { text-align: left;
+                                             padding: 2px 8px;
+                                             border-bottom: 1px solid #1E262C;
+                                             white-space: nowrap;
+                                             overflow: hidden;
+                                             text-overflow: ellipsis;
+                                             max-width: 0; }
+        .netlog-table th { color: #9FA7A8; font-weight: normal;
+                           background: #1E262C; position: sticky;
+                           top: 0; z-index: 1; }
+        .netlog-table th.col-num,    .netlog-table td.col-num    { width: 38px; max-width: 38px; }
+        .netlog-table th.col-method, .netlog-table td.col-method { width: 54px; max-width: 54px; }
+        .netlog-table th.col-path,   .netlog-table td.col-path   { max-width: 60%; }
+        .netlog-table th.col-status, .netlog-table td.col-status { width: 60px; max-width: 60px; }
+        .netlog-table th.col-type,   .netlog-table td.col-type   { width: 100px; max-width: 100px; }
+        .netlog-table th.col-size,   .netlog-table td.col-size   { width: 70px; max-width: 70px; text-align: right; }
+        .netlog-table th.col-ttfb,   .netlog-table td.col-ttfb   { width: 70px; max-width: 70px; text-align: right; }
+        .netlog-table th.col-time,   .netlog-table td.col-time   { width: 70px; max-width: 70px; text-align: right; }
+        .netlog-row.pending  { color: #9FA7A8; }
+        .netlog-row.ok       { color: #E0E5E4; }
+        .netlog-row.ok td.col-status { color: #74C5A5; }
+        .netlog-row.redir    { color: #9FA7A8; }
+        .netlog-row.redir td.col-status { color: #6BA892; }
+        .netlog-row.err      { color: #F08080; }
+    </style>
+</head>
+<body>
+    <header>
+      <h1>yaafc-yemu — RISC-V Linux in your browser</h1>
+      <small>TinyEMU wasm + alpine rootfs. Console below. Boot status top-right (click header to minimize).</small>
+    </header>
+
+    <div id="overlay">
+      <div id="overlay-hdr" title="click to minimize / restore">
+        <strong>boot status</strong>
+        <span id="overlay-tog">−</span>
+      </div>
+      <div id="overlay-body"></div>
+    </div>
+
+    <main>
+      <!-- In-VM HTTP iframe.
+           Pipes browser ↔ in-guest TCP via tinyemu_session_open/send/close.
+           No host socket — slirp's chr-backend manufactures a synthetic
+           inbound TCP connection so a server bound INSIDE the guest
+           (e.g. yaafc on 0.0.0.0:8080) becomes reachable from the
+           browser tab without any host-side networking. -->
+      <section id="svc">
+        <header>
+          <h2>in-VM service</h2>
+          <form id="svc-form" autocomplete="off">
+            <label>port <input id="svc-port" type="number" value="8080" min="1" max="65535" style="width:6em"></label>
+            <label>path <input id="svc-path" value="/login"></label>
+            <button type="submit">GET</button>
+            <span id="svc-status"></span>
+          </form>
+        </header>
+        <iframe id="svc-iframe" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
+      </section>
+
+      <section id="netlog">
+        <header id="netlog-hdr" title="click to minimize / restore">
+          <strong>network <span id="netlog-count" style="color:#9FA7A8">0</span></strong>
+          <span class="netlog-controls">
+            <a href="#" id="netlog-clear" title="clear log">clear</a>
+            <span id="netlog-tog">−</span>
+          </span>
+        </header>
+        <div class="netlog-body">
+          <table class="netlog-table">
+            <thead>
+              <tr>
+                <th class="col-num">#</th>
+                <th class="col-method">method</th>
+                <th class="col-path">path</th>
+                <th class="col-status">status</th>
+                <th class="col-type">type</th>
+                <th class="col-size">size</th>
+                <th class="col-ttfb">ttfb</th>
+                <th class="col-time">time</th>
+              </tr>
+            </thead>
+            <tbody id="netlog-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- Original yetty-iframe status line — still updated by the script
+         below so the page reports its own state. Hidden by default
+         (folded into the overlay), kept in the DOM because the script
+         references it by id and writes to .textContent. -->
+    <div id="status" style="display:none">Loading TinyEMU…</div>
+
+    <script>
+    /* Render postStatus lines + virtio-console output to visible DOM,
+     * not just the parent that doesn't exist in standalone. Defined
+     * BEFORE the original IIFE runs so its postStatus calls flow
+     * through these hooks. */
+    (function () {
+        var body = document.getElementById('overlay-body');
+        var hdr  = document.getElementById('overlay-hdr');
+        var ov   = document.getElementById('overlay');
+        var tog  = document.getElementById('overlay-tog');
+        hdr.addEventListener('click', function () {
+            ov.classList.toggle('minimized');
+            tog.textContent = ov.classList.contains('minimized') ? '+' : '−';
+        });
+
+        /* postStatus called by the inline IIFE below — mirror to overlay
+         * AND keep the original parent.postMessage path for compat. */
+        /* ---- Network log (dev-tools-style) ----
+         * Each slirp fetch logs a row. Returns a handle with
+         * markFirstByte() and finish(resp, err) so the callers can
+         * record TTFB the moment the first response byte arrives
+         * and the total elapsed time at the end. */
+        var netlogSeq = 0;
+        function netlogStart(method, path) {
+            var tbody = document.getElementById('netlog-tbody');
+            if (!tbody) return { markFirstByte: function () {}, finish: function () {} };
+            var id = ++netlogSeq;
+            var t0 = performance.now();
+            var ttfbMs = null;
+            var tr = document.createElement('tr');
+            tr.className = 'netlog-row pending';
+            tr.dataset.id = String(id);
+            tr.innerHTML =
+                '<td class="col-num">' + id + '</td>' +
+                '<td class="col-method">' + method + '</td>' +
+                '<td class="col-path" title="' + path.replace(/"/g, '&quot;') + '">' +
+                  path.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</td>' +
+                '<td class="col-status">…</td>' +
+                '<td class="col-type"></td>' +
+                '<td class="col-size"></td>' +
+                '<td class="col-ttfb"></td>' +
+                '<td class="col-time"></td>';
+            tbody.appendChild(tr);
+            var countEl = document.getElementById('netlog-count');
+            if (countEl) countEl.textContent = tbody.children.length;
+            /* Auto-scroll so the newest row is visible. */
+            tr.scrollIntoView({ block: 'nearest' });
+            function fmtSize(n) {
+                if (n < 1024) return n + ' B';
+                if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+                return (n / 1024 / 1024).toFixed(2) + ' MB';
+            }
+            return {
+                markFirstByte: function () {
+                    if (ttfbMs != null) return;
+                    ttfbMs = performance.now() - t0;
+                    tr.querySelector('.col-ttfb').textContent = ttfbMs.toFixed(0) + ' ms';
+                },
+                finish: function (resp, err) {
+                    var elapsed = performance.now() - t0;
+                    tr.querySelector('.col-time').textContent = elapsed.toFixed(0) + ' ms';
+                    if (err) {
+                        tr.className = 'netlog-row err';
+                        tr.querySelector('.col-status').textContent = 'ERR';
+                        var typeCell = tr.querySelector('.col-type');
+                        typeCell.textContent = err.message || String(err);
+                        typeCell.title = typeCell.textContent;
+                        return;
+                    }
+                    var st = resp.status || 0;
+                    tr.querySelector('.col-status').textContent = st || '?';
+                    var ct = (resp.contentType || '').split(';')[0].trim();
+                    var typeCell = tr.querySelector('.col-type');
+                    typeCell.textContent = ct;
+                    typeCell.title = ct;
+                    tr.querySelector('.col-size').textContent =
+                        fmtSize(resp.body ? resp.body.length : 0);
+                    tr.className = (st >= 200 && st < 300) ? 'netlog-row ok'
+                                 : (st >= 300 && st < 400) ? 'netlog-row redir'
+                                 : 'netlog-row err';
+                }
+            };
+        }
+
+        /* Expose to the inner IIFE so its fetchers can wrap their
+         * slirp calls without having to re-define the helper. */
+        window.__svcNetlogStart = netlogStart;
+
+        /* Header minimize + clear buttons. */
+        (function () {
+            var nl = document.getElementById('netlog');
+            var nlHdr = document.getElementById('netlog-hdr');
+            var nlTog = document.getElementById('netlog-tog');
+            if (nlHdr) nlHdr.addEventListener('click', function (e) {
+                /* Clicks on the inner "clear" link bubble up — don't
+                 * toggle when the operator actually meant clear. */
+                if (e.target && e.target.id === 'netlog-clear') return;
+                nl.classList.toggle('minimized');
+                if (nlTog) nlTog.textContent =
+                    nl.classList.contains('minimized') ? '+' : '−';
+            });
+            var nlClear = document.getElementById('netlog-clear');
+            if (nlClear) nlClear.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var tbody = document.getElementById('netlog-tbody');
+                if (tbody) tbody.innerHTML = '';
+                netlogSeq = 0;
+                var c = document.getElementById('netlog-count');
+                if (c) c.textContent = '0';
+            });
+        })();
+
+        var svcRevealed = false;
+        function revealService() {
+            if (svcRevealed) return;
+            svcRevealed = true;
+            var svc = document.getElementById('svc');
+            /* Inline `flex` overrides the CSS `display: none` rule
+             * that hides #svc until the VM is ready. We need `flex`
+             * (not `block`) because the section is laid out as a
+             * flex column — header (form) on top, iframe filling the
+             * remainder. */
+            if (svc) svc.style.display = 'flex';
+            /* Auto-minimize boot status now that yaafc is reachable. */
+            if (!ov.classList.contains('minimized')) {
+                ov.classList.add('minimized');
+                tog.textContent = '+';
+            }
+            /* Auto-submit the default GET so the user lands on the
+             * yaafc login page without having to click "GET". The
+             * form already defaults to port=8080 path=/login. */
+            var form = document.getElementById('svc-form');
+            if (form) {
+                form.dispatchEvent(new Event('submit', { cancelable: true }));
+            }
+        }
+        window.__renderStatus = function (text, level, tag) {
+            var d = document.createElement('div');
+            if (level) d.className = level;
+            d.textContent = text;
+            if (tag) d.dataset.tag = tag;
+            body.appendChild(d);
+            body.scrollTop = body.scrollHeight;
+
+            /* Watch for the run.sh marker emitted once the parent
+             * yaafc is up AND mesh_store_reconcile_from_config has
+             * spawned the children (incl. gateway on :8080). Before
+             * this point the service form would hit a closed port
+             * and just show "no response", so we don't expose it. */
+            if (!svcRevealed && /mesh up.*gateway on :8080/i.test(text)) {
+                revealService();
+            }
+        };
+
+        /* ---- In-VM HTTP bridge -----------------------------------------
+         * Wires the #svc-form button to slirp's chr-backend session API.
+         * Slirp manufactures an inbound TCP connection to (10.0.2.15,
+         * port) so a server bound INSIDE the guest is reachable from the
+         * browser without any host-side socket. We:
+         *   1. Module._tinyemu_session_open(port)
+         *   2. Send a minimal HTTP/1.1 GET request bytes via
+         *      Module._tinyemu_session_send(sid, ptr, len)
+         *   3. Accumulate guest → host bytes via the
+         *      window.__yettyTinyemuPostSessionRx callback the bridge
+         *      calls from EM_ASM (see tinyemu-bridge.c session_backend_send).
+         *   4. Parse status/headers/body, render the body inside the
+         *      iframe via srcdoc.
+         *
+         * Limitations: GET only, "Connection: close" so we know the
+         * response is complete when slirp delivers a FIN. POSTs / forms
+         * inside the iframe still navigate to the browser's own URL
+         * space (the iframe isn't a real proxy yet). Service-Worker-
+         * based seamless proxying is a follow-up. */
+
+        var svcSessions = Object.create(null); /* wasm_sid → state */
+
+        /* Pump bytes into our session buffer. */
+        function svcRx(wasm_sid, ptr, len) {
+            var s = svcSessions[wasm_sid];
+            if (!s || !len) return;
+            var chunk = Module.HEAPU8.slice(ptr, ptr + len);
+            s.buf.push(chunk);
+            s.total += chunk.length;
+            if (s.onProgress) s.onProgress(s.total);
+        }
+
+        /* The yetty tinyemu-iframe IIFE later in this file ALSO installs
+         * window.__yettyTinyemuPostSessionRx and would clobber any
+         * direct assignment we make here. Intercept via a property
+         * accessor: setter captures whatever yetty assigns; getter
+         * returns a chained function that fires OUR buffer pump first,
+         * then yetty's handler. Every EM_ASM call from session_backend_
+         * send re-reads the property, so the chained version is always
+         * what gets invoked. */
+        var __origRx = null;
+        Object.defineProperty(window, '__yettyTinyemuPostSessionRx', {
+            configurable: true,
+            set: function (fn) { __origRx = fn; },
+            get: function () {
+                return function (sid, ptr, len) {
+                    try { svcRx(sid, ptr, len); } catch (e) { console.error(e); }
+                    if (__origRx) {
+                        try { __origRx(sid, ptr, len); } catch (e) { console.error(e); }
+                    }
+                };
+            }
+        });
+
+        function svcStatus(text, kind) {
+            var el = document.getElementById('svc-status');
+            el.textContent = text || '';
+            el.style.color = kind === 'err' ? '#F08080'
+                          : kind === 'ok'  ? '#74C5A5' : '#9FA7A8';
+        }
+
+        function joinChunks(chunks, total) {
+            var out = new Uint8Array(total);
+            var off = 0;
+            for (var i = 0; i < chunks.length; i++) {
+                out.set(chunks[i], off);
+                off += chunks[i].length;
+            }
+            return out;
+        }
+
+        function parseHttpResponse(bytes) {
+            var sep = -1;
+            for (var i = 0; i < bytes.length - 3; i++) {
+                if (bytes[i] === 0x0d && bytes[i+1] === 0x0a &&
+                    bytes[i+2] === 0x0d && bytes[i+3] === 0x0a) { sep = i; break; }
+            }
+            if (sep < 0) {
+                return { status: 0, headers: '', body: bytes };
+            }
+            var header = new TextDecoder('utf-8', { fatal: false })
+                            .decode(bytes.subarray(0, sep));
+            var statusLine = header.split('\r\n')[0] || '';
+            var m = /^HTTP\/\d\.\d (\d{3})/.exec(statusLine);
+            var status = m ? parseInt(m[1], 10) : 0;
+            var contentTypeMatch = /content-type:\s*([^\r\n]+)/i.exec(header);
+            var contentType = contentTypeMatch ? contentTypeMatch[1].trim() : 'text/plain';
+            return {
+                status: status,
+                contentType: contentType,
+                headers: header,
+                body: bytes.subarray(sep + 4),
+            };
+        }
+
+        /* One GET through the slirp pipe. Resolves with the parsed
+         * response (parseHttpResponse output) or rejects with an
+         * Error. No redirect-following, no asset-inlining — those
+         * layers sit on top in svcFetchPage. */
+        function svcFetchOnce(port, path) {
+            return new Promise(function (resolve, reject) {
+                var nl = (window.__svcNetlogStart || function () {
+                    return { markFirstByte: function () {}, finish: function () {} };
+                })('GET', path);
+                var sid = Module._tinyemu_session_open(port);
+                if (sid < 0) {
+                    nl.finish(null, new Error('session open failed'));
+                    reject(new Error('session open failed')); return;
+                }
+                var state = { buf: [], total: 0, sid: sid };
+                svcSessions[sid] = state;
+
+                var cookieHdr = svcCookieHeader();
+                var req =
+                    'GET ' + path + ' HTTP/1.1\r\n' +
+                    'Host: yaafc-yemu\r\n' +
+                    'Accept: text/html,text/css,application/javascript,*/*\r\n' +
+                    (cookieHdr ? ('Cookie: ' + cookieHdr + '\r\n') : '') +
+                    'Connection: close\r\n' +
+                    '\r\n';
+                var reqBytes = new TextEncoder().encode(req);
+                var p = Module._malloc(reqBytes.length);
+                if (!p) {
+                    try { Module._tinyemu_session_close(sid); } catch (_) {}
+                    delete svcSessions[sid];
+                    var err = new Error('OOM allocating request buffer');
+                    nl.finish(null, err);
+                    reject(err);
+                    return;
+                }
+                Module.HEAPU8.set(reqBytes, p);
+                Module._tinyemu_session_send(sid, p, reqBytes.length);
+                Module._free(p);
+
+                /* svcRx pumps incoming bytes here; the first call with
+                 * n>0 marks TTFB in the network log. */
+                state.onProgress = function (n) {
+                    if (n > 0) nl.markFirstByte();
+                };
+
+                /* Same FIN-via-quiet-time heuristic as before: 15 s
+                 * to first byte, then 800 ms of silence = response
+                 * complete. */
+                var T0 = performance.now();
+                var lastTotal = 0;
+                var quietTicks = 0;
+                var FIRST_BYTE_TIMEOUT_MS = 15000;
+                var QUIET_TICKS = 4;
+                var tick = setInterval(function () {
+                    if (state.total > lastTotal) {
+                        lastTotal = state.total;
+                        quietTicks = 0;
+                        return;
+                    }
+                    if (state.total === 0) {
+                        if (performance.now() - T0 < FIRST_BYTE_TIMEOUT_MS) return;
+                    } else {
+                        quietTicks++;
+                        if (quietTicks < QUIET_TICKS) return;
+                    }
+                    clearInterval(tick);
+                    try { Module._tinyemu_session_close(sid); } catch (_) {}
+                    delete svcSessions[sid];
+                    if (state.total === 0) {
+                        var err = new Error('no response (server not running on guest:' +
+                                            port + '?)');
+                        nl.finish(null, err);
+                        reject(err);
+                        return;
+                    }
+                    var resp = parseHttpResponse(joinChunks(state.buf, state.total));
+                    resp.path = path;
+                    svcAbsorbCookies(resp);
+                    nl.finish(resp);
+                    resolve(resp);
+                }, 200);
+            });
+        }
+
+        /* Extract Location header from a parsed response. Returns
+         * null if absent. Strips quotes / trailing spaces. */
+        function getLocation(resp) {
+            var m = /location:\s*([^\r\n]+)/i.exec(resp.headers || '');
+            if (!m) return null;
+            return m[1].trim();
+        }
+
+        /* Fetch /path with up to N redirect hops. Returns the FINAL
+         * response (after redirects resolve). 3xx with Location is
+         * followed; everything else is returned as-is. Caps at 5 hops
+         * so a misconfigured loop can't hang the iframe. */
+        async function svcFetchFollowing(port, path, maxHops) {
+            var hops = 0;
+            var current = path;
+            while (true) {
+                svcStatus('GET 10.0.2.15:' + port + current +
+                          (hops > 0 ? ' (redirect ' + hops + ')' : ''));
+                var resp = await svcFetchOnce(port, current);
+                if (resp.status >= 300 && resp.status < 400) {
+                    var loc = getLocation(resp);
+                    if (!loc) return resp;
+                    /* Only follow relative redirects (Location: /path).
+                     * Absolute URLs would point outside the slirp pipe
+                     * and there's no way to reach them from here. */
+                    if (loc.startsWith('http://') || loc.startsWith('https://')) {
+                        svcStatus('refusing to follow absolute redirect to ' +
+                                  loc.slice(0, 60), 'err');
+                        return resp;
+                    }
+                    if (!loc.startsWith('/')) {
+                        /* Resolve relative-to-current-path Location. */
+                        loc = current.replace(/\/[^/]*$/, '/') + loc;
+                    }
+                    hops++;
+                    if (hops > maxHops) {
+                        svcStatus('too many redirects (' + hops + ')', 'err');
+                        return resp;
+                    }
+                    current = loc;
+                    continue;
+                }
+                return resp;
+            }
+        }
+
+        /* Inline root-relative <link rel=stylesheet> and <script src=>
+         * into the HTML body so the rendered srcdoc doesn't need to
+         * resolve them against `about:srcdoc` (which has no slirp
+         * connection back to the gateway). External assets (https://…
+         * — e.g. htmx CDN) are left alone; the parent page's network
+         * stack handles them. */
+        async function inlineLocalAssets(html, port) {
+            /* Stylesheets. */
+            var linkRe = /<link\s+[^>]*rel\s*=\s*["']stylesheet["'][^>]*>/gi;
+            var out = html;
+            var refs = [];
+            var m;
+            while ((m = linkRe.exec(html)) !== null) {
+                var hrefMatch = /href\s*=\s*["']([^"']+)["']/i.exec(m[0]);
+                if (!hrefMatch) continue;
+                var href = hrefMatch[1];
+                if (!href.startsWith('/')) continue;
+                refs.push({ tag: m[0], href: href });
+            }
+            for (var i = 0; i < refs.length; i++) {
+                try {
+                    var cssResp = await svcFetchOnce(port, refs[i].href);
+                    if (cssResp.status === 200) {
+                        var css = new TextDecoder().decode(cssResp.body);
+                        out = out.replace(refs[i].tag,
+                                          '<style>\n' + css + '\n</style>');
+                    }
+                } catch (e) {
+                    /* Skip failed asset; keep the original <link> tag
+                     * — at worst the page renders unstyled. */
+                }
+            }
+            /* <script src="/..."> — same pattern. Skip async/defer
+             * semantics (rare in our templates).
+             *
+             * Heads up: every literal closing-script tag in this
+             * file gets picked up by the browser's HTML parser —
+             * even when it's "obviously" inside a JS string or
+             * comment — because HTML tokenization happens before
+             * JS parsing. If we wrote the close-tag literal here,
+             * the outer script element containing this whole IIFE
+             * would close at that point and the rest of the file
+             * would render as text. So everywhere we have to emit
+             * the script-close sequence, we split the substring. */
+            var SCRIPT_OPEN  = '<' + 'script>';
+            var SCRIPT_CLOSE = '<' + '/' + 'script>';
+            var srcReSrc = '<' + 'script\\s+[^>]*src\\s*=\\s*["\'](\\/[^"\']+)["\'][^>]*>' +
+                           '<' + '\\/' + 'script>';
+            var scriptRe = new RegExp(srcReSrc, 'gi');
+            var srefs = [];
+            while ((m = scriptRe.exec(html)) !== null) {
+                srefs.push({ tag: m[0], src: m[1] });
+            }
+            for (var j = 0; j < srefs.length; j++) {
+                try {
+                    var jsResp = await svcFetchOnce(port, srefs[j].src);
+                    if (jsResp.status === 200) {
+                        var js = new TextDecoder().decode(jsResp.body);
+                        out = out.replace(srefs[j].tag,
+                                          SCRIPT_OPEN + '\n' + js + '\n' + SCRIPT_CLOSE);
+                    }
+                } catch (e) { /* skip */ }
+            }
+            return out;
+        }
+
+        /* Track the port we last fetched against so anchor clicks
+         * and form submissions inside the rendered srcdoc know which
+         * slirp pipe to reuse. */
+        var svcLastPort = 0;
+
+        /* Cookie jar. yaafc sets `yaafc-sid` (session) and
+         * `yaafc-uname` on /register and /login. Without carrying
+         * them on subsequent requests every page comes back as anon
+         * (a freshly-registered account "can't log in"). The jar is
+         * keyed by name only — yaafc never sends Path/Domain
+         * variants that need real matching. */
+        var svcCookies = Object.create(null);
+
+        function svcCookieHeader() {
+            var out = [];
+            for (var k in svcCookies) {
+                if (svcCookies[k] === '') continue; /* expired / cleared */
+                out.push(k + '=' + svcCookies[k]);
+            }
+            return out.join('; ');
+        }
+
+        /* Pull every Set-Cookie out of a parsed response and merge
+         * into svcCookies. Handles repeated Set-Cookie headers (one
+         * per cookie). yaafc's logout returns
+         *   Set-Cookie: yaafc-sid=; Max-Age=0
+         * to clear — that becomes an empty value in our jar, which
+         * svcCookieHeader filters out. */
+        function svcAbsorbCookies(resp) {
+            var h = resp.headers || '';
+            var re = /^set-cookie:\s*([^\r\n]+)/gim;
+            var m;
+            while ((m = re.exec(h)) !== null) {
+                var pair = m[1].split(';')[0].trim();
+                var eq = pair.indexOf('=');
+                if (eq <= 0) continue;
+                var name = pair.slice(0, eq).trim();
+                var value = pair.slice(eq + 1).trim();
+                svcCookies[name] = value;
+            }
+        }
+
+        /* Shim script injected into every rendered srcdoc. Intercepts
+         * clicks on root-relative <a href="/..."> and form submits
+         * with root-relative actions, sends them to the parent
+         * (this iframe page) via postMessage. Without it, anchor
+         * navigation escapes srcdoc and goes to the dev server (8766)
+         * which has no /login, /register, etc. → 404. */
+        var SRCDOC_SHIM = [
+            '(function () {',
+            '  function send(msg) {',
+            '    try { parent.postMessage(msg, "*"); } catch (_) {}',
+            '  }',
+            '  document.addEventListener("click", function (e) {',
+            '    var t = e.target;',
+            '    while (t && t.nodeType === 1 && t.tagName !== "A") t = t.parentNode;',
+            '    if (!t || t.tagName !== "A") return;',
+            '    var href = t.getAttribute("href");',
+            '    if (!href) return;',
+            '    if (href.charAt(0) === "#") return;', /* same-page anchor — let the browser scroll */
+            '    if (href.charAt(0) !== "/" && !href.startsWith("./") && !href.startsWith("../")) return;',
+            '    /* Strip #fragment — real browsers never send it on',
+            '     * the wire. yaafc path matching is exact and would',
+            '     * reject "/repos#new" with -32601 "no such GET route". */',
+            '    var hashAt = href.indexOf("#");',
+            '    if (hashAt >= 0) href = href.slice(0, hashAt);',
+            '    if (!href) return;',
+            '    e.preventDefault();',
+            '    send({ type: "yaafc-nav", path: href });',
+            '  }, true);',
+            /* Forms inside srcdoc default to opening a new top-level
+             * window when their action cannot be resolved against
+             * about:srcdoc (the browser interprets a failed iframe
+             * navigation as a new context). Bullet-proof against any
+             * escape: (a) rewrite every form's target attr to "_self"
+             * so a fall-through stays in the same iframe; (b) call
+             * stopImmediatePropagation + preventDefault on capture
+             * so nothing downstream can re-trigger native submission. */
+            '  document.querySelectorAll("form").forEach(function (f) {',
+            '    f.setAttribute("target", "_self");',
+            '  });',
+            '  /* Re-apply target=_self on dynamically inserted forms. */',
+            '  var mo = new MutationObserver(function (rs) {',
+            '    rs.forEach(function (r) {',
+            '      r.addedNodes && r.addedNodes.forEach(function (n) {',
+            '        if (n.nodeType !== 1) return;',
+            '        if (n.tagName === "FORM") n.setAttribute("target", "_self");',
+            '        var ff = n.querySelectorAll && n.querySelectorAll("form");',
+            '        if (ff) ff.forEach(function (f) { f.setAttribute("target", "_self"); });',
+            '      });',
+            '    });',
+            '  });',
+            '  mo.observe(document.documentElement, { childList: true, subtree: true });',
+            '  document.addEventListener("submit", function (e) {',
+            '    var f = e.target;',
+            '    if (!f || f.tagName !== "FORM") return;',
+            '    f.setAttribute("target", "_self");',
+            '    var action = f.getAttribute("action") || "";',
+            '    if (action && (action.startsWith("http://") || action.startsWith("https://"))) return;',
+            '    if (action && action.charAt(0) !== "/" && !action.startsWith("./") && !action.startsWith("../")) return;',
+            '    var hashAt2 = action.indexOf("#");',
+            '    if (hashAt2 >= 0) action = action.slice(0, hashAt2);',
+            '    e.preventDefault();',
+            '    e.stopImmediatePropagation();',
+            '    var method = (f.method || "GET").toUpperCase();',
+            '    var pairs = [];',
+            '    for (var i = 0; i < f.elements.length; i++) {',
+            '      var el = f.elements[i];',
+            '      if (!el.name) continue;',
+            '      if (el.type === "submit" || el.type === "button") continue;',
+            '      if ((el.type === "checkbox" || el.type === "radio") && !el.checked) continue;',
+            '      pairs.push(encodeURIComponent(el.name) + "=" + encodeURIComponent(el.value));',
+            '    }',
+            '    var body = pairs.join("&");',
+            '    send({ type: "yaafc-submit", method: method, path: action || "/", body: body });',
+            '  }, true);',
+            '})();'
+        ].join('\n');
+
+        /* Take a finished response and stage it in the svc-iframe.
+         * For HTML: inline CSS/JS, append the nav-shim, srcdoc it.
+         * For other types: blob URL. Returns nothing. */
+        async function renderResp(port, resp) {
+            var iframe = document.getElementById('svc-iframe');
+            if (resp.contentType && /text\/html/i.test(resp.contentType)) {
+                var html = new TextDecoder().decode(resp.body);
+                var inlined = await inlineLocalAssets(html, port);
+                /* Append the nav-shim BEFORE </body> if present, else
+                 * just append. Use the same split-token trick to keep
+                 * the literal `<` + `/script>` out of the source.  */
+                var SCRIPT_OPEN  = '<' + 'script>';
+                var SCRIPT_CLOSE = '<' + '/' + 'script>';
+                var shimTag = SCRIPT_OPEN + '\n' + SRCDOC_SHIM + '\n' + SCRIPT_CLOSE;
+                var bodyClose = /<\/body\s*>/i;
+                if (bodyClose.test(inlined)) {
+                    inlined = inlined.replace(bodyClose, shimTag + '</body>');
+                } else {
+                    inlined = inlined + shimTag;
+                }
+                iframe.removeAttribute('src');
+                iframe.srcdoc = inlined;
+            } else {
+                var blob = new Blob([resp.body],
+                                    { type: resp.contentType || 'text/plain' });
+                iframe.removeAttribute('srcdoc');
+                iframe.src = URL.createObjectURL(blob);
+            }
+        }
+
+        /* Listen for nav / submit events coming from the srcdoc shim.
+         * Reuses svcLastPort so the user only sets the port once via
+         * the top form. */
+        window.addEventListener('message', function (ev) {
+            var d = ev.data;
+            if (!d || typeof d !== 'object') return;
+            if (d.type === 'yaafc-nav') {
+                if (svcLastPort <= 0) {
+                    svcStatus('nav ignored — no active port', 'err');
+                    return;
+                }
+                svcFetchFollowing(svcLastPort, d.path, 5)
+                    .then(function (resp) {
+                        svcStatus('GET ' + d.path + ' → HTTP ' + resp.status +
+                                  ' (' + resp.body.length + 'B)', 'ok');
+                        return renderResp(svcLastPort, resp);
+                    })
+                    .catch(function (err) {
+                        svcStatus(err.message || String(err), 'err');
+                    });
+                return;
+            }
+            if (d.type === 'yaafc-submit') {
+                if (svcLastPort <= 0) {
+                    svcStatus('submit ignored — no active port', 'err');
+                    return;
+                }
+                svcFetchWithMethod(svcLastPort, d.method, d.path, d.body)
+                    .then(function (resp) {
+                        /* POST → 303 is the normal yaafc flow (login,
+                         * register). Follow up to 5 hops via GET. */
+                        return followFromResp(svcLastPort, resp, 5);
+                    })
+                    .then(function (resp) {
+                        svcStatus(d.method + ' ' + d.path + ' → HTTP ' +
+                                  resp.status + ' (' + resp.body.length + 'B)', 'ok');
+                        return renderResp(svcLastPort, resp);
+                    })
+                    .catch(function (err) {
+                        svcStatus(err.message || String(err), 'err');
+                    });
+                return;
+            }
+        });
+
+        /* Single-shot request with arbitrary method + body. Returns
+         * the parsed response same as svcFetchOnce. */
+        function svcFetchWithMethod(port, method, path, body) {
+            return new Promise(function (resolve, reject) {
+                var nl = (window.__svcNetlogStart || function () {
+                    return { markFirstByte: function () {}, finish: function () {} };
+                })(method, path);
+                var sid = Module._tinyemu_session_open(port);
+                if (sid < 0) {
+                    nl.finish(null, new Error('session open failed'));
+                    reject(new Error('session open failed')); return;
+                }
+                var state = { buf: [], total: 0, sid: sid };
+                svcSessions[sid] = state;
+
+                var bodyBytes = body ? new TextEncoder().encode(body)
+                                     : new Uint8Array(0);
+                var cookieHdr = svcCookieHeader();
+                var req =
+                    method + ' ' + path + ' HTTP/1.1\r\n' +
+                    'Host: yaafc-yemu\r\n' +
+                    'Accept: text/html,*/*\r\n' +
+                    'Content-Type: application/x-www-form-urlencoded\r\n' +
+                    'Content-Length: ' + bodyBytes.length + '\r\n' +
+                    (cookieHdr ? ('Cookie: ' + cookieHdr + '\r\n') : '') +
+                    'Connection: close\r\n' +
+                    '\r\n';
+                var reqBytes = new TextEncoder().encode(req);
+                var total = reqBytes.length + bodyBytes.length;
+                var p = Module._malloc(total);
+                if (!p) {
+                    try { Module._tinyemu_session_close(sid); } catch (_) {}
+                    delete svcSessions[sid];
+                    var err = new Error('OOM');
+                    nl.finish(null, err);
+                    reject(err);
+                    return;
+                }
+                Module.HEAPU8.set(reqBytes, p);
+                Module.HEAPU8.set(bodyBytes, p + reqBytes.length);
+                Module._tinyemu_session_send(sid, p, total);
+                Module._free(p);
+
+                state.onProgress = function (n) {
+                    if (n > 0) nl.markFirstByte();
+                };
+
+                var T0 = performance.now();
+                var lastTotal = 0;
+                var quietTicks = 0;
+                var FIRST_BYTE_TIMEOUT_MS = 15000;
+                var QUIET_TICKS = 4;
+                var tick = setInterval(function () {
+                    if (state.total > lastTotal) {
+                        lastTotal = state.total;
+                        quietTicks = 0;
+                        return;
+                    }
+                    if (state.total === 0) {
+                        if (performance.now() - T0 < FIRST_BYTE_TIMEOUT_MS) return;
+                    } else {
+                        quietTicks++;
+                        if (quietTicks < QUIET_TICKS) return;
+                    }
+                    clearInterval(tick);
+                    try { Module._tinyemu_session_close(sid); } catch (_) {}
+                    delete svcSessions[sid];
+                    if (state.total === 0) {
+                        var err2 = new Error('no response (server not running?)');
+                        nl.finish(null, err2);
+                        reject(err2);
+                        return;
+                    }
+                    var resp = parseHttpResponse(joinChunks(state.buf, state.total));
+                    resp.path = path;
+                    svcAbsorbCookies(resp);
+                    nl.finish(resp);
+                    resolve(resp);
+                }, 200);
+            });
+        }
+
+        /* Given a response that might be a 3xx redirect, follow it
+         * with GETs (RFC: POST → 303 must become GET on the new path)
+         * up to maxHops. */
+        async function followFromResp(port, resp, maxHops) {
+            var current = resp;
+            var hops = 0;
+            while (current.status >= 300 && current.status < 400) {
+                var loc = getLocation(current);
+                if (!loc) return current;
+                if (loc.startsWith('http://') || loc.startsWith('https://')) {
+                    return current;
+                }
+                if (!loc.startsWith('/')) {
+                    loc = current.path.replace(/\/[^/]*$/, '/') + loc;
+                }
+                hops++;
+                if (hops > maxHops) return current;
+                current = await svcFetchOnce(port, loc);
+            }
+            return current;
+        }
+
+        async function svcGo(ev) {
+            ev.preventDefault();
+            if (typeof Module === 'undefined' || !Module._tinyemu_session_open) {
+                svcStatus('VM not ready', 'err'); return;
+            }
+            var port = parseInt(document.getElementById('svc-port').value, 10) || 0;
+            var path = document.getElementById('svc-path').value || '/';
+            if (port <= 0 || port > 65535) { svcStatus('bad port', 'err'); return; }
+            svcLastPort = port;
+
+            try {
+                var resp = await svcFetchFollowing(port, path, 5);
+                svcStatus('HTTP ' + (resp.status || '?') +
+                          ' (final ' + resp.path + ') — ' +
+                          resp.body.length + ' bytes', 'ok');
+                await renderResp(port, resp);
+            } catch (err) {
+                svcStatus(err.message || String(err), 'err');
+            }
+        }
+        document.getElementById('svc-form').addEventListener('submit', svcGo);
+
+        /* Autotest hook for headless probing — when the URL contains
+         * ?autotest=PORT,DELAY_S we wait DELAY_S seconds (kernel + init
+         * need time to come up), set the form fields, and submit. The
+         * result lands in #svc-status and #svc-iframe like a normal
+         * click. We also stash a one-line summary into
+         * document.body.dataset.autotest so dump-dom can grep it. */
+        (function () {
+            var params = new URLSearchParams(window.location.search);
+            var at = params.get('autotest');
+            if (!at) return;
+            var parts = at.split(',');
+            var port  = parseInt(parts[0], 10) || 23;
+            var delay = parseInt(parts[1], 10) || 30;
+            var path  = parts[2] || '/';
+            console.log('[autotest] scheduled', { port: port, delay: delay, path: path });
+            setTimeout(function () {
+                document.getElementById('svc-port').value = port;
+                document.getElementById('svc-path').value = path;
+                document.getElementById('svc-form')
+                    .dispatchEvent(new Event('submit', { cancelable: true }));
+                /* Sample the result periodically and stamp the body so
+                 * dump-dom sees it. Also log to console so headless
+                 * drivers can grep the iframe state. */
+                var samples = 0;
+                var sampleTimer = setInterval(function () {
+                    var st = document.getElementById('svc-status').textContent;
+                    var ifr = document.getElementById('svc-iframe');
+                    var iframeState = ifr.srcdoc ? 'srcdoc=' + ifr.srcdoc.length + 'B'
+                                    : ifr.src    ? 'src=' + ifr.src.slice(0, 80)
+                                    : 'empty';
+                    var stamp = 'samples=' + samples + ' status="' + st +
+                                '" iframe=' + iframeState;
+                    document.body.dataset.autotest = stamp;
+                    console.log('[autotest-sample]', stamp);
+                    samples++;
+                    if (samples > 30) clearInterval(sampleTimer);
+                }, 500);
+            }, delay * 1000);
+        })();
+    })();
+    </script>
+    <script>
+        (function () {
+            // ---- URL params from parent ------------------------------
+            var params = (function () {
+                var out = {};
+                var q = window.location.search.substring(1);
+                if (!q) return out;
+                q.split('&').forEach(function (kv) {
+                    var p = kv.split('=');
+                    out[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || '');
+                });
+                return out;
+            })();
+
+            var ptyId = parseInt(params.ptyId || '1', 10);
+            var initialCols = parseInt(params.cols || '80', 10);
+            var initialRows = parseInt(params.rows || '24', 10);
+
+            // ---- Status pump → parent overlay + iframe console ----------
+            // Forward boot status to the parent's yettyStatus console.
+            // `tag` lets the parent update an existing line in place
+            // (used for download progress).
+            //
+            // ALSO console.log inside this iframe so events show up
+            // in DevTools when you "Inspect" the (display:none)
+            // iframe directly. Without this, the iframe's own
+            // console stays silent and the only signal is the
+            // parent overlay — making it impossible to tell whether
+            // a setTimeout retry actually fired or not.
+            function postStatus(text, level, tag) {
+                try { console.log('[vm-iframe]', text); } catch (_) {}
+                /* Standalone-mode mirror: render the same line in our
+                 * visible overlay (yetty's parent would normally do this). */
+                try { if (window.__renderStatus) window.__renderStatus(text, level, tag); } catch (_) {}
+                try {
+                    window.parent.postMessage({
+                        type: 'yetty-status',
+                        text: '[vm] ' + text,
+                        level: level,
+                        tag: tag
+                    }, '*');
+                } catch (_) { /* parent gone — ignore */ }
+            }
+            postStatus('iframe loaded; fetching tinyemu.{js,wasm}…', 'phase');
+
+            // ---- Output / input wiring -------------------------------
+            // Buffer parent → iframe input until the wasm runtime is up.
+            var pendingInput = [];
+            var pendingResize = null;
+            var ready = false;
+            // Output buffering: yetty.wasm may not yet be running when
+            // the kernel boots and starts spitting log lines. Hold them
+            // in a tiny ring until the parent forwards a 'yetty-ready'
+            // message (sent by iframe-pty.c once its postMessage
+            // listener is installed). Then flush + stream live.
+            var outputBuffer = [];
+            var yettyAttached = false;
+            var BOOT_BUFFER_LIMIT = 256 * 1024; // bytes — generous; full Linux boot fits
+
+            window.addEventListener('message', function (e) {
+                if (!e.data) return;
+                /* LOUD logging — every parent → iframe message we
+                 * receive, with type and clientSid (when present), so
+                 * we can see in DevTools whether the bridge is even
+                 * getting the events from yetty. */
+                console.log('[vm-iframe] RX msg from parent type=' + e.data.type +
+                            (e.data.clientSid !== undefined ?
+                                ' clientSid=' + e.data.clientSid : '') +
+                            (e.data.data !== undefined ?
+                                ' dataLen=' +
+                                  (e.data.data.length || e.data.data.byteLength || 0)
+                                : ''));
+                if (e.data.type === 'yetty-ready') {
+                    yettyAttached = true;
+                    postStatus('yetty attached; flushing ' + outputBuffer.length +
+                               ' buffered output chunks', 'ok');
+                    for (var i = 0; i < outputBuffer.length; i++) {
+                        window.parent.postMessage({
+                            type: 'term-output',
+                            ptyId: ptyId,
+                            data: outputBuffer[i]
+                        }, '*');
+                    }
+                    outputBuffer = [];
+                    return;
+                }
+                /* ---- Session messages — telnet over slirp injection ---- */
+                if (e.data.type === 'session-open') {
+                    console.log('[vm-iframe] → handleSessionOpen clientSid=' +
+                                e.data.clientSid + ' port=' + e.data.port);
+                    handleSessionOpen(e.data.clientSid, e.data.port);
+                    return;
+                }
+                if (e.data.type === 'session-tx') {
+                    console.log('[vm-iframe] → handleSessionTx clientSid=' +
+                                e.data.clientSid + ' bytes=' +
+                                (e.data.data ? (e.data.data.length || e.data.data.byteLength) : 0));
+                    handleSessionTx(e.data.clientSid, e.data.data);
+                    return;
+                }
+                if (e.data.type === 'session-close') {
+                    console.log('[vm-iframe] → handleSessionClose clientSid=' + e.data.clientSid);
+                    handleSessionClose(e.data.clientSid);
+                    return;
+                }
+
+                if (e.data.ptyId !== ptyId) return;
+                if (e.data.type === 'term-input') {
+                    if (typeof e.data.data !== 'string' || e.data.data.length === 0) return;
+                    if (!ready) {
+                        pendingInput.push(e.data.data);
+                    } else {
+                        feedInput(e.data.data);
+                    }
+                } else if (e.data.type === 'term-resize') {
+                    var sz = { cols: e.data.cols | 0, rows: e.data.rows | 0 };
+                    if (!ready) {
+                        pendingResize = sz;
+                    } else {
+                        feedResize(sz.cols, sz.rows);
+                    }
+                }
+            });
+
+            /* clientSid (parent's, stable) ↔ wasm sid (allocated by
+             * Module._tinyemu_session_open) maps. Defer-open queue
+             * holds session-open requests that arrive before the VM
+             * is ready (preload + boot can take 30+ seconds and the
+             * parent has no idea when telnetd will accept). */
+            var sessionToWasm = Object.create(null);  /* clientSid → wasm sid */
+            var wasmToClient  = Object.create(null);  /* wasm sid   → clientSid */
+            var sessionPort   = Object.create(null);  /* clientSid → port (for retries) */
+            var sessionRxBytes = Object.create(null); /* wasm sid → cumulative byte count */
+            var sessionConnected = Object.create(null); /* clientSid → bool: any rx ever */
+            var pendingSessionOpens = [];
+
+            /* Slirp injection — single open, no JS-side retry.
+             *
+             * Earlier this had a 4 s retry watchdog that closed and
+             * reopened the slirp socket if no bytes had arrived. That
+             * was actively harmful: SYN-ACK round-trips during boot
+             * easily exceed 4 s on the slow wasm interpreter, and
+             * each close+reopen tore down the socket JUST as the
+             * SYN-ACK was about to land — solookup couldn't find the
+             * destroyed 4-tuple, dropped the segment, and we'd never
+             * establish.
+             *
+             * Now: open ONCE. Slirp's own TCP retransmission timer
+             * (TCPT_REXMT, exponential backoff, ~7 min total) drives
+             * the SYN until the in-VM telnetd binds port 23. The
+             * TCPT_KEEP "give up" timeout that would have killed the
+             * SYN-SENT socket at 75 s is suppressed in chr-backend.c
+             * (slirp_chr_open sets t_timer[TCPT_KEEP] = 0). */
+
+            function handleSessionOpen(clientSid, port) {
+                console.log('[vm-iframe] handleSessionOpen ENTER clientSid=' +
+                            clientSid + ' port=' + port + ' ready=' + ready);
+                if (clientSid === undefined || port === undefined) {
+                    console.warn('[vm-iframe] handleSessionOpen: bad args');
+                    return;
+                }
+                if (!ready) {
+                    pendingSessionOpens.push({ clientSid: clientSid, port: port });
+                    postStatus('queued session ' + clientSid + ' (port ' + port +
+                               ') — VM not ready yet');
+                    return;
+                }
+                console.log('[vm-iframe] calling Module._tinyemu_session_open(' + port + ')');
+                var wasmSid = Module._tinyemu_session_open(port | 0);
+                console.log('[vm-iframe] tinyemu_session_open returned wasmSid=' + wasmSid);
+                if (wasmSid < 0) {
+                    postStatus('session-open ' + clientSid + ' port ' + port +
+                               ' FAILED', 'err');
+                    window.parent.postMessage({
+                        type: 'session-opened',
+                        clientSid: clientSid,
+                        ok: false,
+                        error: 'tinyemu_session_open returned ' + wasmSid
+                    }, '*');
+                    return;
+                }
+                sessionToWasm[clientSid] = wasmSid;
+                wasmToClient[wasmSid] = clientSid;
+                sessionPort[clientSid] = port;
+                sessionRxBytes[wasmSid] = 0;
+                sessionConnected[clientSid] = false;
+                postStatus('session ' + clientSid + ' → wasm sid ' + wasmSid +
+                           ' (port ' + port +
+                           ') — slirp will retransmit SYN until telnetd binds', 'ok');
+                console.log('[vm-iframe] posting session-opened ack to parent for clientSid=' + clientSid);
+                window.parent.postMessage({
+                    type: 'session-opened',
+                    clientSid: clientSid,
+                    ok: true
+                }, '*');
+            }
+
+            function handleSessionTx(clientSid, data) {
+                var wasmSid = sessionToWasm[clientSid];
+                console.log('[vm-iframe] handleSessionTx clientSid=' + clientSid +
+                            ' wasmSid=' + wasmSid +
+                            ' bytes=' + (data ? (data.length || data.byteLength) : 0));
+                if (wasmSid === undefined) {
+                    console.warn('[vm-iframe] handleSessionTx: no wasmSid for clientSid=' + clientSid);
+                    return;
+                }
+                /* data is a Uint8Array (or any TypedArray). Coerce. */
+                var bytes = data;
+                if (!(bytes instanceof Uint8Array)) {
+                    if (bytes && bytes.buffer) {
+                        bytes = new Uint8Array(bytes.buffer, bytes.byteOffset,
+                                               bytes.byteLength);
+                    } else if (bytes && bytes.length !== undefined) {
+                        bytes = new Uint8Array(bytes);
+                    } else {
+                        return;
+                    }
+                }
+                if (bytes.length === 0) return;
+                var ptr = Module._malloc(bytes.length);
+                if (ptr === 0) return;
+                Module.HEAPU8.set(bytes, ptr);
+                Module._tinyemu_session_send(wasmSid, ptr, bytes.length);
+                Module._free(ptr);
+            }
+
+            function handleSessionClose(clientSid) {
+                var wasmSid = sessionToWasm[clientSid];
+                if (wasmSid === undefined) return;
+                Module._tinyemu_session_close(wasmSid);
+                delete sessionToWasm[clientSid];
+                delete wasmToClient[wasmSid];
+                delete sessionPort[clientSid];        /* stops the retry watchdog */
+                delete sessionConnected[clientSid];
+                delete sessionRxBytes[wasmSid];
+                postStatus('session ' + clientSid + ' closed');
+            }
+
+            /* C → JS callback (tinyemu_session_send target). Slirp
+             * received bytes from the guest for `wasm_sid`; route them
+             * back to the originating yetty terminal via the parent
+             * window. Posted as a copy of HEAPU8 (.slice) so the
+             * Uint8Array survives across the postMessage boundary
+             * without aliasing the live wasm heap. */
+            window.__yettyTinyemuPostSessionRx = function (wasm_sid, ptr, len) {
+                /* THIS IS THE BIG ONE — fires when slirp delivers
+                 * guest bytes (telnetd output) to our chr-backend.
+                 * If we never see this log, the SYN-ACK never came
+                 * back from the guest (telnetd not bound yet, or
+                 * arp/routing/etc. is broken). */
+                console.log('[vm-iframe] __yettyTinyemuPostSessionRx wasm_sid=' +
+                            wasm_sid + ' len=' + len);
+                if (len <= 0) return;
+                var clientSid = wasmToClient[wasm_sid];
+                /* First byte from the guest = TCP handshake completed,
+                 * telnetd is talking. Mark the session "connected" so
+                 * the SYN-retry watchdog stops recycling the slirp
+                 * socket out from under us. */
+                if (clientSid !== undefined && !sessionConnected[clientSid]) {
+                    sessionConnected[clientSid] = true;
+                    postStatus('session ' + clientSid +
+                               ' guest TCP established (first rx)', 'ok');
+                }
+                sessionRxTotalBytes += len;
+                sessionRxTotalEvents++;
+                if (clientSid !== undefined) {
+                    sessionRxBytes[wasm_sid] = (sessionRxBytes[wasm_sid] || 0) + len;
+                }
+                if (clientSid === undefined) return;
+                var copy = Module.HEAPU8.slice(ptr, ptr + len);
+                window.parent.postMessage({
+                    type: 'session-rx',
+                    clientSid: clientSid,
+                    data: copy
+                }, '*');
+            };
+
+            function feedInput(str) {
+                var bytes = new TextEncoder().encode(str);
+                if (bytes.length === 0) return;
+                var ptr = Module._malloc(bytes.length);
+                if (ptr === 0) return;
+                Module.HEAPU8.set(bytes, ptr);
+                Module._tinyemu_bridge_input(ptr, bytes.length);
+                Module._free(ptr);
+            }
+
+            function feedResize(cols, rows) {
+                Module._tinyemu_bridge_resize(cols | 0, rows | 0);
+            }
+
+            // C → JS callback (tinyemu_console_write → EM_ASM).
+            // Two consumers: (1) yetty's terminal screen, via parent
+            // term-output postMessage; (2) the parent boot overlay,
+            // mirrored line-by-line so the user can verify the kernel
+            // is actually booting (printk → 'Booting Linux on physical
+            // CPU 0x0', '[    0.000000] OF: ...', etc.) without having
+            // to wait for yetty's terminal to be visible.
+            var bufferedBytes = 0;
+            var firstOutputSeen = false;
+            var kernelLineBuf = '';
+            // Cap the mirroring — once boot is past the noisy kernel
+            // phase the per-line postMessages become pure overhead.
+            // 1 MiB covers kernel boot AND alpine /init AND background
+            // runsvdir+telnetd startup so we see telnetd binding port 23
+            // in the boot overlay (essential when diagnosing "yetty
+            // terminal blank" — usually means telnetd hasn't bound yet).
+            var KERNEL_MIRROR_LIMIT = 1024 * 1024;
+            var kernelMirroredBytes = 0;
+            // Cumulative byte/event counters used by the heartbeat below
+            // so we can see at a glance whether the VM is actually
+            // making progress (printing kernel/userspace output) or
+            // stuck. They also tell us whether any guest → host TCP
+            // bytes ever arrived (sessionRxTotal).
+            var consoleBytesTotal = 0;
+            var sessionRxTotalBytes = 0;
+            var sessionRxTotalEvents = 0;
+
+            function mirrorKernelOutput(str) {
+                if (kernelMirroredBytes >= KERNEL_MIRROR_LIMIT) return;
+                // Coarse ANSI strip — the kernel rarely uses colour
+                // sequences, but openrc / busybox sometimes do.
+                var clean = str.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+                kernelLineBuf += clean;
+                var idx;
+                while ((idx = kernelLineBuf.indexOf('\n')) >= 0) {
+                    var line = kernelLineBuf.slice(0, idx).replace(/\r$/, '');
+                    kernelLineBuf = kernelLineBuf.slice(idx + 1);
+                    if (line.length === 0) continue;
+                    postStatus('| ' + line, 'dim');
+                    kernelMirroredBytes += line.length + 1;
+                    if (kernelMirroredBytes >= KERNEL_MIRROR_LIMIT) {
+                        postStatus('(further VM console output suppressed in overlay — see terminal)', 'dim');
+                        kernelLineBuf = '';
+                        return;
+                    }
+                }
+            }
+
+            function postOutput(ptr, len) {
+                if (len <= 0) return;
+                consoleBytesTotal += len;
+                var bytes = Module.HEAPU8.subarray(ptr, ptr + len);
+                var str = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                if (!str) return;
+                if (!firstOutputSeen) {
+                    firstOutputSeen = true;
+                    postStatus('first VM console output received', 'ok');
+                }
+                // Always mirror to overlay during the boot window —
+                // independent of whether yetty has attached yet.
+                mirrorKernelOutput(str);
+                if (yettyAttached) {
+                    window.parent.postMessage({
+                        type: 'term-output',
+                        ptyId: ptyId,
+                        data: str
+                    }, '*');
+                } else if (bufferedBytes < BOOT_BUFFER_LIMIT) {
+                    outputBuffer.push(str);
+                    bufferedBytes += str.length;
+                }
+            }
+
+            // Expose what tinyemu-bridge.c's EM_ASM looks for.
+            window.__yettyTinyemuPostOutput = postOutput;
+            window.__yettyTinyemuPtyId = ptyId;
+
+            // ---- Brotli decode via tinyemu.wasm's _yetty_brotli_decode
+            function brotliDecode(buf) {
+                var inBytes = new Uint8Array(buf);
+                var inPtr = Module._malloc(inBytes.length);
+                if (inPtr === 0) throw new Error('brotliDecode: input alloc failed');
+                Module.HEAPU8.set(inBytes, inPtr);
+                var scratch = Module._malloc(8);
+                if (scratch === 0) {
+                    Module._free(inPtr);
+                    throw new Error('brotliDecode: scratch alloc failed');
+                }
+                var outPtr = 0;
+                try {
+                    var ok = Module._yetty_brotli_decode(
+                        inPtr, inBytes.length, scratch, scratch + 4);
+                    if (!ok) throw new Error('brotliDecode: decoder rejected input');
+                    outPtr = Module.HEAPU32[scratch >> 2];
+                    var outLen = Module.HEAPU32[(scratch + 4) >> 2];
+                    return Module.HEAPU8.slice(outPtr, outPtr + outLen);
+                } finally {
+                    Module._free(inPtr);
+                    Module._free(scratch);
+                    if (outPtr !== 0) Module._free(outPtr);
+                }
+            }
+
+            // ---- VM asset preload ------------------------------------
+            // tinyemu-iframe.cmake stages 4 files under tinyemu-assets/.
+            // Fetch each (with rich progress for the rootfs since it's
+            // ~250 MB on the wire), brotli-decode if needed, FS.writeFile
+            // into MEMFS at the dest paths the cfg expects, then call
+            // _tinyemu_bridge_start.
+            var ASSET_BASE = 'tinyemu-assets/';
+
+            function fmtBytes(n) {
+                if (n < 1024) return n + 'B';
+                if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K';
+                return (n / 1024 / 1024).toFixed(1) + 'M';
+            }
+
+            function mkdirsForFile(path) {
+                var parts = path.split('/').filter(Boolean);
+                var cur = '';
+                for (var i = 0; i < parts.length - 1; i++) {
+                    cur += '/' + parts[i];
+                    try { FS.mkdir(cur); } catch (e) { /* EEXIST is fine */ }
+                }
+            }
+
+            // Streaming fetch with chunked progress — each chunk fires a
+            // status update (tagged so the parent overlay updates one
+            // line in place). Without this the user sees nothing for
+            // minutes while the rootfs trickles in.
+            async function fetchWithProgress(url, statusTag, statusLabel) {
+                var resp = await fetch(url);
+                if (!resp.ok) {
+                    throw new Error(url + ' → HTTP ' + resp.status);
+                }
+                var totalHeader = resp.headers.get('Content-Length');
+                var total = totalHeader ? parseInt(totalHeader, 10) : 0;
+                if (!resp.body || !resp.body.getReader) {
+                    // Fallback: no streaming reader — single shot.
+                    var ab = await resp.arrayBuffer();
+                    postStatus(statusLabel + ' ' + fmtBytes(ab.byteLength) +
+                               ' (no stream)', null, statusTag);
+                    return ab;
+                }
+                var reader = resp.body.getReader();
+                var chunks = [];
+                var got = 0;
+                var lastTick = 0;
+                while (true) {
+                    var step = await reader.read();
+                    if (step.done) break;
+                    chunks.push(step.value);
+                    got += step.value.length;
+                    var now = performance.now();
+                    if (now - lastTick > 100 || total === 0) {
+                        var pct = total > 0
+                            ? (got * 100 / total).toFixed(1) + '%'
+                            : '';
+                        postStatus(statusLabel + ' ' + fmtBytes(got) +
+                                   (total > 0 ? ' / ' + fmtBytes(total) +
+                                                ' (' + pct + ')'
+                                              : ' (size unknown)'),
+                                   null, statusTag);
+                        lastTick = now;
+                    }
+                }
+                postStatus(statusLabel + ' ' + fmtBytes(got) + ' done', 'ok', statusTag);
+                // Concatenate chunks into one ArrayBuffer.
+                var out = new Uint8Array(got);
+                var off = 0;
+                for (var i = 0; i < chunks.length; i++) {
+                    out.set(chunks[i], off);
+                    off += chunks[i].length;
+                }
+                return out.buffer;
+            }
+
+            async function loadOne(entry) {
+                var url = ASSET_BASE + entry.url;
+                var label = 'fetching ' + entry.url;
+                var raw = await fetchWithProgress(url, 'dl-' + entry.url, label);
+                var bytes;
+                if (entry.brotli) {
+                    postStatus('decoding ' + entry.url + '…', null, 'dec-' + entry.url);
+                    bytes = brotliDecode(raw);
+                    postStatus('decoded ' + entry.url + ' → ' + fmtBytes(bytes.length),
+                               'ok', 'dec-' + entry.url);
+                } else {
+                    bytes = new Uint8Array(raw);
+                }
+                mkdirsForFile(entry.dest);
+                FS.writeFile(entry.dest, bytes);
+            }
+
+            async function preloadVMAssets() {
+                // yaafc-specific asset layout: kernel + tinyemu-compatible
+                // opensbi ELF + rootfs live under assets/ (raw, not brotli).
+                // The cfg is fetched separately as text. All four go into
+                // /vm/ — matching BRIDGE_CFG_PATH ("/vm/yaafc.cfg") and the
+                // yaafc.cfg-internal paths for bios / kernel / drive0.
+                var entries = [
+                    { url: 'yaafc.cfg',                  dest: '/vm/yaafc.cfg',           brotli: false, text: true },
+                    { url: 'assets/kernel-riscv64.bin',  dest: '/vm/kernel-riscv64.bin',  brotli: false },
+                    { url: 'assets/opensbi-fw_jump.elf', dest: '/vm/opensbi-fw_jump.elf', brotli: false },
+                    { url: 'assets/alpine-rootfs.img',   dest: '/vm/alpine-rootfs.img',   brotli: false },
+                ];
+                postStatus('VM assets: ' + entries.length + ' files', 'phase');
+                for (var i = 0; i < entries.length; i++) {
+                    var entry = entries[i];
+                    var url = entry.url;
+                    var label = 'fetching ' + entry.url;
+                    var raw = await fetchWithProgress(url, 'dl-' + entry.url, label);
+                    var bytes = entry.text
+                        ? new TextEncoder().encode(
+                              new TextDecoder('utf-8').decode(raw))
+                        : new Uint8Array(raw);
+                    mkdirsForFile(entry.dest);
+                    FS.writeFile(entry.dest, bytes);
+                }
+                postStatus('all VM assets installed in MEMFS', 'ok');
+            }
+
+            // ---- emscripten Module hookup ----------------------------
+            // noInitialRun=false: main() runs and signals "runtime up";
+            // it doesn't init the VM. The actual VM init (init_vm +
+            // emscripten_set_main_loop) happens when we call
+            // _tinyemu_bridge_start AFTER the asset preload completes.
+            window.Module = {
+                noInitialRun: false,
+                print: function (t) { console.log('[tinyemu]', t); },
+                printErr: function (t) { console.warn('[tinyemu]', t); },
+                preRun: [function () {
+                    // The cfg's $YETTY_DATA_DIR expands at virt_machine_load_config_file
+                    // time → point it at the MEMFS root we preloaded into.
+                    if (typeof ENV !== 'undefined') {
+                        ENV.YETTY_DATA_DIR = '/yetty-vm';
+                    }
+                }],
+                onRuntimeInitialized: function () {
+                    postStatus('tinyemu.wasm runtime ready', 'ok');
+                    preloadVMAssets().then(function () {
+                        postStatus('starting RISC-V Linux VM…', 'phase');
+                        var rc = Module._tinyemu_bridge_start();
+                        if (rc !== 0) {
+                            postStatus('VM init failed (rc=' + rc + ')', 'err');
+                            return;
+                        }
+                        ready = true;
+                        document.getElementById('status').textContent =
+                            'TinyEMU running (pty ' + ptyId + ')';
+                        /* Heartbeat — every 3 s log a one-liner summary
+                         * of VM activity. Without this, when nothing
+                         * shows up in the parent overlay (e.g. /init
+                         * silently configuring eth0 + waiting on
+                         * runsvdir to start telnetd) you can't tell
+                         * whether the iframe is alive at all or has
+                         * been throttled to a halt by the browser.
+                         *
+                         * Reports:
+                         *   wall   — seconds since heartbeat started
+                         *   con    — total console bytes seen (kernel +
+                         *            userspace via bridge_console_write)
+                         *   conΔ   — bytes in the last interval
+                         *   srx    — total session-rx bytes (guest TCP
+                         *            replies — should be 0 until the
+                         *            telnet SYN is acked)
+                         *   srxN   — total session-rx events
+                         *   sess   — count of open sessions */
+                        var hbStart = performance.now();
+                        var hbLastCon = 0;
+                        var hbLastSrx = 0;
+                        var probesSent = 0;
+                        /* When the VM goes completely silent for too
+                         * long after /init has exec'd /bin/sh, we have
+                         * no way to tell whether telnetd actually
+                         * bound port 23 — the SYN may be retransmitting
+                         * forever against a guest that's not listening.
+                         * Inject a probe via the kernel's hvc0 console
+                         * (PID-1 shell) to dump network state and
+                         * service status. The probe output goes back
+                         * through the same bridge_console_write path
+                         * we already mirror, so it shows up in the
+                         * `[vm-iframe] | …` overlay lines. */
+                        function sendShellProbe(label) {
+                            probesSent++;
+                            console.log('[vm-iframe] sending shell probe #' +
+                                        probesSent + ' (' + label + ')');
+                            /* Wrap markers so we can find the probe
+                             * output cleanly even if the kernel emits
+                             * other lines while our commands run. */
+                            var script =
+                                '\n' +
+                                'echo "===PROBE' + probesSent + '_BEGIN ' + label + '==="\n' +
+                                'echo "eth0 mac:"; cat /sys/class/net/eth0/address 2>&1\n' +
+                                'echo "eth0 ip:"; ip -4 addr show eth0 2>&1\n' +
+                                'echo "listening:"; netstat -ltn 2>/dev/null || ss -ltn 2>&1\n' +
+                                'echo "arp:"; arp -an 2>&1 || ip neigh show 2>&1\n' +
+                                'echo "rx-stats:"; cat /sys/class/net/eth0/statistics/rx_packets /sys/class/net/eth0/statistics/rx_dropped 2>&1\n' +
+                                'echo "tx-stats:"; cat /sys/class/net/eth0/statistics/tx_packets /sys/class/net/eth0/statistics/tx_dropped 2>&1\n' +
+                                'echo "===PROBE' + probesSent + '_END==="\n';
+                            feedInput(script);
+                        }
+                        setInterval(function () {
+                            var wall = ((performance.now() - hbStart) / 1000).toFixed(1);
+                            var sessCount = 0;
+                            for (var k in sessionToWasm) sessCount++;
+                            var dCon = consoleBytesTotal - hbLastCon;
+                            var dSrx = sessionRxTotalBytes - hbLastSrx;
+                            hbLastCon = consoleBytesTotal;
+                            hbLastSrx = sessionRxTotalBytes;
+                            console.log('[vm-iframe HB] wall=' + wall + 's' +
+                                ' con=' + consoleBytesTotal +
+                                ' conΔ=' + dCon +
+                                ' srx=' + sessionRxTotalBytes +
+                                ' srxN=' + sessionRxTotalEvents +
+                                ' sess=' + sessCount +
+                                ' probes=' + probesSent +
+                                (sessCount > 0 ? ' connected=' +
+                                    Object.keys(sessionConnected)
+                                        .map(function (s) {
+                                            return s + ':' +
+                                                (sessionConnected[s] ? 'Y' : 'N');
+                                        }).join(',')
+                                    : ''));
+                            /* Probe schedule:
+                             *   - first probe at wall ≈ 9 s (kernel had
+                             *     a few ticks past /init, /bin/sh has
+                             *     definitely exec'd by then)
+                             *   - then every 60 s of continued silence
+                             * Stops once we observe any session-rx (we
+                             * don't want to keep injecting into a live
+                             * shell after the user has connected). */
+                            var wallNum = parseFloat(wall);
+                            if (sessionRxTotalBytes === 0 &&
+                                ((probesSent === 0 && wallNum >= 9) ||
+                                 (probesSent > 0 && wallNum >= probesSent * 60 + 9))) {
+                                sendShellProbe('hb-' + wallNum.toFixed(0) + 's');
+                            }
+                        }, 3000);
+                        // Push initial geometry once the VM is alive.
+                        feedResize(initialCols, initialRows);
+                        // Flush anything the parent sent during preload.
+                        for (var i = 0; i < pendingInput.length; i++) feedInput(pendingInput[i]);
+                        pendingInput = [];
+                        if (pendingResize) {
+                            feedResize(pendingResize.cols, pendingResize.rows);
+                            pendingResize = null;
+                        }
+                        // Drain queued session-open requests that were
+                        // posted while the VM was still booting. Each
+                        // open will flow through handleSessionOpen and
+                        // ack the parent with session-opened. Note:
+                        // telnetd inside the VM may still take seconds
+                        // to come up — slirp_chr_open succeeds
+                        // immediately (returns the synthetic socket)
+                        // but the SYN may RST until telnetd binds.
+                        // Yetty's telnet-pty handles reconnect upstream
+                        // if needed.
+                        for (var i = 0; i < pendingSessionOpens.length; i++) {
+                            handleSessionOpen(
+                                pendingSessionOpens[i].clientSid,
+                                pendingSessionOpens[i].port);
+                        }
+                        pendingSessionOpens = [];
+                        // Tell the parent the VM is up so it can launch
+                        // yetty.js. yetty's iframe-pty.c will then post
+                        // 'yetty-ready' back here, which flushes any
+                        // term-output buffered during the gap.
+                        postStatus('VM up — signalling parent', 'ok');
+                        try {
+                            window.parent.postMessage({
+                                type: 'vm-ready',
+                                ptyId: ptyId
+                            }, '*');
+                        } catch (_) {}
+                    }).catch(function (e) {
+                        postStatus('VM preload failed: ' +
+                                   (e && e.message || e), 'err');
+                        document.getElementById('status').textContent =
+                            'VM preload failed: ' + (e && e.message || e);
+                    });
+                }
+            };
+
+            // ---- Load yaafc-yemu.wasm runtime -----------------------
+            postStatus('loading yaafc-yemu.js…');
+            var s = document.createElement('script');
+            s.src = 'yaafc-yemu.js';
+            s.onerror = function () {
+                postStatus('failed to load yaafc-yemu.js', 'err');
+                document.getElementById('status').textContent =
+                    'Failed to load yaafc-yemu.js';
+            };
+            document.head.appendChild(s);
+        })();
+    </script>
+</body>
+</html>

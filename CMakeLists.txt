@@ -241,7 +241,8 @@ endforeach()
 
 add_executable(yaafc
     $<TARGET_OBJECTS:yaafc_ymain>
-    ${YAAFC_PLUGIN_OBJECTS})
+    ${YAAFC_PLUGIN_OBJECTS}
+    src/yaafc/yplatform/longjmp_chk_stub.c)
 add_dependencies(yaafc yaafc_ymain ${YAAFC_PLUGIN_TARGETS})
 target_link_libraries(yaafc PRIVATE yaafc_runtime sqlite3 libmdbx libgit2)
 
@@ -257,6 +258,7 @@ add_executable(yaafc-frontend
     src/yaafc/frontend/main.c
     src/yaafc/frontend/frontend.c
     src/yaafc/frontend/http_client.c
+    src/yaafc/yplatform/longjmp_chk_stub.c
 )
 target_link_libraries(yaafc-frontend PRIVATE yaafc_runtime)
 target_include_directories(yaafc-frontend PRIVATE

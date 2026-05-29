@@ -143,6 +143,12 @@ mesh:
     # yrpc | yttp), NOT a service name.
     gateway:
       port: 8080
+      # 0.0.0.0 so the gateway is reachable from outside the host the
+      # mesh runs on — required for the qemu hostfwd and the wasm/slirp
+      # bridge inside the in-browser VM. Backends stay 127.0.0.1 (their
+      # default) per the CLAUDE.md invariant: only the gateway is the
+      # external auth boundary; everything else is mesh-internal.
+      host: 0.0.0.0
       frontend: yhttp
       plugins: []
       config:
