@@ -55,11 +55,17 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build \
+            build-essential cmake ninja-build clang \
             gcc-riscv64-linux-gnu g++-riscv64-linux-gnu binutils-riscv64-linux-gnu \
             qemu-system-misc qemu-utils \
             e2fsprogs util-linux curl tar python3 \
             bc bison flex libssl-dev libelf-dev cpio rsync
+
+      # The yclass codegen runs `uv run codegen.py`. Without uv on PATH
+      # the cmake custom command `cmake -E env ... uv run ...` dies with
+      # a bare "No such file or directory" before any codegen happens.
+      - name: install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: diagnose toolchain
         run: |
