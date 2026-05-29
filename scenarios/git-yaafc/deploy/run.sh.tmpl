@@ -1,0 +1,146 @@
+#!/bin/sh
+# yaafc deploy launcher — single source of truth, runs identically on
+# the host (./build-deploy/run.sh) and inside the riscv64 VM
+# (/opt/git-yaafc/run.sh after build-image.sh copies this tree in).
+#
+# Layout next to this script:
+#   ./yaafc                  — yaafc binary (host-arch on host, riscv64
+#                              static under the VM; same name either way)
+#   ./yaafc.yaml             — mesh services config
+#   ./frontend/static/       — CSS + html + js the gateway serves
+#   ./run.sh                 — this file
+#
+# Bootstrap mirrors scenarios/git-yaafc/mesh-up.sh: start a parent
+# yaafc on a control port (yhttp), POST /create + /invoke to spawn the
+# whole mesh — backends + gateway on 8080 with the real HTML UI.
+#
+# IN-VM ONLY: when PID 1, also brings up /proc /sys /dev and slirp net
+# (those steps are no-ops on the host where init already set things up).
+
+set -u
+
+# Resolve dir of this script (works under busybox sh).
+HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+[ -n "${HERE}" ] || HERE=$(pwd)
+cd "${HERE}"
+
+export PATH="${HERE}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+say() { echo "[run.sh] $*"; }
+say "PID=$$ launcher start (cwd=${HERE})"
+
+# In-VM bootstrap: only do this when we ARE PID 1 (i.e. the kernel
+# exec'd us directly as init). On a host invocation PID 1 is systemd
+# or similar, and these steps would be wrong / harmful.
+if [ "$$" = "1" ]; then
+    say "PID 1 — mounting /proc /sys /dev, bringing up slirp net"
+    mount -t proc     proc /proc 2>&1 || say "  proc mount failed (ok if already mounted)"
+    mount -t sysfs    sys  /sys  2>&1 || say "  sys mount failed"
+    mount -t devtmpfs dev  /dev  2>&1 || say "  devtmpfs mount failed (ok if already mounted)"
+    ip link set lo up                  2>&1 || say "  lo up failed"
+    ip link set eth0 up                2>&1 || say "  eth0 up failed"
+    ip addr add 10.0.2.15/24 dev eth0  2>&1 || say "  ip addr add failed"
+    ip route add default via 10.0.2.2  2>&1 || say "  ip route add failed"
+fi
+
+# Where the parent yaafc writes per-service state. /tmp is fine for the
+# demo (rootfs lives in tmpfs / MEMFS anyway under wasm).
+mkdir -p /tmp/git-yaafc
+
+CTRL=8800
+YAAFC="${HERE}/yaafc"
+CFG="${HERE}/yaafc.yaml"
+
+if [ ! -x "${YAAFC}" ]; then
+    say "FAIL: ${YAAFC} not executable"
+    [ "$$" = "1" ] && exec sleep infinity
+    exit 1
+fi
+if [ ! -f "${CFG}" ]; then
+    say "FAIL: ${CFG} missing"
+    [ "$$" = "1" ] && exec sleep infinity
+    exit 1
+fi
+
+say "spawning parent yaafc (yhttp control on 127.0.0.1:${CTRL})"
+# yaafc must run with cwd = ${HERE} so the yaml's relative
+# ./frontend/static path resolves.
+#
+# Output sink: /dev/console under PID 1 (VM, prints to printk so
+# the qemu/wasm console picks it up), else just inherit parent's
+# stdout/stderr — relevant for `./run.sh > build-deploy/run.log` use
+# on the host where /dev/console is root-only.
+if [ "$$" = "1" ]; then
+    "${YAAFC}" --config-file "${CFG}" \
+        --frontend yhttp --host 127.0.0.1 --port ${CTRL} serve \
+        </dev/null >/dev/console 2>&1 &
+else
+    "${YAAFC}" --config-file "${CFG}" \
+        --frontend yhttp --host 127.0.0.1 --port ${CTRL} serve \
+        </dev/null &
+fi
+PARENT=$!
+say "parent pid=${PARENT}"
+
+# Wait for the control port to accept.
+say "waiting for control port ${CTRL}…"
+i=0
+while [ $i -lt 60 ]; do
+    if wget -q -O - --timeout=1 --tries=1 "http://127.0.0.1:${CTRL}/" >/dev/null 2>&1 \
+        || curl -sf --max-time 1 "http://127.0.0.1:${CTRL}/" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+    i=$((i + 1))
+done
+say "control port up after ${i}s"
+
+http_post() {
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -O - --header="Content-Type: application/json" \
+             --post-data="$2" "http://127.0.0.1:${CTRL}$1" 2>/dev/null
+    else
+        curl -sS --max-time 10 -XPOST -H 'Content-Type: application/json' \
+             "http://127.0.0.1:${CTRL}$1" -d "$2"
+    fi
+}
+
+say "POST /create {class:mesh_store}"
+CREATE_RESP=$(http_post /create '{"class":"mesh_store"}' || true)
+say "  → ${CREATE_RESP}"
+H=$(echo "${CREATE_RESP}" | sed -nE 's/.*"handle":([0-9]+).*/\1/p')
+if [ -z "${H}" ]; then
+    say "FAIL: no handle in create response — gateway won't come up"
+    [ "$$" = "1" ] && exec sleep infinity
+    exit 1
+fi
+say "  mesh_store handle=${H}"
+
+say "POST /invoke mesh_store_reconcile_from_config"
+INVOKE_RESP=$(http_post /invoke \
+    '{"method":"mesh_store_reconcile_from_config","handle":'${H}',"args":[]}' || true)
+say "  → ${INVOKE_RESP}"
+SPAWNED=$(echo "${INVOKE_RESP}" | sed -nE 's/.*"result":([0-9]+).*/\1/p')
+say "  spawned=${SPAWNED:-?} mesh children"
+
+say "waiting 3s for children to bind"
+sleep 3
+
+say "post-launch sockets:"
+netstat -ltn 2>&1 || ss -ltn 2>&1 || say "  no netstat/ss"
+
+say "mesh up — parent yaafc on :${CTRL}, gateway on :8080"
+
+if [ "$$" = "1" ]; then
+    # In-VM: PID 1 must never exit (would kernel-panic). Wait for the
+    # parent yaafc to die, then sleep forever for diagnostics.
+    wait ${PARENT}
+    say "parent yaafc exited rc=$?"
+    exec sleep infinity
+else
+    # Host: wait blocks the shell. Trap signals so Ctrl-C tears
+    # everything down cleanly.
+    trap 'say "shutting down"; kill ${PARENT} 2>/dev/null; exit 0' INT TERM
+    wait ${PARENT}
+    say "parent yaafc exited rc=$?"
+fi
