@@ -644,6 +644,26 @@ static void route_register_post(struct yloop_stream *s, const char *body,
     uint32_t uid = hash_username(uname);
     int64_t  pw  = hash_password(pwtext);
 
+    /* Store the credential FIRST, and CHECK it. If this is skipped or its
+     * result ignored (as it was), a failed password write — e.g. a backend
+     * still coming up during the slow in-browser VM boot — leaves a
+     * passwordless account in `accounts`, and every later login then fails
+     * with the misleading "invalid username or password". Doing the
+     * password write before the accounts entry also means a failure leaves
+     * nothing half-created, so the user can just retry once the mesh is up
+     * (the retry re-uses the now-stored hash: register returns 0 = already
+     * present, which is fine here). */
+    SVC_OPEN(pw_sv, "password_authn", password_authn_store_create);
+    if (!pw_sv.ok) { render_register(s, "password_authn unreachable", keep_alive); return; }
+    struct yaafc_int_result pwreg =
+        password_authn_store_register(&pw_sv.c, pw_sv.obj, NULL, uid, pw);
+    SVC_CLOSE(pw_sv);
+    if (YAAFC_IS_ERR(pwreg)) {
+        yaafc_error_destroy(pwreg.error);
+        render_register(s, "could not store credentials (backend not ready?) — try again", keep_alive);
+        return;
+    }
+
     SVC_OPEN(acc, "accounts", accounts_store_create);
     if (!acc.ok) { render_register(s, "accounts service unreachable", keep_alive); return; }
     struct yaafc_int_result reg = accounts_store_register(&acc.c, acc.obj, NULL, uid);
@@ -654,11 +674,6 @@ static void route_register_post(struct yloop_stream *s, const char *body,
         render_register(s, "username already taken", keep_alive);
         return;
     }
-
-    SVC_OPEN(pw_sv, "password_authn", password_authn_store_create);
-    if (!pw_sv.ok) { render_register(s, "password_authn unreachable", keep_alive); return; }
-    password_authn_store_register(&pw_sv.c, pw_sv.obj, NULL, uid, pw);
-    SVC_CLOSE(pw_sv);
 
     /* Bootstrap: the very first user becomes site-owner. After
      * `accounts.register` succeeds and the running total is 1, this
