@@ -11,6 +11,8 @@ __attribute__((unused))
 static git_repo_store_count_for_owner_fn _git_repo_store_git_repo_store_count_for_owner_check = git_repo_store_count_for_owner_impl;
 __attribute__((unused))
 static git_repo_store_count_total_fn _git_repo_store_git_repo_store_count_total_check = git_repo_store_count_total_impl;
+__attribute__((unused))
+static git_repo_store_list_for_owner_fn _git_repo_store_git_repo_store_list_for_owner_check = git_repo_store_list_for_owner_impl;
 
 struct class_ptr_result git_repo_store_class_get(void)
 {
@@ -29,6 +31,7 @@ struct class_ptr_result git_repo_store_class_get(void)
         {"git_repo", "store_owner_of", (method_id_t)git_repo_store_owner_of, (impl_t)git_repo_store_owner_of_impl},
         {"git_repo", "store_count_for_owner", (method_id_t)git_repo_store_count_for_owner, (impl_t)git_repo_store_count_for_owner_impl},
         {"git_repo", "store_count_total", (method_id_t)git_repo_store_count_total, (impl_t)git_repo_store_count_total_impl},
+        {"git_repo", "store_list_for_owner", (method_id_t)git_repo_store_list_for_owner, (impl_t)git_repo_store_list_for_owner_impl},
     };
     struct class_ptr_result _r =
         class_register(&desc, ops, sizeof(ops) / sizeof(ops[0]),

@@ -310,4 +310,37 @@ struct yaafc_size_result git_repo_store_count_total_impl(struct ctx *ctx, struct
     return YAAFC_OK(yaafc_size, gr(obj)->count);
 }
 
+/* List the repo names owned by `owner_id`, newline-separated (empty
+ * string if none). The caller (gateway namespace/repos pages) splits on
+ * '\n' and renders each as a link — without this there was no way to
+ * enumerate a user's repos by NAME, so created repos never showed up in
+ * any listing. Heap string; the caller owns and frees it (yaafc_string
+ * contract). */
+YAAFC_CLASS_ANNOTATE("override@git_repo:store:store_list_for_owner")
+struct yaafc_string_result git_repo_store_list_for_owner_impl(struct ctx *ctx, struct object *obj,
+                                                              struct yheaders *hdrs, uint32_t owner_id)
+{
+    (void)ctx; (void)hdrs;
+    struct git_repo_store_data *d = gr(obj);
+    size_t cap = 256, len = 0;
+    char *out = malloc(cap);
+    if (!out) return YAAFC_ERR(yaafc_string, "git_repo_list_for_owner: out of memory");
+    out[0] = 0;
+    for (size_t i = 0; i < REPOS_MAX; ++i) {
+        if (!d->entries[i].used || d->entries[i].owner_id != owner_id) continue;
+        size_t nl = strlen(d->entries[i].repo_name);
+        if (len + nl + 2 > cap) {
+            while (len + nl + 2 > cap) cap *= 2;
+            char *nb = realloc(out, cap);
+            if (!nb) { free(out); return YAAFC_ERR(yaafc_string, "git_repo_list_for_owner: out of memory"); }
+            out = nb;
+        }
+        memcpy(out + len, d->entries[i].repo_name, nl);
+        len += nl;
+        out[len++] = '\n';
+        out[len] = 0;
+    }
+    return YAAFC_OK(yaafc_string, out);
+}
+
 #include "store.gen.c"

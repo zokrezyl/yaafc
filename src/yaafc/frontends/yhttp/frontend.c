@@ -955,9 +955,38 @@ static void render_repos(struct yloop_stream *s, uint32_t uid,
     else buf_puts(&b, "git_repo unreachable");
     buf_puts(&b, "</span></header>");
     if (mine >= 0 && uname) {
-        buf_printf(&b, "<p class=\"muted small\">You own %lld repo%s — "
-                       "browse them at <a href=\"/%s\">/%s</a>.</p>",
-                   (long long)mine, mine == 1 ? "" : "s", uname, uname);
+        buf_printf(&b, "<p class=\"muted small\">You own %lld repo%s:</p>",
+                   (long long)mine, mine == 1 ? "" : "s");
+        /* List the signed-in user's repos by name as links. */
+        char *names = NULL;
+        SVC_OPEN(rlist, "git_repo", git_repo_store_create);
+        if (rlist.ok) {
+            struct yaafc_string_result lr =
+                git_repo_store_list_for_owner(&rlist.c, rlist.obj, NULL, uid);
+            SVC_CLOSE(rlist);
+            if (YAAFC_IS_OK(lr)) names = lr.value;
+            else yaafc_error_destroy(lr.error);
+        }
+        if (names && *names) {
+            buf_puts(&b, "<ul class=\"repo-list\">");
+            char *p = names;
+            while (*p) {
+                char *nl = strchr(p, '\n');
+                size_t seg = nl ? (size_t)(nl - p) : strlen(p);
+                if (seg) {
+                    char nm[80];
+                    size_t cn = seg < sizeof(nm) - 1 ? seg : sizeof(nm) - 1;
+                    memcpy(nm, p, cn);
+                    nm[cn] = 0;
+                    buf_printf(&b, "<li><a href=\"/%s/%s\">%s/%s</a></li>",
+                               uname, nm, uname, nm);
+                }
+                if (!nl) break;
+                p = nl + 1;
+            }
+            buf_puts(&b, "</ul>");
+        }
+        free(names);
     }
     if (total <= 0) {
         buf_puts(&b, "<p class=\"muted\">No repos yet. Use the form below.</p>");
@@ -1077,9 +1106,41 @@ static void render_account_landing(struct yloop_stream *s, uint32_t uid,
         buf_puts(&b, "<p class=\"muted\">No repos yet for this user. "
                      "Create one from <a href=\"/repos#new\">/repos</a>.</p>");
     } else {
-        buf_puts(&b, "<p class=\"muted small\">Repo names aren't indexed yet "
-                     "in the wire format — visit "
-                     "<code>/&lt;account&gt;/&lt;name&gt;</code> directly.</p>");
+        /* Enumerate the owner's repos by NAME and render each as a link.
+         * (Previously the page only showed a count and told you to guess
+         * the URL — so a created repo never appeared anywhere.) */
+        char *names = NULL;
+        SVC_OPEN(rlist, "git_repo", git_repo_store_create);
+        if (rlist.ok) {
+            struct yaafc_string_result lr =
+                git_repo_store_list_for_owner(&rlist.c, rlist.obj, NULL, acct_uid);
+            SVC_CLOSE(rlist);
+            if (YAAFC_IS_OK(lr)) names = lr.value;
+            else yaafc_error_destroy(lr.error);
+        }
+        if (names && *names) {
+            buf_puts(&b, "<ul class=\"repo-list\">");
+            char *p = names;
+            while (*p) {
+                char *nl = strchr(p, '\n');
+                size_t seg = nl ? (size_t)(nl - p) : strlen(p);
+                if (seg) {
+                    char nm[80];
+                    size_t cn = seg < sizeof(nm) - 1 ? seg : sizeof(nm) - 1;
+                    memcpy(nm, p, cn);
+                    nm[cn] = 0;
+                    /* name is reponame_ok-validated ([a-zA-Z0-9._-]) → safe. */
+                    buf_printf(&b, "<li><a href=\"/%s/%s\">%s/%s</a></li>",
+                               account, nm, account, nm);
+                }
+                if (!nl) break;
+                p = nl + 1;
+            }
+            buf_puts(&b, "</ul>");
+        } else {
+            buf_puts(&b, "<p class=\"muted\">No repos yet.</p>");
+        }
+        free(names);
     }
     buf_puts(&b, "</section>");
 

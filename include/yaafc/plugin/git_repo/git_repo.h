@@ -9,6 +9,7 @@
 
 struct yaafc_int_result;
 struct yaafc_size_result;
+struct yaafc_string_result;
 struct yaafc_uint32_result;
 struct yheaders;
 struct object_ptr_result;
@@ -26,5 +27,6 @@ struct yaafc_int_result git_repo_store_delete(struct ctx * ctx, struct object * 
 struct yaafc_uint32_result git_repo_store_owner_of(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t repo_id);
 struct yaafc_size_result git_repo_store_count_for_owner(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t owner_id);
 struct yaafc_size_result git_repo_store_count_total(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
+struct yaafc_string_result git_repo_store_list_for_owner(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t owner_id);
 
 #endif

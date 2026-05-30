@@ -11,5 +11,6 @@ typedef struct yaafc_int_result (*git_repo_store_delete_fn)(struct ctx *, struct
 typedef struct yaafc_uint32_result (*git_repo_store_owner_of_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
 typedef struct yaafc_size_result (*git_repo_store_count_for_owner_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
 typedef struct yaafc_size_result (*git_repo_store_count_total_fn)(struct ctx *, struct object *, struct yheaders *);
+typedef struct yaafc_string_result (*git_repo_store_list_for_owner_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
 
 #endif

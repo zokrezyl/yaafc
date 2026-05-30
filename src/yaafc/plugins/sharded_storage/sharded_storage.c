@@ -346,6 +346,20 @@ static const char *shard_rc_msg(enum shard_rc rc)
     return "unknown";
 }
 
+/* Format a storage error that names the offending <namespace>/<key>, so
+ * the skel's error log says WHICH key was missing/unwritable instead of a
+ * bare "key not found". The buffer is thread-local and read synchronously
+ * by the skel (log + wire-pack) right after this impl returns — before any
+ * other coroutine runs on this thread — so there's no aliasing across the
+ * cooperative yields. */
+static const char *shard_err_key(enum shard_rc rc, const char *ns, const char *key)
+{
+    static _Thread_local char buf[320];
+    snprintf(buf, sizeof(buf), "%s [%s/%s]", shard_rc_msg(rc),
+             ns ? ns : "?", key ? key : "?");
+    return buf;
+}
+
 /* ---- methods (same KV API as storage) ------------------------------ */
 
 YAAFC_CLASS_ANNOTATE("override@sharded_storage:db:db_set")
@@ -362,7 +376,7 @@ struct yaafc_int_result sharded_storage_db_set_impl(struct ctx *ctx, struct obje
     double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
     ydebug("span trace=%s op=shard.set.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("shard.set", span_us);
-    if (w.rc != SHARD_OK) return YAAFC_ERR(yaafc_int, shard_rc_msg(w.rc));
+    if (w.rc != SHARD_OK) return YAAFC_ERR(yaafc_int, shard_err_key(w.rc, context, key));
     return YAAFC_OK(yaafc_int, 1);
 }
 
@@ -379,7 +393,7 @@ struct yaafc_string_result sharded_storage_db_get_impl(struct ctx *ctx, struct o
     double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
     ydebug("span trace=%s op=shard.get.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("shard.get", span_us);
-    if (w.rc != SHARD_OK) return YAAFC_ERR(yaafc_string, shard_rc_msg(w.rc));
+    if (w.rc != SHARD_OK) return YAAFC_ERR(yaafc_string, shard_err_key(w.rc, context, key));
     return YAAFC_OK(yaafc_string, w.out_str);
 }
 

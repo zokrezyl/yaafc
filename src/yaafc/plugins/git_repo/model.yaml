@@ -66,6 +66,19 @@ methods:
         type: "struct object *"
       - name: hdrs
         type: "struct yheaders *"
+  - slot: store_list_for_owner
+    domain: git_repo
+    owning_class: store
+    return_type: struct yaafc_string_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: owner_id
+        type: uint32_t
 classes:
   - name: store
     domain: git_repo
@@ -91,3 +104,6 @@ classes:
       - slot: store_count_total
         slot_domain: git_repo
         impl: git_repo_store_count_total_impl
+      - slot: store_list_for_owner
+        slot_domain: git_repo
+        impl: git_repo_store_list_for_owner_impl
