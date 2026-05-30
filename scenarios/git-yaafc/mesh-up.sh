@@ -29,6 +29,14 @@ WEB=8080
 SIDE=8081
 DB=/tmp/git-yaafc/central.db
 
+# Start from a clean slate. Wipe the ENTIRE /tmp/git-yaafc tree, not just
+# central.db — the backends persist accounts/sessions in the sharded mdbx
+# store at /tmp/git-yaafc/sharded/, so leaving it behind makes a re-run
+# fail: `alice`/`bob` from the previous run still exist, so POST /register
+# returns "username already taken" (HTTP 200) instead of 303, and the
+# login/cookie assertions cascade. Removing the whole tree makes every
+# run reproducible.
+rm -rf /tmp/git-yaafc
 mkdir -p tmp /tmp/git-yaafc
 rm -f "$DB" tmp/mesh-parent.log
 
