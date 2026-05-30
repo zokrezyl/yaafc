@@ -6,8 +6,8 @@
 
 #include <yaafc/plugin/sharded_storage/sharded_storage.h>
 
-typedef struct yaafc_int_result (*sharded_storage_db_set_fn)(struct ctx *, struct object *, struct yheaders *, const char *, const char *, int64_t);
-typedef struct yaafc_int64_result (*sharded_storage_db_get_fn)(struct ctx *, struct object *, struct yheaders *, const char *, const char *);
+typedef struct yaafc_int_result (*sharded_storage_db_set_fn)(struct ctx *, struct object *, struct yheaders *, const char *, const char *, const char *);
+typedef struct yaafc_string_result (*sharded_storage_db_get_fn)(struct ctx *, struct object *, struct yheaders *, const char *, const char *);
 typedef struct yaafc_int_result (*sharded_storage_db_exists_fn)(struct ctx *, struct object *, struct yheaders *, const char *, const char *);
 typedef struct yaafc_int_result (*sharded_storage_db_del_fn)(struct ctx *, struct object *, struct yheaders *, const char *, const char *);
 typedef struct yaafc_size_result (*sharded_storage_db_count_fn)(struct ctx *, struct object *, struct yheaders *, const char *);

@@ -45,7 +45,7 @@ mesh:
       # table is per-worker (a connection is pinned to one worker for its
       # lifetime); the class registry is shared read-only. Omitted ⇒ 1
       # (single-threaded). Requires libco built with -DLIBCO_MP.
-      workers: 8
+      # workers: 8
       plugins: [sharded_storage]
       config:
         sharded_storage:
@@ -54,7 +54,7 @@ mesh:
 
     session:
       port: 8203
-      workers: 4
+      # workers: 4
       plugins: [session]
       config:
         remotes:
@@ -109,7 +109,7 @@ mesh:
 
     git_repo:
       port: 8209
-      workers: 4
+      # workers: 4
       plugins: [git_repo]
       config:
         git_repo:
@@ -180,7 +180,7 @@ mesh:
       # holds its own loop + coroutine scheduler and its own warm yrpc
       # connection set to every backend, all sharing this port via
       # SO_REUSEPORT. Omitted ⇒ 1. Requires libco built with -DLIBCO_MP.
-      workers: 8
+      # workers: 8
       plugins: []
       config:
         yhttp:

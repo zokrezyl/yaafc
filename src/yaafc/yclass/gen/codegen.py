@@ -102,9 +102,18 @@ def ret_value_type(rid: str):
         return "int64_t"
     if rid == "yaafc_uint32":
         return "uint32_t"
+    if rid == "yaafc_string":
+        return "char *"
     if rid.endswith("_ptr"):
         return f"struct {rid[:-4]} *"
     return f"struct {rid}"
+
+
+def is_string_ret(vt) -> bool:
+    """A heap-owned string return value (`char *`). Packed on the wire as
+    u32 len + bytes; the caller owns and frees it. Distinct from the
+    fixed-width scalar returns, which are raw memcpy'd."""
+    return vt == "char *"
 
 
 # ============== model — annotated C → in-memory dict ====================
@@ -120,7 +129,19 @@ def ret_value_type(rid: str):
 
 def ast_dump(path: Path, include_dirs: list) -> dict:
     clang = os.environ.get("CLANG", "clang")
-    cmd = [clang, "-Xclang", "-ast-dump=json", "-fsyntax-only", "-std=c2x"]
+    # The annotated source #includes its own (possibly STALE) *.gen.c —
+    # the very file this pass is about to regenerate. When an impl's
+    # signature changes, the stale gen's function-pointer initialisers no
+    # longer match, which C23 reports as a hard error and would abort the
+    # AST dump before we can emit the fresh gen (a bootstrap deadlock).
+    # This pass only needs to PARSE the impls to extract the model, so
+    # downgrade exactly those stale-gen mismatch categories to warnings;
+    # the real compile step (separate, with the freshly written gen) still
+    # enforces them fully.
+    cmd = [clang, "-Xclang", "-ast-dump=json", "-fsyntax-only", "-std=c2x",
+           "-Wno-error=incompatible-function-pointer-types",
+           "-Wno-error=incompatible-pointer-types",
+           "-Wno-error=int-conversion"]
     for d in include_dirs:
         cmd.append(f"-I{d}")
     # Honour YAAFC_CODEGEN_EXTRA_INCLUDES — caller (the cmake custom-command,
@@ -614,11 +635,15 @@ def emit_dispatch_body(m: dict) -> str:
     # trace id reconstructs the end-to-end latency timeline. This span
     # measures the full round trip (transport + remote execution); the
     # skel emits a matching `op=skel.<slot>` span for the remote half.
+    # String returns can be long, so the response buffer must hold
+    # u8 status + u32 len + up to WIRE_STRING_MAX value bytes. Scalar /
+    # error responses fit comfortably in the small buffer.
+    wbuf_sz = (1 + 4 + WIRE_STRING_MAX) if is_string_ret(vt) else (1 + 4 + 256)
     timed_rpc = f"""\
         const char *span_trace = {hdrs_name} ? yheaders_get({hdrs_name}, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[{wbuf_sz}];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -639,6 +664,19 @@ def emit_dispatch_body(m: dict) -> str:
 """
     if vt is None:
         remote_call = timed_rpc + err_parse + "        return YAAFC_OK_VOID();\n"
+    elif is_string_ret(vt):
+        # Unpack u32 len + bytes into an owned heap string the caller frees.
+        remote_call = timed_rpc + err_parse + f"""\
+        if (_wn < 5) return YAAFC_ERR({rid}, "{slot_qname}: truncated string response");
+        uint32_t _slen;
+        memcpy(&_slen, _wbuf + 1, 4);
+        if (_wn < (size_t)5 + _slen) return YAAFC_ERR({rid}, "{slot_qname}: truncated string payload");
+        char *_sv = malloc((size_t)_slen + 1);
+        if (!_sv) return YAAFC_ERR({rid}, "{slot_qname}: out of memory");
+        if (_slen) memcpy(_sv, _wbuf + 5, _slen);
+        _sv[_slen] = 0;
+        return YAAFC_OK({rid}, _sv);
+"""
     else:
         remote_call = timed_rpc + err_parse + f"""\
         if (_wn != 1 + sizeof({vt})) return YAAFC_ERR({rid}, "{slot_qname}: truncated RPC payload");
@@ -695,7 +733,7 @@ def emit_methods_c(model: dict, module: str, out_path: Path):
              '#include <yaafc/ycore/yspan.h>\n',
              '#include <yaafc/yclass/rpc.h>\n',
              '#include <yaafc/yclass/yheaders.h>\n',
-             '#include <stdint.h>\n#include <string.h>\n\n']
+             '#include <stdint.h>\n#include <stdlib.h>\n#include <string.h>\n\n']
     for m in model["methods"]:
         params = ", ".join(f"{a['type']} {a['name']}" for a in m["args"])
         rt = result_type(m["return_type"])
@@ -955,6 +993,24 @@ def emit_skel(m: dict) -> str:
     ((uint8_t *)_resp)[0] = 0;
     return 1;
 """
+    elif is_string_ret(vt):
+        # Pack u8 status=0, u32 len, len bytes. The impl returns an owned
+        # heap string in `_r.value`; free it once it is on the wire.
+        body = invoke_and_span + f"""\
+    if (_resp_max < 1) return 0;
+    if (YAAFC_IS_ERR(_r)) {{
+{err_pack}    }}
+    {{
+        const char *_sv = _r.value ? _r.value : "";
+        uint32_t _svlen = (uint32_t)strlen(_sv);
+        if (_resp_max < 1 + 4 + (size_t)_svlen) {{ free(_r.value); return 0; }}
+        ((uint8_t *)_resp)[0] = 0;
+        memcpy((uint8_t *)_resp + 1, &_svlen, 4);
+        if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
+        free(_r.value);
+        return 1 + 4 + (size_t)_svlen;
+    }}
+"""
     else:
         body = invoke_and_span + f"""\
     if (_resp_max < 1) return 0;
@@ -1157,7 +1213,13 @@ def emit_jinvoke(m: dict) -> str:
         write_result = "    yjson_w_int(result, (int64_t)call_result.value);\n"
     elif vt in ("double", "float"):
         write_result = "    yjson_w_float(result, (double)call_result.value);\n"
-    elif vt.startswith("const char") or vt == "char *":
+    elif vt == "char *":
+        # yaafc_string: owned heap return — write it, then free it.
+        write_result = (
+            "    yjson_w_string(result, call_result.value ? call_result.value : \"\");\n"
+            "    free(call_result.value);\n")
+    elif vt.startswith("const char"):
+        # Borrowed string (not owned) — write, do not free.
         write_result = "    yjson_w_string(result, call_result.value ? call_result.value : \"\");\n"
     else:
         write_result = ("    yjson_w_null(result);  "

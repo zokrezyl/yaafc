@@ -826,9 +826,9 @@ static int is_site_admin(uint32_t uid)
     if (!repo_storage_open(&st)) return 0;
     char k[64];
     snprintf(k, sizeof(k), "role:%u", uid);
-    struct yaafc_int64_result r = sharded_storage_db_get(&st.c, st.obj, NULL, "accounts", k);
-    int admin = YAAFC_IS_OK(r) && r.value >= 1;
-    if (YAAFC_IS_ERR(r)) yaafc_error_destroy(r.error);
+    struct yaafc_string_result r = sharded_storage_db_get(&st.c, st.obj, NULL, "accounts", k);
+    int admin = YAAFC_IS_OK(r) && r.value && strtoll(r.value, NULL, 10) >= 1;
+    if (YAAFC_IS_OK(r)) free(r.value); else yaafc_error_destroy(r.error);
     SVC_CLOSE(st);
     return admin;
 }
@@ -843,7 +843,7 @@ static void promote_to_site_admin(uint32_t uid)
     if (!repo_storage_open(&st)) return;
     char k[64];
     snprintf(k, sizeof(k), "role:%u", uid);
-    sharded_storage_db_set(&st.c, st.obj, NULL, "accounts", k, 1);
+    sharded_storage_db_set(&st.c, st.obj, NULL, "accounts", k, "1");
     SVC_CLOSE(st);
     yinfo("authz: uid=%u bootstrapped as site-owner", uid);
 }
@@ -860,12 +860,14 @@ static uint32_t repo_register(const char *account, const char *name, uint32_t ow
     if (!repo_storage_open(&st)) return 0;
     char k[96];
     snprintf(k, sizeof(k), "by_id:%u", rid);
-    sharded_storage_db_set(&st.c, st.obj, NULL, "repos", k, 1);
+    sharded_storage_db_set(&st.c, st.obj, NULL, "repos", k, "1");
     snprintf(k, sizeof(k), "owner:%u:count", owner_uid);
-    struct yaafc_int64_result cur = sharded_storage_db_get(&st.c, st.obj, NULL, "repos", k);
-    int64_t count = (YAAFC_IS_OK(cur) ? cur.value : 0) + 1;
-    if (YAAFC_IS_ERR(cur)) yaafc_error_destroy(cur.error);
-    sharded_storage_db_set(&st.c, st.obj, NULL, "repos", k, count);
+    struct yaafc_string_result cur = sharded_storage_db_get(&st.c, st.obj, NULL, "repos", k);
+    int64_t count = (YAAFC_IS_OK(cur) && cur.value ? strtoll(cur.value, NULL, 10) : 0) + 1;
+    if (YAAFC_IS_OK(cur)) free(cur.value); else yaafc_error_destroy(cur.error);
+    char cbuf[32];
+    snprintf(cbuf, sizeof(cbuf), "%lld", (long long)count);
+    sharded_storage_db_set(&st.c, st.obj, NULL, "repos", k, cbuf);
     SVC_CLOSE(st);
     return rid;
 }
@@ -889,9 +891,9 @@ static int64_t repo_count_for_owner(uint32_t owner_uid)
     if (!repo_storage_open(&st)) return -1;
     char k[64];
     snprintf(k, sizeof(k), "owner:%u:count", owner_uid);
-    struct yaafc_int64_result r = sharded_storage_db_get(&st.c, st.obj, NULL, "repos", k);
-    int64_t v = YAAFC_IS_OK(r) ? r.value : 0;
-    if (YAAFC_IS_ERR(r)) yaafc_error_destroy(r.error);
+    struct yaafc_string_result r = sharded_storage_db_get(&st.c, st.obj, NULL, "repos", k);
+    int64_t v = (YAAFC_IS_OK(r) && r.value) ? strtoll(r.value, NULL, 10) : 0;
+    if (YAAFC_IS_OK(r)) free(r.value); else yaafc_error_destroy(r.error);
     SVC_CLOSE(st);
     return v;
 }

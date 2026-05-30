@@ -269,13 +269,19 @@ static int cmd_client(struct yaafc_engine *e)
     if (YAAFC_IS_ERR(kv_r)) { peer_channel_destroy(s); return die_err("kv_create", kv_r.error); }
     struct object *kv = kv_r.value;
     for (uint32_t k = 1; k <= 3; ++k) {
-        struct yaafc_int_result sr = storage_kv_set(&ctx, kv, NULL, k, (int32_t)(k * 10));
+        char key[16], val[16];
+        snprintf(key, sizeof(key), "k%u", k);
+        snprintf(val, sizeof(val), "%u", k * 10);
+        struct yaafc_int_result sr = storage_kv_set(&ctx, kv, NULL, key, val);
         if (YAAFC_IS_ERR(sr)) { peer_channel_destroy(s); return die_err("kv_set", sr.error); }
     }
     for (uint32_t k = 1; k <= 3; ++k) {
-        struct yaafc_int_result gr = storage_kv_get(&ctx, kv, NULL, k);
+        char key[16];
+        snprintf(key, sizeof(key), "k%u", k);
+        struct yaafc_string_result gr = storage_kv_get(&ctx, kv, NULL, key);
         if (YAAFC_IS_ERR(gr)) { peer_channel_destroy(s); return die_err("kv_get", gr.error); }
-        yinfo("client: kv[%u] = %d", k, gr.value);
+        yinfo("client: kv[%s] = %s", key, gr.value ? gr.value : "(null)");
+        free(gr.value);
     }
     object_release_in_ctx(&ctx, kv); /* remote proxy is cached on the channel */
 

@@ -6,6 +6,7 @@
 #include <yaafc/yclass/rpc.h>
 #include <yaafc/yclass/yheaders.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct yaafc_int_result github_authn_store_set_credentials(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t client_id, uint32_t secret_id)
@@ -54,7 +55,7 @@ struct yaafc_int_result github_authn_store_set_credentials(struct ctx * ctx, str
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -127,7 +128,7 @@ struct yaafc_int_result github_authn_store_register_code(struct ctx * ctx, struc
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -197,7 +198,7 @@ struct yaafc_uint32_result github_authn_store_resolve(struct ctx * ctx, struct o
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -264,7 +265,7 @@ struct yaafc_size_result github_authn_store_count_codes(struct ctx * ctx, struct
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;

@@ -132,8 +132,8 @@ struct storage_work {
     enum storage_op op;
     const char *context;
     const char *key;
-    int64_t value;     /* in:  set */
-    int64_t out_i64;   /* out: get */
+    const char *value; /* in:  set (opaque NUL-terminated string/bytes) */
+    char *out_str;     /* out: get — heap, NUL-terminated, owned by caller */
     int out_i;         /* out: exists / del */
     size_t out_sz;     /* out: count */
     enum storage_rc rc;
@@ -146,7 +146,7 @@ static void storage_work_fn(void *arg)
     const struct backend_ops *vt = w->d->vt;
     switch (w->op) {
     case STORAGE_OP_SET:    w->rc = vt->set(w->d, w->context, w->key, w->value); break;
-    case STORAGE_OP_GET:    w->rc = vt->get(w->d, w->context, w->key, &w->out_i64); break;
+    case STORAGE_OP_GET:    w->rc = vt->get(w->d, w->context, w->key, &w->out_str); break;
     case STORAGE_OP_EXISTS: w->rc = vt->exists(w->d, w->context, w->key, &w->out_i); break;
     case STORAGE_OP_DEL:    w->rc = vt->del(w->d, w->context, w->key, &w->out_i); break;
     case STORAGE_OP_COUNT:  w->rc = vt->count(w->d, w->context, &w->out_sz); break;
@@ -167,7 +167,7 @@ static void storage_run(struct storage_work *w)
 YAAFC_CLASS_ANNOTATE("override@storage:db:set")
 struct yaafc_int_result storage_set_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
                                          const char *context, const char *key,
-                                         int64_t value)
+                                         const char *value)
 {
     (void)ctx;
     const char *trace = hdrs ? yheaders_get(hdrs, "trace_id") : NULL;
@@ -182,27 +182,27 @@ struct yaafc_int_result storage_set_impl(struct ctx *ctx, struct object *obj, st
     ydebug("span trace=%s op=db.set.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("db.set", span_us);
     if (w.rc != STORAGE_RC_OK) return YAAFC_ERR(yaafc_int, rc_msg(w.rc));
-    yinfo("storage_set: %s/%s=%lld", context, key, (long long)value);
+    yinfo("storage_set: %s/%s=%s", context, key, value ? value : "");
     return YAAFC_OK(yaafc_int, 1);
 }
 
 YAAFC_CLASS_ANNOTATE("override@storage:db:get")
-struct yaafc_int64_result storage_get_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                                           const char *context, const char *key)
+struct yaafc_string_result storage_get_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
+                                            const char *context, const char *key)
 {
     (void)ctx;
     const char *trace = hdrs ? yheaders_get(hdrs, "trace_id") : NULL;
     struct storage_data *d = sd(obj);
     struct yaafc_void_result eb = ensure_backend(d);
-    if (YAAFC_IS_ERR(eb)) return YAAFC_ERR(yaafc_int64, "storage_get: backend init failed", eb);
+    if (YAAFC_IS_ERR(eb)) return YAAFC_ERR(yaafc_string, "storage_get: backend init failed", eb);
     struct storage_work w = {.d = d, .op = STORAGE_OP_GET, .context = context, .key = key};
     double span_start = yaafc_ytime_monotonic_sec();
     storage_run(&w);
     double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
     ydebug("span trace=%s op=db.get.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("db.get", span_us);
-    if (w.rc != STORAGE_RC_OK) return YAAFC_ERR(yaafc_int64, rc_msg(w.rc));
-    return YAAFC_OK(yaafc_int64, w.out_i64);
+    if (w.rc != STORAGE_RC_OK) return YAAFC_ERR(yaafc_string, rc_msg(w.rc));
+    return YAAFC_OK(yaafc_string, w.out_str);
 }
 
 YAAFC_CLASS_ANNOTATE("override@storage:db:exists")

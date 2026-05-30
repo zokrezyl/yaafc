@@ -6,6 +6,7 @@
 #include <yaafc/yclass/rpc.h>
 #include <yaafc/yclass/yheaders.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct yaafc_uint32_result git_pipeline_store_enqueue(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t repo_id)
@@ -51,7 +52,7 @@ struct yaafc_uint32_result git_pipeline_store_enqueue(struct ctx * ctx, struct o
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -121,7 +122,7 @@ struct yaafc_uint32_result git_pipeline_store_lease(struct ctx * ctx, struct obj
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -194,7 +195,7 @@ struct yaafc_int_result git_pipeline_store_complete(struct ctx * ctx, struct obj
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -261,7 +262,7 @@ struct yaafc_size_result git_pipeline_store_count_pending(struct ctx * ctx, stru
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -328,7 +329,7 @@ struct yaafc_size_result git_pipeline_store_count_running(struct ctx * ctx, stru
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -395,7 +396,7 @@ struct yaafc_size_result git_pipeline_store_count_done(struct ctx * ctx, struct 
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;

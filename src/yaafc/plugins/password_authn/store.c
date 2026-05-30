@@ -58,11 +58,23 @@ static void close_storage(struct pw_storage_handle *h)
     (void)h;
 }
 
+/* The store holds string values; the password hash and the registered
+ * count are integers, so serialize as decimal strings and parse back. */
+static void kv_set_int(struct pw_storage_handle *h, struct yheaders *hdrs,
+                       const char *key, int64_t value)
+{
+    char vbuf[32];
+    snprintf(vbuf, sizeof(vbuf), "%lld", (long long)value);
+    sharded_storage_db_set(&h->c, h->obj, hdrs, PW_CTX, key, vbuf);
+}
+
 static int64_t kv_get_or(struct pw_storage_handle *h, struct yheaders *hdrs, const char *key, int64_t fallback)
 {
-    struct yaafc_int64_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, PW_CTX, key);
+    struct yaafc_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, PW_CTX, key);
     if (YAAFC_IS_ERR(r)) { yaafc_error_destroy(r.error); return fallback; }
-    return r.value;
+    int64_t v = r.value ? strtoll(r.value, NULL, 10) : fallback;
+    free(r.value);
+    return v;
 }
 
 static int kv_exists(struct pw_storage_handle *h, struct yheaders *hdrs, const char *key)
@@ -85,9 +97,9 @@ struct yaafc_int_result password_authn_store_register_impl(struct ctx *ctx, stru
     char k[64];
     snprintf(k, sizeof(k), "hash:%u", user_id);
     if (kv_exists(&h, hdrs, k)) { close_storage(&h); return YAAFC_OK(yaafc_int, 0); }
-    sharded_storage_db_set(&h.c, h.obj, hdrs, PW_CTX, k, hash);
+    kv_set_int(&h, hdrs, k, hash);
     int64_t count = kv_get_or(&h, hdrs, "count", 0) + 1;
-    sharded_storage_db_set(&h.c, h.obj, hdrs, PW_CTX, "count", count);
+    kv_set_int(&h, hdrs, "count", count);
     close_storage(&h);
     yinfo("password_authn: registered uid=%u", user_id);
     return YAAFC_OK(yaafc_int, 1);
@@ -124,7 +136,7 @@ struct yaafc_int_result password_authn_store_change_password_impl(struct ctx *ct
     char k[64];
     snprintf(k, sizeof(k), "hash:%u", user_id);
     if (!kv_exists(&h, hdrs, k)) { close_storage(&h); return YAAFC_OK(yaafc_int, 0); }
-    sharded_storage_db_set(&h.c, h.obj, hdrs, PW_CTX, k, hash);
+    kv_set_int(&h, hdrs, k, hash);
     close_storage(&h);
     return YAAFC_OK(yaafc_int, 1);
 }

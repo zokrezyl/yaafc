@@ -15,11 +15,11 @@ methods:
       - name: key
         type: "const char *"
       - name: value
-        type: int64_t
+        type: "const char *"
   - slot: db_get
     domain: sharded_storage
     owning_class: db
-    return_type: struct yaafc_int64_result
+    return_type: struct yaafc_string_result
     args:
       - name: ctx
         type: "struct ctx *"

@@ -206,7 +206,7 @@ static enum storage_rc bmdbx_setup(struct storage_data *d, const char *context,
 }
 
 static enum storage_rc bmdbx_set(struct storage_data *d, const char *context,
-                                 const char *key, int64_t value)
+                                 const char *key, const char *value)
 {
     MDBX_env *env;
     MDBX_dbi dbi;
@@ -216,7 +216,8 @@ static enum storage_rc bmdbx_set(struct storage_data *d, const char *context,
     if (mdbx_txn_begin(env, NULL, MDBX_TXN_READWRITE, &txn) != MDBX_SUCCESS)
         return STORAGE_RC_INTERNAL;
     MDBX_val k = {.iov_base = (void *)key, .iov_len = strlen(key)};
-    MDBX_val v = {.iov_base = &value, .iov_len = sizeof(value)};
+    MDBX_val v = {.iov_base = (void *)(value ? value : ""),
+                  .iov_len = value ? strlen(value) : 0};
     int r = mdbx_put(txn, dbi, &k, &v, MDBX_UPSERT);
     if (r != MDBX_SUCCESS) {
         mdbx_txn_abort(txn);
@@ -229,7 +230,7 @@ static enum storage_rc bmdbx_set(struct storage_data *d, const char *context,
 }
 
 static enum storage_rc bmdbx_get(struct storage_data *d, const char *context,
-                                 const char *key, int64_t *out)
+                                 const char *key, char **out)
 {
     MDBX_env *env;
     MDBX_dbi dbi;
@@ -242,9 +243,16 @@ static enum storage_rc bmdbx_get(struct storage_data *d, const char *context,
     MDBX_val v = {0};
     int r = mdbx_get(txn, dbi, &k, &v);
     enum storage_rc result;
-    if (r == MDBX_SUCCESS && v.iov_len >= sizeof(int64_t)) {
-        memcpy(out, v.iov_base, sizeof(int64_t));
-        result = STORAGE_RC_OK;
+    if (r == MDBX_SUCCESS) {
+        char *copy = malloc(v.iov_len + 1);
+        if (!copy) {
+            result = STORAGE_RC_INTERNAL;
+        } else {
+            if (v.iov_len) memcpy(copy, v.iov_base, v.iov_len);
+            copy[v.iov_len] = 0;
+            *out = copy;
+            result = STORAGE_RC_OK;
+        }
     } else if (r == MDBX_NOTFOUND) {
         result = STORAGE_RC_NOT_FOUND;
     } else {

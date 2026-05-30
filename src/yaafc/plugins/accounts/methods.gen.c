@@ -6,6 +6,7 @@
 #include <yaafc/yclass/rpc.h>
 #include <yaafc/yclass/yheaders.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct yaafc_int_result accounts_store_register(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid)
@@ -51,7 +52,7 @@ struct yaafc_int_result accounts_store_register(struct ctx * ctx, struct object 
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -121,7 +122,7 @@ struct yaafc_int_result accounts_store_exists(struct ctx * ctx, struct object * 
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -194,7 +195,7 @@ struct yaafc_int_result accounts_store_set_balance(struct ctx * ctx, struct obje
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -264,7 +265,7 @@ struct yaafc_int64_result accounts_store_balance(struct ctx * ctx, struct object
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
@@ -331,7 +332,7 @@ struct yaafc_size_result accounts_store_count(struct ctx * ctx, struct object * 
         const char *span_trace = hdrs ? yheaders_get(hdrs, "trace_id") : "-";
         if (!span_trace) span_trace = "-";
         double span_start = yaafc_ytime_monotonic_sec();
-        uint8_t _wbuf[1 + 4 + 256];
+        uint8_t _wbuf[261];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;

@@ -34,12 +34,14 @@ enum storage_rc {
 };
 
 struct backend_ops {
-    /* set(context, key, value) → STORAGE_RC_OK on success. */
+    /* set(context, key, value) → STORAGE_RC_OK on success. `value` is an
+     * opaque NUL-terminated string/byte sequence. */
     enum storage_rc (*set)(struct storage_data *d, const char *context,
-                           const char *key, int64_t value);
-    /* get(context, key, *out) → STORAGE_RC_NOT_FOUND if absent. */
+                           const char *key, const char *value);
+    /* get(context, key, *out) → STORAGE_RC_NOT_FOUND if absent. On OK,
+     * *out is a heap-allocated NUL-terminated copy the caller frees. */
     enum storage_rc (*get)(struct storage_data *d, const char *context,
-                           const char *key, int64_t *out);
+                           const char *key, char **out);
     /* exists(context, key) → STORAGE_RC_OK with *out=1/0. */
     enum storage_rc (*exists)(struct storage_data *d, const char *context,
                               const char *key, int *out);

@@ -43,6 +43,11 @@ YAAFC_RESULT_DECLARE(yaafc_int, int);
 YAAFC_RESULT_DECLARE(yaafc_size, size_t);
 YAAFC_RESULT_DECLARE(yaafc_int64, int64_t);
 YAAFC_RESULT_DECLARE(yaafc_uint32, uint32_t);
+/* Owned, heap-allocated, NUL-terminated string (or opaque bytes with a
+ * trailing NUL). The OK consumer takes ownership of `.value` and must
+ * free() it. Used by the storage `get` methods, whose values are
+ * strings/bytes rather than fixed-width integers. */
+YAAFC_RESULT_DECLARE(yaafc_string, char *);
 
 struct yaafc_error *yaafc_error_chain(struct yaafc_error prev);
 void yaafc_error_destroy(struct yaafc_error err);

@@ -211,8 +211,8 @@ struct shard_work {
     enum shard_op op;
     const char *ns;
     const char *key;
-    int64_t value;     /* in:  set */
-    int64_t out_i64;   /* out: get */
+    const char *value; /* in:  set (opaque string/bytes, NUL-terminated) */
+    char *out_str;     /* out: get — heap, NUL-terminated, owned by caller */
     int out_i;         /* out: exists/del */
     size_t out_sz;     /* out: count */
     enum shard_rc rc;
@@ -263,7 +263,10 @@ static void shard_work_fn(void *arg)
 
     switch (w->op) {
     case OP_SET: {
-        MDBX_val v = {.iov_base = &w->value, .iov_len = sizeof(w->value)};
+        /* Store the value's raw bytes (no trailing NUL — the length is
+         * carried by mdbx). get re-adds a NUL when it copies out. */
+        MDBX_val v = {.iov_base = (void *)w->value,
+                      .iov_len = w->value ? strlen(w->value) : 0};
         int r = mdbx_put(txn, dbi, &k, &v, MDBX_UPSERT);
         if (r != MDBX_SUCCESS || mdbx_txn_commit(txn) != MDBX_SUCCESS) {
             if (r != MDBX_SUCCESS) mdbx_txn_abort(txn);
@@ -275,8 +278,16 @@ static void shard_work_fn(void *arg)
     case OP_GET: {
         MDBX_val v = {0};
         int r = mdbx_get(txn, dbi, &k, &v);
-        if (r == MDBX_SUCCESS && v.iov_len >= sizeof(int64_t)) {
-            memcpy(&w->out_i64, v.iov_base, sizeof(int64_t)); w->rc = SHARD_OK;
+        if (r == MDBX_SUCCESS) {
+            char *out = malloc(v.iov_len + 1);
+            if (!out) {
+                w->rc = SHARD_INTERNAL;
+            } else {
+                if (v.iov_len) memcpy(out, v.iov_base, v.iov_len);
+                out[v.iov_len] = 0;
+                w->out_str = out;
+                w->rc = SHARD_OK;
+            }
         } else if (r == MDBX_NOTFOUND) {
             w->rc = SHARD_NOT_FOUND;
         } else {
@@ -341,7 +352,7 @@ YAAFC_CLASS_ANNOTATE("override@sharded_storage:db:db_set")
 struct yaafc_int_result sharded_storage_db_set_impl(struct ctx *ctx, struct object *obj,
                                                     struct yheaders *hdrs,
                                                     const char *context, const char *key,
-                                                    int64_t value)
+                                                    const char *value)
 {
     (void)ctx; (void)obj;
     const char *trace = hdrs ? yheaders_get(hdrs, "trace_id") : NULL;
@@ -356,9 +367,9 @@ struct yaafc_int_result sharded_storage_db_set_impl(struct ctx *ctx, struct obje
 }
 
 YAAFC_CLASS_ANNOTATE("override@sharded_storage:db:db_get")
-struct yaafc_int64_result sharded_storage_db_get_impl(struct ctx *ctx, struct object *obj,
-                                                      struct yheaders *hdrs,
-                                                      const char *context, const char *key)
+struct yaafc_string_result sharded_storage_db_get_impl(struct ctx *ctx, struct object *obj,
+                                                       struct yheaders *hdrs,
+                                                       const char *context, const char *key)
 {
     (void)ctx; (void)obj;
     const char *trace = hdrs ? yheaders_get(hdrs, "trace_id") : NULL;
@@ -368,8 +379,8 @@ struct yaafc_int64_result sharded_storage_db_get_impl(struct ctx *ctx, struct ob
     double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
     ydebug("span trace=%s op=shard.get.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("shard.get", span_us);
-    if (w.rc != SHARD_OK) return YAAFC_ERR(yaafc_int64, shard_rc_msg(w.rc));
-    return YAAFC_OK(yaafc_int64, w.out_i64);
+    if (w.rc != SHARD_OK) return YAAFC_ERR(yaafc_string, shard_rc_msg(w.rc));
+    return YAAFC_OK(yaafc_string, w.out_str);
 }
 
 YAAFC_CLASS_ANNOTATE("override@sharded_storage:db:db_exists")

@@ -10,14 +10,14 @@ methods:
         type: "struct object *"
       - name: hdrs
         type: "struct yheaders *"
-      - name: key_id
-        type: uint32_t
+      - name: key
+        type: "const char *"
       - name: value
-        type: int32_t
+        type: "const char *"
   - slot: kv_get
     domain: storage
     owning_class: kv
-    return_type: struct yaafc_int_result
+    return_type: struct yaafc_string_result
     args:
       - name: ctx
         type: "struct ctx *"
@@ -25,8 +25,8 @@ methods:
         type: "struct object *"
       - name: hdrs
         type: "struct yheaders *"
-      - name: key_id
-        type: uint32_t
+      - name: key
+        type: "const char *"
   - slot: kv_count
     domain: storage
     owning_class: kv
@@ -54,11 +54,11 @@ methods:
       - name: key
         type: "const char *"
       - name: value
-        type: int64_t
+        type: "const char *"
   - slot: get
     domain: storage
     owning_class: db
-    return_type: struct yaafc_int64_result
+    return_type: struct yaafc_string_result
     args:
       - name: ctx
         type: "struct ctx *"

@@ -54,12 +54,18 @@ static size_t sharded_storage_db_set_skel(const void *_body, size_t _body_len,
         if (_slen) memcpy(_s2, (const uint8_t *)_body + _off, _slen);
         _s2[_slen] = 0; _off += _slen;
     }
-    int64_t _v3 = 0;
-    if (_off + sizeof(_v3) > _body_len) goto _short_body;
-    memcpy(&_v3, (const uint8_t *)_body + _off, sizeof(_v3));
-    _off += sizeof(_v3);
+    char _s3[4096];
+    {
+        if (_off + 4 > _body_len) goto _short_body;
+        uint32_t _slen;
+        memcpy(&_slen, (const uint8_t *)_body + _off, 4); _off += 4;
+        if (_off + _slen > _body_len) goto _short_body;
+        if (_slen >= sizeof(_s3)) goto _short_body;
+        if (_slen) memcpy(_s3, (const uint8_t *)_body + _off, _slen);
+        _s3[_slen] = 0; _off += _slen;
+    }
     double span_start = yaafc_ytime_monotonic_sec();
-    struct yaafc_int_result _r = sharded_storage_db_set(&_local, _obj, _hdrs, _s1, _s2, _v3);
+    struct yaafc_int_result _r = sharded_storage_db_set(&_local, _obj, _hdrs, _s1, _s2, _s3);
     {
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
         const char *span_trace = _hdrs ? yheaders_get(_hdrs, "trace_id") : "-";
@@ -136,7 +142,7 @@ static size_t sharded_storage_db_get_skel(const void *_body, size_t _body_len,
         _s2[_slen] = 0; _off += _slen;
     }
     double span_start = yaafc_ytime_monotonic_sec();
-    struct yaafc_int64_result _r = sharded_storage_db_get(&_local, _obj, _hdrs, _s1, _s2);
+    struct yaafc_string_result _r = sharded_storage_db_get(&_local, _obj, _hdrs, _s1, _s2);
     {
         double span_us = (yaafc_ytime_monotonic_sec() - span_start) * 1e6;
         const char *span_trace = _hdrs ? yheaders_get(_hdrs, "trace_id") : "-";
@@ -161,10 +167,16 @@ static size_t sharded_storage_db_get_skel(const void *_body, size_t _body_len,
         yaafc_error_destroy(_r.error);
         return 1 + 4 + _ml;
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
-    ((uint8_t *)_resp)[0] = 0;
-    memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    {
+        const char *_sv = _r.value ? _r.value : "";
+        uint32_t _svlen = (uint32_t)strlen(_sv);
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        ((uint8_t *)_resp)[0] = 0;
+        memcpy((uint8_t *)_resp + 1, &_svlen, 4);
+        if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
+        free(_r.value);
+        return 1 + 4 + (size_t)_svlen;
+    }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
@@ -398,7 +410,7 @@ static int sharded_storage_db_set_jinvoke(struct ctx *ctx, struct object *obj, s
 {
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
-    int64_t arg2 = (int64_t)yjson_as_int(yjson_array_at(args, 2), 0);
+    const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct yaafc_int_result call_result = sharded_storage_db_set(call_ctx, obj, hdrs, arg0, arg1, arg2);
@@ -420,14 +432,15 @@ static int sharded_storage_db_get_jinvoke(struct ctx *ctx, struct object *obj, s
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct yaafc_int64_result call_result = sharded_storage_db_get(call_ctx, obj, hdrs, arg0, arg1);
+    struct yaafc_string_result call_result = sharded_storage_db_get(call_ctx, obj, hdrs, arg0, arg1);
     if (YAAFC_IS_ERR(call_result)) {
         snprintf(err, err_cap, "%s: %s", "sharded_storage_db_get",
                  call_result.error.msg ? call_result.error.msg : "<no message>");
         yaafc_error_destroy(call_result.error);
         return -1;
     }
-    yjson_w_int(result, (int64_t)call_result.value);
+    yjson_w_string(result, call_result.value ? call_result.value : "");
+    free(call_result.value);
     return 0;
 }
 

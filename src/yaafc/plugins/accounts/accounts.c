@@ -66,11 +66,23 @@ static void close_storage(struct acc_storage_handle *h)
     (void)h;
 }
 
+/* The store holds string values; account state is integer counters and
+ * balances, so serialize as decimal strings and parse them back. */
+static void kv_set_int(struct acc_storage_handle *h, struct yheaders *hdrs,
+                       const char *key, int64_t value)
+{
+    char vbuf[32];
+    snprintf(vbuf, sizeof(vbuf), "%lld", (long long)value);
+    sharded_storage_db_set(&h->c, h->obj, hdrs, ACCOUNTS_CTX, key, vbuf);
+}
+
 static int64_t kv_get_or(struct acc_storage_handle *h, struct yheaders *hdrs, const char *key, int64_t fallback)
 {
-    struct yaafc_int64_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, ACCOUNTS_CTX, key);
+    struct yaafc_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, ACCOUNTS_CTX, key);
     if (YAAFC_IS_ERR(r)) { yaafc_error_destroy(r.error); return fallback; }
-    return r.value;
+    int64_t v = r.value ? strtoll(r.value, NULL, 10) : fallback;
+    free(r.value);
+    return v;
 }
 
 static int kv_exists(struct acc_storage_handle *h, struct yheaders *hdrs, const char *key)
@@ -97,9 +109,9 @@ struct yaafc_int_result accounts_store_register_impl(struct ctx *ctx, struct obj
         ydebug("accounts_register: uid=%u already exists", uid);
         return YAAFC_OK(yaafc_int, 0);
     }
-    sharded_storage_db_set(&h.c, h.obj, hdrs, ACCOUNTS_CTX, k, 1);
+    kv_set_int(&h, hdrs, k, 1);
     int64_t count = kv_get_or(&h, hdrs, "count", 0) + 1;
-    sharded_storage_db_set(&h.c, h.obj, hdrs, ACCOUNTS_CTX, "count", count);
+    kv_set_int(&h, hdrs, "count", count);
     close_storage(&h);
     yinfo("accounts_register: uid=%u (total=%lld)", uid, (long long)count);
     return YAAFC_OK(yaafc_int, 1);
@@ -135,7 +147,7 @@ struct yaafc_int_result accounts_store_set_balance_impl(struct ctx *ctx, struct 
         return YAAFC_ERR(yaafc_int, "accounts_set_balance: unknown uid");
     }
     snprintf(k, sizeof(k), "balance:%u", uid);
-    sharded_storage_db_set(&h.c, h.obj, hdrs, ACCOUNTS_CTX, k, n);
+    kv_set_int(&h, hdrs, k, n);
     close_storage(&h);
     ydebug("accounts_set_balance: uid=%u balance=%lld", uid, (long long)n);
     return YAAFC_OK(yaafc_int, 1);

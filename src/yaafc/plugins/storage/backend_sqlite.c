@@ -57,7 +57,7 @@ static enum storage_rc sqlite_ensure_table(struct storage_data *d,
     snprintf(ddl, sizeof(ddl),
              "CREATE TABLE IF NOT EXISTS kv_%s ("
              "  k TEXT PRIMARY KEY,"
-             "  v INTEGER NOT NULL"
+             "  v BLOB NOT NULL"
              ");", context);
     char *err = NULL;
     int rc = sqlite3_exec(d->be.sqlite.db, ddl, NULL, NULL, &err);
@@ -71,7 +71,7 @@ static enum storage_rc sqlite_ensure_table(struct storage_data *d,
 }
 
 static enum storage_rc sqlite_set(struct storage_data *d, const char *context,
-                                  const char *key, int64_t value)
+                                  const char *key, const char *value)
 {
     enum storage_rc rc = sqlite_ensure_open(d);
     if (rc != STORAGE_RC_OK) return rc;
@@ -85,7 +85,7 @@ static enum storage_rc sqlite_set(struct storage_data *d, const char *context,
     if (sqlite3_prepare_v2(d->be.sqlite.db, sql, -1, &stmt, NULL) != SQLITE_OK)
         return STORAGE_RC_INTERNAL;
     sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 2, value);
+    sqlite3_bind_text(stmt, 2, value ? value : "", -1, SQLITE_TRANSIENT);
     int step = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (step != SQLITE_DONE) return STORAGE_RC_INTERNAL;
@@ -93,7 +93,7 @@ static enum storage_rc sqlite_set(struct storage_data *d, const char *context,
 }
 
 static enum storage_rc sqlite_get(struct storage_data *d, const char *context,
-                                  const char *key, int64_t *out)
+                                  const char *key, char **out)
 {
     enum storage_rc rc = sqlite_ensure_open(d);
     if (rc != STORAGE_RC_OK) return rc;
@@ -110,8 +110,17 @@ static enum storage_rc sqlite_get(struct storage_data *d, const char *context,
     int step = sqlite3_step(stmt);
     enum storage_rc result = STORAGE_RC_NOT_FOUND;
     if (step == SQLITE_ROW) {
-        *out = sqlite3_column_int64(stmt, 0);
-        result = STORAGE_RC_OK;
+        const void *blob = sqlite3_column_blob(stmt, 0);
+        int n = sqlite3_column_bytes(stmt, 0);
+        char *copy = malloc((size_t)(n < 0 ? 0 : n) + 1);
+        if (!copy) {
+            result = STORAGE_RC_INTERNAL;
+        } else {
+            if (n > 0 && blob) memcpy(copy, blob, (size_t)n);
+            copy[n < 0 ? 0 : n] = 0;
+            *out = copy;
+            result = STORAGE_RC_OK;
+        }
     }
     sqlite3_finalize(stmt);
     return result;

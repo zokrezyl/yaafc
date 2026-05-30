@@ -68,12 +68,25 @@ static void close_storage(struct storage_handle *h)
     (void)h;
 }
 
-/* Read an int64 key from storage, treating any error as "missing → 0". */
+/* The store holds string values; session state is integer counters and
+ * ids, so serialize them as decimal strings on the way in and parse them
+ * back on the way out. */
+static void kv_set_int(struct storage_handle *h, struct yheaders *hdrs,
+                       const char *key, int64_t value)
+{
+    char vbuf[32];
+    snprintf(vbuf, sizeof(vbuf), "%lld", (long long)value);
+    sharded_storage_db_set(&h->c, h->obj, hdrs, SESSION_CTX, key, vbuf);
+}
+
+/* Read an int key from storage, treating any error as "missing → 0". */
 static int64_t kv_get_or_zero(struct storage_handle *h, struct yheaders *hdrs, const char *key)
 {
-    struct yaafc_int64_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, SESSION_CTX, key);
+    struct yaafc_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, SESSION_CTX, key);
     if (YAAFC_IS_ERR(r)) { yaafc_error_destroy(r.error); return 0; }
-    return r.value;
+    int64_t v = r.value ? strtoll(r.value, NULL, 10) : 0;
+    free(r.value);
+    return v;
 }
 
 YAAFC_CLASS_ANNOTATE("override@session:store:store_start")
@@ -86,16 +99,16 @@ struct yaafc_uint32_result session_store_start_impl(struct ctx *ctx, struct obje
     struct storage_handle h = sr.value;
 
     uint32_t sid = (uint32_t)kv_get_or_zero(&h, hdrs, "next_sid") + 1;
-    sharded_storage_db_set(&h.c, h.obj, hdrs, SESSION_CTX, "next_sid", (int64_t)sid);
+    kv_set_int(&h, hdrs, "next_sid", (int64_t)sid);
 
     char k[64];
     snprintf(k, sizeof(k), "uid:%u", sid);
-    sharded_storage_db_set(&h.c, h.obj, hdrs, SESSION_CTX, k, (int64_t)user_id);
+    kv_set_int(&h, hdrs, k, (int64_t)user_id);
     snprintf(k, sizeof(k), "prov:%u", sid);
-    sharded_storage_db_set(&h.c, h.obj, hdrs, SESSION_CTX, k, (int64_t)provider_id);
+    kv_set_int(&h, hdrs, k, (int64_t)provider_id);
 
     int64_t count = kv_get_or_zero(&h, hdrs, "count") + 1;
-    sharded_storage_db_set(&h.c, h.obj, hdrs, SESSION_CTX, "count", count);
+    kv_set_int(&h, hdrs, "count", count);
 
     close_storage(&h);
     yinfo("session: sid=%u user=%u provider=%u", sid, user_id, provider_id);
@@ -139,7 +152,7 @@ struct yaafc_int_result session_store_destroy_impl(struct ctx *ctx, struct objec
     sharded_storage_db_del(&h.c, h.obj, hdrs, SESSION_CTX, k);
 
     int64_t count = kv_get_or_zero(&h, hdrs, "count");
-    if (count > 0) sharded_storage_db_set(&h.c, h.obj, hdrs, SESSION_CTX, "count", count - 1);
+    if (count > 0) kv_set_int(&h, hdrs, "count", count - 1);
 
     close_storage(&h);
     return YAAFC_OK(yaafc_int, 1);
