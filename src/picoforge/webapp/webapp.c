@@ -42,6 +42,7 @@
  * Pages gate on this: a service the mesh isn't running yields no page. */
 struct service_set {
     char names[32][64];
+    char sources[32][32];
     size_t n;
     int loaded;
 };
@@ -674,71 +675,208 @@ static char *rpc_result_str(struct yloop *loop, const struct serve_ud *sud,
                             const char *sid, const char *rpc_path,
                             const char *args_json, int *was_error);
 static uint32_t hash_username(const char *s);
+static int service_active(const struct serve_ud *sud, const char *name);
+static uint32_t repo_hash(const char *account, const char *name);
 
-/* Shared page chrome: the GitHub-style top nav + container open, and the
- * footer + flush. Every signed-in page renders the same bar (Repos / My
- * account / Admin / sign out) so the app feels whole instead of a set of
- * disconnected stubs. `uname` NULL/"" → anonymous (just brand + sign in).
- * Classes (.topnav, .nav-links, .nav-right, .container, .card, .grid …)
- * are all defined in the served /static/style.css. */
-static void webapp_head(struct buf *b, const char *title, const char *uname)
+/* ---- shared page shell (GitLab-like): topbar + sidebar + content ---- *
+ * Every signed-in page renders the same chrome so the app reads as one
+ * operational forge rather than a set of disconnected stubs: a stable top
+ * bar (brand + global search + actions), a left navigation sidebar, then
+ * the page content. `uname` NULL/"" → anonymous (brand + sign in only).
+ * All classes are defined in the served /static/style.css. */
+
+static void render_topbar(struct buf *b, const char *uname)
+{
+    buf_puts(b, "<header class=\"topbar\">"
+                "<a class=\"brand\" href=\"/repos\">picoforge</a>");
+    if (uname && *uname) {
+        buf_puts(b, "<form class=\"global-search\" method=\"get\" action=\"/search\">"
+                    "<input name=\"q\" placeholder=\"Search or jump to\xe2\x80\xa6\" "
+                    "aria-label=\"Search\"></form>"
+                    "<nav class=\"top-actions\">"
+                    "<a class=\"btn small\" href=\"/repos/new\">New</a>"
+                    "<a href=\"/admin\">Admin</a>"
+                    "<span class=\"user\">");
+        buf_esc(b, uname);
+        buf_puts(b, "</span>"
+                    "<form method=\"post\" action=\"/logout\">"
+                    "<button class=\"link\" type=\"submit\">Sign out</button>"
+                    "</form></nav>");
+    } else {
+        buf_puts(b, "<nav class=\"top-actions\"><a href=\"/login\">Sign in</a></nav>");
+    }
+    buf_puts(b, "</header>");
+}
+
+/* Left navigation. Two distinct contexts: the regular app nav, and the
+ * Admin area's own nav. `active` keys starting with "admin-" switch the
+ * sidebar to the admin menu (and highlight the matching admin item);
+ * everything else uses the app menu. This keeps admin a separate area,
+ * not a peer item wedged into the project nav. */
+static void render_sidebar(struct buf *b, const char *active)
+{
+    struct nav { const char *label; const char *href; const char *key; };
+    static const struct nav APP[] = {
+        {"Projects",  "/repos",            "projects"},
+        {"Issues",    "/dashboard/issues", "issues"},
+        {"Pipelines", "/dashboard/runs",   "runs"},
+    };
+    static const struct nav ADMIN[] = {
+        {"Overview",     "/admin",          "admin-overview"},
+        {"Users",        "/admin/users",    "admin-users"},
+        {"Repositories", "/admin/repos",    "admin-repos"},
+        {"Tokens",       "/admin/tokens",   "admin-tokens"},
+        {"Services",     "/admin/services", "admin-services"},
+    };
+    int admin = active && strncmp(active, "admin-", 6) == 0;
+    const struct nav *items = admin ? ADMIN : APP;
+    size_t n = admin ? sizeof(ADMIN) / sizeof(ADMIN[0]) : sizeof(APP) / sizeof(APP[0]);
+
+    buf_puts(b, "<aside class=\"sidebar\">");
+    if (admin) buf_puts(b, "<div class=\"sidebar-title\">Admin area</div>");
+    buf_puts(b, "<nav class=\"sidebar-nav\">");
+    for (size_t i = 0; i < n; ++i) {
+        int on = active && strcmp(items[i].key, active) == 0;
+        buf_printf(b, "<a%s href=\"%s\">%s</a>",
+                   on ? " class=\"active\"" : "", items[i].href, items[i].label);
+    }
+    buf_puts(b, "</nav>");
+    if (admin)
+        buf_puts(b, "<nav class=\"sidebar-nav sidebar-foot\">"
+                    "<a href=\"/repos\">\xe2\x86\x90 Back to app</a></nav>");
+    buf_puts(b, "</aside>");
+}
+
+/* Open the full shell: <head> + topbar + sidebar + <main class=content>.
+ * `active_nav` highlights the matching sidebar item. */
+static void render_shell_open(struct buf *b, const char *title, const char *uname,
+                              const char *active_nav)
 {
     buf_puts(b, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
                 "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
                 "<title>");
     buf_esc(b, title);
     buf_puts(b, " \xc2\xb7 picoforge</title>"
-                "<link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>"
-                "<nav class=\"topnav\"><a class=\"brand\" href=\"/repos\">picoforge</a>");
-    if (uname && *uname) {
-        buf_puts(b, "<ul class=\"nav-links\">"
-                    "<li><a href=\"/repos\">Repos</a></li>"
-                    "<li><a href=\"/");
-        buf_esc(b, uname);
-        buf_puts(b, "\">My account</a></li>"
-                    "<li><a href=\"/admin/users\">Admin</a></li></ul>"
-                    "<div class=\"nav-right\"><span class=\"user\">");
-        buf_esc(b, uname);
-        buf_puts(b, "</span>"
-                    "<form method=\"post\" action=\"/logout\" style=\"display:inline\">"
-                    "<button class=\"link\" type=\"submit\">sign out</button></form></div>");
-    } else {
-        buf_puts(b, "<div class=\"nav-right\"><a href=\"/login\">sign in</a></div>");
-    }
-    buf_puts(b, "</nav><main class=\"container\">");
+                "<link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>");
+    render_topbar(b, uname);
+    buf_puts(b, "<div class=\"app-shell\">");
+    render_sidebar(b, active_nav);
+    buf_puts(b, "<main class=\"content\">");
 }
 
-static void webapp_foot_send(struct yloop_stream *s, struct buf *b, int keep_alive)
+static void render_shell_close(struct yloop_stream *s, struct buf *b, int keep_alive)
 {
-    buf_puts(b, "</main><footer><span>picoforge \xc2\xb7 served by picoforge-webapp "
-                "via the gateway <code>/_rpc</code></span></footer></body></html>");
+    buf_puts(b, "</main></div>"
+                "<footer class=\"app-footer\"><span>picoforge \xc2\xb7 served by "
+                "picoforge-webapp via the gateway <code>/_rpc</code></span></footer>"
+                "</body></html>");
     send_response(s, 200, "text/html; charset=utf-8", b->data ? b->data : "", b->len,
                   NULL, keep_alive);
     buf_free(b);
 }
 
-/* Per-repo sub-nav (Code / Issues / Pipelines), shared by the browse,
- * issues and runs pages so a user can click between them from any of them.
- * `active` is one of "code" / "issues" / "runs". */
-static void webapp_repo_tabs(struct buf *b, const char *acct, const char *repo,
-                             const char *active)
+/* Non-repo page header: title + optional muted subtitle, with optional
+ * right-aligned `actions_html` (caller-supplied, already-safe markup —
+ * pass only literals, never user input). */
+static void render_page_header(struct buf *b, const char *title,
+                               const char *subtitle, const char *actions_html)
 {
-    struct tab { const char *label; const char *suffix; const char *key; };
-    static const struct tab TABS[] = {
-        {"Code", "", "code"},
-        {"Issues", "/issues", "issues"},
-        {"Pipelines", "/runs", "runs"},
+    buf_puts(b, "<header class=\"page-header\"><div><h1>");
+    buf_esc(b, title);
+    buf_puts(b, "</h1>");
+    if (subtitle && *subtitle) { buf_puts(b, "<p class=\"muted\">"); buf_esc(b, subtitle); buf_puts(b, "</p>"); }
+    buf_puts(b, "</div>");
+    if (actions_html && *actions_html) {
+        buf_puts(b, "<div class=\"page-actions\">");
+        buf_puts(b, actions_html);
+        buf_puts(b, "</div>");
+    }
+    buf_puts(b, "</header>");
+}
+
+/* Repository header: breadcrumb + repo title + repo id, plus the standard
+ * project actions (New file / Run pipeline). The same header renders on
+ * Code / Issues / Pipelines / Settings; the active tab marks the section. */
+static void render_project_header(struct buf *b, const char *acct,
+                                  const char *repo, uint32_t rid)
+{
+    buf_puts(b, "<header class=\"project-header\"><div class=\"project-title\">"
+                "<div class=\"breadcrumbs\"><a href=\"/");
+    buf_esc(b, acct); buf_puts(b, "\">"); buf_esc(b, acct);
+    buf_puts(b, "</a> <span>/</span> <strong>");
+    buf_esc(b, repo); buf_puts(b, "</strong></div><h1>");
+    buf_esc(b, repo);
+    buf_printf(b, "</h1><p class=\"muted\">Repository #%u</p></div>", rid);
+
+    buf_puts(b, "<div class=\"project-actions\"><a class=\"btn\" href=\"/");
+    buf_esc(b, acct); buf_puts(b, "/"); buf_esc(b, repo);
+    buf_puts(b, "/new\">New file</a>"
+                "<form method=\"post\" action=\"/");
+    buf_esc(b, acct); buf_puts(b, "/"); buf_esc(b, repo);
+    buf_puts(b, "/runs/new\"><button class=\"btn\" type=\"submit\">Run pipeline</button>"
+                "</form></div></header>");
+}
+
+/* Per-repo sub-nav (Code / Issues / Pipelines / Settings). `active` is
+ * "code"/"issues"/"runs"/"settings". `issue_count`/`run_count` < 0 omit
+ * the count badge (service inactive / unknown). */
+static void render_project_tabs(struct buf *b, const char *acct, const char *repo,
+                                const char *active, long issue_count, long run_count)
+{
+    struct tab { const char *label; const char *suffix; const char *key; long count; };
+    const struct tab TABS[] = {
+        {"Code", "", "code", -1},
+        {"Issues", "/issues", "issues", issue_count},
+        {"Pipelines", "/runs", "runs", run_count},
+        {"Settings", "/settings", "settings", -1},
     };
-    buf_puts(b, "<nav class=\"repo-tabs\">");
+    buf_puts(b, "<nav class=\"project-tabs\">");
     for (size_t i = 0; i < sizeof(TABS) / sizeof(TABS[0]); ++i) {
         buf_puts(b, strcmp(TABS[i].key, active) == 0 ? "<a class=\"active\" href=\"/"
                                                      : "<a href=\"/");
         buf_esc(b, acct); buf_puts(b, "/"); buf_esc(b, repo);
         buf_puts(b, TABS[i].suffix);
-        buf_puts(b, "\">"); buf_puts(b, TABS[i].label); buf_puts(b, "</a>");
+        buf_puts(b, "\">"); buf_puts(b, TABS[i].label);
+        if (TABS[i].count >= 0) buf_printf(b, " <span class=\"count\">%ld</span>", TABS[i].count);
+        buf_puts(b, "</a>");
     }
     buf_puts(b, "</nav>");
 }
+
+/* Fetch the tab count badges for a repo: open issues + active runs
+ * (pending+running). Either is set to -1 when its service is inactive. */
+static void repo_tab_counts(struct yloop *loop, const struct serve_ud *sud,
+                            const char *sid, uint32_t rid,
+                            long *issues_out, long *runs_out)
+{
+    char args[48];
+    snprintf(args, sizeof(args), "[%u]", rid);
+    *issues_out = service_active(sud, "issues")
+        ? rpc_result_int(loop, sud, sid, "issues.store.count_open_in_repo", args, -1)
+        : -1;
+    if (service_active(sud, "git_pipeline")) {
+        long p = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_pending", "[]", 0);
+        long r = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_running", "[]", 0);
+        *runs_out = p + r;
+    } else {
+        *runs_out = -1;
+    }
+}
+
+/* A bordered content panel with an optional header (title + muted meta)
+ * and a padded body. panel_close() must balance every panel_open(). */
+static void panel_open(struct buf *b, const char *title, const char *meta)
+{
+    buf_puts(b, "<section class=\"panel\">");
+    if ((title && *title) || (meta && *meta)) {
+        buf_puts(b, "<header class=\"panel-header\"><div>");
+        if (title && *title) { buf_puts(b, "<strong>"); buf_esc(b, title); buf_puts(b, "</strong>"); }
+        if (meta && *meta) { buf_puts(b, " <span class=\"muted\">"); buf_esc(b, meta); buf_puts(b, "</span>"); }
+        buf_puts(b, "</div></header>");
+    }
+    buf_puts(b, "<div class=\"panel-body\">");
+}
+static void panel_close(struct buf *b) { buf_puts(b, "</div></section>"); }
 
 /* GET /repos — the signed-in user's repositories, listed by name via
  * git_repo.store.list_for_owner, with a create form and the repo count.
@@ -764,43 +902,36 @@ static void route_repos_get(struct yloop *loop, struct yloop_stream *s,
     }
 
     struct buf b; buf_init(&b);
-    webapp_head(&b, "Repositories", uname);
-    buf_puts(&b, "<header class=\"page-header\"><h1>Repositories</h1>"
-                 "<a class=\"btn primary\" href=\"#new\">New repository</a></header>");
+    render_shell_open(&b, "Repositories", uname, "projects");
+    render_page_header(&b, "Repositories", "Repositories you own across the mesh.",
+                       "<a class=\"btn primary\" href=\"/repos/new\">New repository</a>");
 
-    buf_puts(&b, "<section class=\"card\"><header class=\"card-header\"><h2>Your repositories</h2>");
-    if (total >= 0)
-        buf_printf(&b, "<span class=\"muted small\">%ld total in the mesh</span>", total);
-    buf_puts(&b, "</header>");
+    char meta[64];
+    if (total >= 0) snprintf(meta, sizeof(meta), "%ld total in the mesh", total);
+    else            meta[0] = 0;
+    panel_open(&b, "Your repositories", meta[0] ? meta : NULL);
 
     int any = 0;
     if (names && *names) {
-        buf_puts(&b, "<ul class=\"list\">");
+        buf_puts(&b, "<table class=\"file-table\"><tbody>");
         char *save = NULL;
         for (char *line = strtok_r(names, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
             if (!*line) continue;
             any = 1;
-            buf_puts(&b, "<li>\xf0\x9f\x93\x81 <a href=\"/");
+            buf_puts(&b, "<tr><td class=\"ic\">\xf0\x9f\x93\x81</td><td><a class=\"file-name dir\" href=\"/");
             buf_esc(&b, uname); buf_puts(&b, "/"); buf_esc(&b, line);
             buf_puts(&b, "\">");
             buf_esc(&b, uname); buf_puts(&b, "/"); buf_esc(&b, line);
-            buf_puts(&b, "</a></li>");
+            buf_puts(&b, "</a></td></tr>");
         }
-        buf_puts(&b, "</ul>");
+        buf_puts(&b, "</tbody></table>");
     }
     if (!any)
-        buf_puts(&b, "<p class=\"muted\">No repositories yet — create one below.</p>");
-    buf_puts(&b, "</section>");
-
-    buf_puts(&b, "<section class=\"card\" id=\"new\">"
-                 "<header class=\"card-header\"><h2>Create a new repository</h2></header>"
-                 "<form method=\"post\" action=\"/repos/new\">"
-                 "<label>Name <input name=\"name\" placeholder=\"my-repo\" "
-                 "pattern=\"[a-zA-Z0-9._-]{1,32}\" required></label>"
-                 "<button type=\"submit\" class=\"primary\">Create repository</button>"
-                 "</form></section>");
+        buf_puts(&b, "<p class=\"muted\">No repositories yet — use "
+                     "\xe2\x80\x9cNew repository\xe2\x80\x9d to create one.</p>");
+    panel_close(&b);
     free(names);
-    webapp_foot_send(s, &b, keep_alive);
+    render_shell_close(s, &b, keep_alive);
 }
 
 /* ---- repo file browser + Monaco editor ----------------------------- *
@@ -973,42 +1104,55 @@ static void route_repo_browse(struct yloop *loop, struct yloop_stream *s,
     int err = 0;
     char *tree = rpc_result_str(loop, sud, sid, "git_repo.store.read_tree", args, &err);
 
+    long ic = -1, rc = -1;
+    repo_tab_counts(loop, sud, sid, rid, &ic, &rc);
+
     struct buf b; buf_init(&b);
     char title[160];
     snprintf(title, sizeof(title), "%s/%s", acct, repo);
-    webapp_head(&b, title, uname);
-    webapp_repo_tabs(&b, acct, repo, "code");
-    buf_puts(&b, "<header class=\"page-header\"><div><h1>");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    if (*dirv) { buf_puts(&b, " : "); buf_esc(&b, dirv); }
-    buf_puts(&b, "</h1></div>");
+    render_shell_open(&b, title, uname, "projects");
+    render_project_header(&b, acct, repo, rid);
+    render_project_tabs(&b, acct, repo, "code", ic, rc);
+
+    /* File panel — its header carries the current path/branch + the New
+     * file action; the tree renders as a dense file table. */
+    buf_puts(&b, "<section class=\"panel repo-browser\"><header class=\"panel-header\"><div>"
+                 "<strong>Files</strong> ");
+    if (*dirv) { buf_puts(&b, "<span class=\"muted\">/ "); buf_esc(&b, dirv); buf_puts(&b, "</span>"); }
+    else       { buf_puts(&b, "<span class=\"branch\">main</span>"); }
+    buf_puts(&b, "</div><div class=\"panel-actions\">");
     {
         char href[1200];
         if (*dirv) snprintf(href, sizeof(href), "/%s/%s/new?dir=%s", acct, repo, dirv);
         else       snprintf(href, sizeof(href), "/%s/%s/new", acct, repo);
-        buf_puts(&b, "<a class=\"btn primary\" href=\"");
+        buf_puts(&b, "<a class=\"btn small\" href=\"");
         buf_esc(&b, href);
         buf_puts(&b, "\">New file</a>");
     }
-    buf_puts(&b, "</header>");
+    buf_puts(&b, "</div></header>");
 
-    if (!tree) {
-        buf_puts(&b, err
-            ? "<section class=\"card\"><p class=\"error\">Cannot read this repository "
-              "(it may be private, or the gateway is unreachable).</p></section>"
-            : "<section class=\"card\"><p class=\"muted\">Empty repository. Use "
-              "\xe2\x80\x9cNew file\xe2\x80\x9d to add the first file.</p></section>");
-    } else if (!*tree) {
-        buf_puts(&b, "<section class=\"card\"><p class=\"muted\">Empty repository. Use "
-                     "\xe2\x80\x9cNew file\xe2\x80\x9d to add the first file.</p></section>");
+    if (!tree || !*tree) {
+        buf_puts(&b, "<div class=\"panel-body\">");
+        if (tree == NULL && err)
+            buf_puts(&b, "<p class=\"error\">Cannot read this repository "
+                         "(it may be private, or the gateway is unreachable).</p>");
+        else
+            buf_puts(&b, "<p class=\"muted\">Empty repository. Use "
+                         "\xe2\x80\x9cNew file\xe2\x80\x9d to add the first file.</p>");
+        buf_puts(&b, "</div>");
     } else {
-        buf_puts(&b, "<section class=\"card\"><ul class=\"list\">");
+        buf_puts(&b, "<table class=\"file-table\"><thead><tr>"
+                     "<th></th><th>Name</th><th>Last commit</th><th>Updated</th></tr></thead><tbody>");
         if (*dirv) {
             char up[1024]; snprintf(up, sizeof(up), "%s", dirv);
             char *slash = strrchr(up, '/');
             if (slash) *slash = 0; else up[0] = 0;
-            if (up[0]) buf_printf(&b, "<li>\xf0\x9f\x93\x81 <a href=\"/%s/%s?dir=%s\">..</a></li>", acct, repo, up);
-            else       buf_printf(&b, "<li>\xf0\x9f\x93\x81 <a href=\"/%s/%s\">..</a></li>", acct, repo);
+            if (up[0]) buf_printf(&b, "<tr><td class=\"ic\">\xf0\x9f\x93\x81</td>"
+                                      "<td><a class=\"file-name dir\" href=\"/%s/%s?dir=%s\">..</a></td>"
+                                      "<td class=\"muted\">-</td><td class=\"muted\">-</td></tr>", acct, repo, up);
+            else       buf_printf(&b, "<tr><td class=\"ic\">\xf0\x9f\x93\x81</td>"
+                                      "<td><a class=\"file-name dir\" href=\"/%s/%s\">..</a></td>"
+                                      "<td class=\"muted\">-</td><td class=\"muted\">-</td></tr>", acct, repo);
         }
         char *save = NULL;
         for (char *line = strtok_r(tree, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
@@ -1019,24 +1163,22 @@ static void route_repo_browse(struct yloop *loop, struct yloop_stream *s,
             char child[1024];
             if (*dirv) snprintf(child, sizeof(child), "%s/%s", dirv, nm);
             else       snprintf(child, sizeof(child), "%s", nm);
-            if (strcmp(type, "tree") == 0) {
-                buf_puts(&b, "<li>\xf0\x9f\x93\x81 <a href=\"/");
-                buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-                buf_puts(&b, "?dir="); buf_esc(&b, child); buf_puts(&b, "\">");
-                buf_esc(&b, nm); buf_puts(&b, "</a></li>");
-            } else {
-                buf_puts(&b, "<li>\xf0\x9f\x93\x84 <a href=\"/");
-                buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-                buf_puts(&b, "/edit?path="); buf_esc(&b, child); buf_puts(&b, "\">");
-                buf_esc(&b, nm); buf_puts(&b, "</a></li>");
-            }
+            int is_dir = strcmp(type, "tree") == 0;
+            buf_puts(&b, "<tr><td class=\"ic\">");
+            buf_puts(&b, is_dir ? "\xf0\x9f\x93\x81" : "\xf0\x9f\x93\x84");
+            buf_puts(&b, is_dir ? "</td><td><a class=\"file-name dir\" href=\"/"
+                                : "</td><td><a class=\"file-name file\" href=\"/");
+            buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
+            if (is_dir) { buf_puts(&b, "?dir="); buf_esc(&b, child); }
+            else        { buf_puts(&b, "/edit?path="); buf_esc(&b, child); }
+            buf_puts(&b, "\">"); buf_esc(&b, nm);
+            buf_puts(&b, "</a></td><td class=\"muted\">-</td><td class=\"muted\">-</td></tr>");
         }
-        buf_puts(&b, "</ul></section>");
+        buf_puts(&b, "</tbody></table>");
     }
-    buf_puts(&b, "</main></body></html>");
+    buf_puts(&b, "</section>");
     free(tree); free(dir);
-    send_response(s, 200, "text/html; charset=utf-8", b.data ? b.data : "", b.len, NULL, keep_alive);
-    buf_free(&b);
+    render_shell_close(s, &b, keep_alive);
 }
 
 /* Emit the Monaco editor page. `path` may be empty for a brand-new file
@@ -1050,78 +1192,42 @@ static void render_editor_page(struct yloop_stream *s, const char *uname,
     struct buf b; buf_init(&b);
     char title[200];
     snprintf(title, sizeof(title), "%s %s/%s", is_new ? "New file" : "Edit", acct, repo);
-    /* webapp_head emits the nav + <main>; then the editor-specific CSS. */
-    webapp_head(&b, title, uname);
-    /* All assets are served from the webapp's own /static — nothing from a
-     * CDN (the in-browser VM is offline). EasyMDE is vendored and gives the
-     * commit message a markdown editor with live preview. */
+    /* render_shell_open emits the topbar + sidebar + <main>; then the
+     * Monaco stylesheet (vendored under /static — no CDN, the in-browser
+     * VM is offline). */
+    render_shell_open(&b, title, uname, "projects");
     buf_puts(&b,
-        "<link rel=\"stylesheet\" href=\"/static/vendor/monaco/vs/editor/editor.main.css\">"
-        "<link rel=\"stylesheet\" href=\"/static/vendor/easymde/easymde.min.css\">"
-        "<style>"
-        "#editor{height:55vh;border:1px solid var(--border);border-radius:var(--radius)}"
-        ".field{display:block;margin:1em 0}"
-        ".field>span{display:block;font-weight:600;margin-bottom:.35em}"
-        ".field input[name=path]{width:100%;font-family:ui-monospace,SFMono-Regular,monospace}"
-        ".EasyMDEContainer .editor-toolbar button{font-weight:600}"
-        "</style>"
-        "<header class=\"page-header\"><div><h1>");
-    buf_puts(&b, is_new ? "New file in " : "Editing ");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    buf_puts(&b, "</h1></div><a class=\"btn\" href=\"/");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo); buf_puts(&b, "\">\xe2\x86\x90 files</a></header>");
+        "<link rel=\"stylesheet\" href=\"/static/vendor/monaco/vs/editor/editor.main.css\">");
 
-    buf_puts(&b, "<form id=\"f\" method=\"post\" action=\"/");
+    /* Editor header: breadcrumb to the file + a Cancel back to the repo. */
+    buf_puts(&b, "<header class=\"editor-header\"><div><div class=\"breadcrumbs\"><a href=\"/");
+    buf_esc(&b, acct); buf_puts(&b, "\">"); buf_esc(&b, acct);
+    buf_puts(&b, "</a> <span>/</span> <a href=\"/");
+    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo); buf_puts(&b, "\">");
+    buf_esc(&b, repo); buf_puts(&b, "</a>");
+    if (path && *path) { buf_puts(&b, " <span>/</span> <strong>"); buf_esc(&b, path); buf_puts(&b, "</strong>"); }
+    buf_puts(&b, "</div><h1>");
+    buf_puts(&b, is_new ? "New file" : "Edit file");
+    buf_puts(&b, "</h1></div><a class=\"btn\" href=\"/");
+    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo); buf_puts(&b, "\">Cancel</a></header>");
+
+    buf_puts(&b, "<form id=\"f\" class=\"editor-form\" method=\"post\" action=\"/");
     buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo); buf_puts(&b, "/edit\">");
 
-    /* Path — labeled, full-width, ABOVE the content editor. */
-    buf_puts(&b, "<label class=\"field\"><span>Path</span>"
-                 "<input name=\"path\" required placeholder=\"path/to/file.ext\" value=\"");
+    /* Toolbar: path + commit message + commit, all on one dense row. */
+    buf_puts(&b, "<div class=\"editor-toolbar\">"
+                 "<input class=\"path\" name=\"path\" required placeholder=\"path/to/file.ext\" value=\"");
     buf_esc(&b, path ? path : "");
     buf_puts(&b, "\"");
     if (!is_new) buf_puts(&b, " readonly");
-    buf_puts(&b, "></label>");
-
-    /* File contents — Monaco editor. */
-    buf_puts(&b, "<div class=\"field\"><span>File contents</span><div id=\"editor\"></div></div>");
-
-    /* Commit message — multiline, EasyMDE markdown editor with preview. */
-    buf_puts(&b, "<label class=\"field\"><span>Commit message</span>"
-                 "<textarea id=\"msg\" name=\"message\">");
+    buf_puts(&b, "><input class=\"message\" name=\"message\" placeholder=\"Commit message\" value=\"");
     buf_esc(&b, is_new ? "create file" : "update file");
-    buf_puts(&b, "</textarea></label>");
+    buf_puts(&b, "\"><button type=\"submit\" class=\"primary\">Commit changes</button></div>");
 
-    buf_puts(&b, "<button type=\"submit\" class=\"primary\">Commit</button>");
+    /* Hidden mirror of the file content + the Monaco mount point. */
     buf_puts(&b, "<textarea id=\"content\" name=\"content\" style=\"display:none\">");
     buf_esc(&b, content ? content : "");
-    buf_puts(&b, "</textarea></form>");
-
-    /* EasyMDE (vendored) for the commit message — markdown + live preview.
-     * MUST load BEFORE Monaco's AMD loader: EasyMDE is a UMD module and
-     * would otherwise see Monaco's global `define`/`define.amd` and register
-     * as an anonymous AMD module instead of assigning window.EasyMDE.
-     * autoDownloadFontAwesome:false + a text-label toolbar keep it offline.
-     * If the script somehow fails to load, the plain multiline <textarea>
-     * remains. */
-    buf_puts(&b,
-        "<script src=\"/static/vendor/easymde/easymde.min.js\"></script>"
-        "<script>(function(){"
-        "if(typeof EasyMDE==='undefined')return;"
-        "var mde=new EasyMDE({element:document.getElementById('msg'),forceSync:true,"
-        "spellChecker:false,status:false,autoDownloadFontAwesome:false,minHeight:'160px',"
-        "placeholder:'Describe your change (markdown supported)\\u2026',"
-        "toolbar:["
-        "{name:'bold',action:EasyMDE.toggleBold,text:'B',title:'Bold'},"
-        "{name:'italic',action:EasyMDE.toggleItalic,text:'i',title:'Italic'},"
-        "{name:'heading',action:EasyMDE.toggleHeadingSmaller,text:'H',title:'Heading'},"
-        "'|',"
-        "{name:'code',action:EasyMDE.toggleCodeBlock,text:'code',title:'Code block'},"
-        "{name:'quote',action:EasyMDE.toggleBlockquote,text:'quote',title:'Quote'},"
-        "{name:'list',action:EasyMDE.toggleUnorderedList,text:'list',title:'Bulleted list'},"
-        "'|',"
-        "{name:'preview',action:EasyMDE.toggleSideBySide,text:'Preview',title:'Toggle live side-by-side preview (keeps editing)'}"
-        "]});"
-        "})();</script>");
+    buf_puts(&b, "</textarea><div id=\"editor\"></div></form>");
 
     /* Monaco AMD loader for the file content — all from /static (offline). */
     buf_puts(&b,
@@ -1144,9 +1250,7 @@ static void render_editor_page(struct yloop_stream *s, const char *uname,
         "ta.value=ed.getValue();});"
         "});"
         "</script>");
-    buf_puts(&b, "</main></body></html>");
-    send_response(s, 200, "text/html; charset=utf-8", b.data ? b.data : "", b.len, NULL, keep_alive);
-    buf_free(&b);
+    render_shell_close(s, &b, keep_alive);
 }
 
 /* GET /<account>/<repo>/edit?path=<p> — open a file in Monaco (read_file;
@@ -1314,8 +1418,12 @@ static void services_ensure(struct yloop *loop, struct serve_ud *sud)
                  ++i) {
                 const struct yjson_value *e = yjson_array_at(svcs, i);
                 const char *nm = yjson_as_string(yjson_object_get(e, "service"), NULL);
-                if (nm && *nm)
-                    snprintf(sud->services.names[sud->services.n++], 64, "%s", nm);
+                const char *src = yjson_as_string(yjson_object_get(e, "source"), NULL);
+                if (nm && *nm) {
+                    size_t slot = sud->services.n++;
+                    snprintf(sud->services.names[slot], 64, "%s", nm);
+                    snprintf(sud->services.sources[slot], 32, "%s", src && *src ? src : "-");
+                }
             }
             sud->services.loaded = 1;
             yjson_doc_free(doc);
@@ -1337,23 +1445,24 @@ static int is_reserved_top(const char *seg)
 {
     static const char *const RESERVED[] = {
         "login", "logout", "register", "repos", "admin", "static",
-        "favicon.ico", "robots.txt", NULL,
+        "search", "dashboard", "favicon.ico", "robots.txt", NULL,
     };
     for (size_t i = 0; RESERVED[i]; ++i)
         if (strcmp(RESERVED[i], seg) == 0) return 1;
     return 0;
 }
 
-/* Shared page chrome — every data page opens with the same top nav (via
- * webapp_head) and closes with webapp_foot_send, so the app is one whole
- * UI rather than disconnected stubs. */
-static void page_open(struct buf *b, const char *title, const char *uname)
+/* Shared page chrome — every data page opens with the same shell (via
+ * render_shell_open) and closes with render_shell_close, so the app is one
+ * whole UI rather than disconnected stubs. */
+static void page_open(struct buf *b, const char *title, const char *uname,
+                      const char *active_nav)
 {
-    webapp_head(b, title, uname);
+    render_shell_open(b, title, uname, active_nav);
 }
 static void page_close_and_send(struct yloop_stream *s, struct buf *b, int keep_alive)
 {
-    webapp_foot_send(s, b, keep_alive);
+    render_shell_close(s, b, keep_alive);
 }
 
 /* GET /<account> — account landing: the account's repositories listed by
@@ -1371,30 +1480,28 @@ static void page_account_landing(struct yloop *loop, struct yloop_stream *s,
     struct buf b; buf_init(&b);
     char title[160];
     snprintf(title, sizeof(title), "%s", acct);
-    page_open(&b, title, uname);
-    buf_puts(&b, "<header class=\"page-header\"><h1>");
-    buf_esc(&b, acct);
-    buf_puts(&b, "</h1></header><section class=\"card\"><header class=\"card-header\">"
-                 "<h2>Repositories</h2>");
-    if (repos >= 0)
-        buf_printf(&b, "<span class=\"muted small\">%ld owned</span>", repos);
-    buf_puts(&b, "</header>");
+    page_open(&b, title, uname, "projects");
+    render_page_header(&b, acct, "Account namespace and its repositories.", NULL);
+    char meta[48];
+    if (repos >= 0) snprintf(meta, sizeof(meta), "%ld owned", repos);
+    else            meta[0] = 0;
+    panel_open(&b, "Repositories", meta[0] ? meta : NULL);
     int any = 0;
     if (names && *names) {
-        buf_puts(&b, "<ul class=\"list\">");
+        buf_puts(&b, "<table class=\"file-table\"><tbody>");
         char *save = NULL;
         for (char *line = strtok_r(names, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
             if (!*line) continue;
             any = 1;
-            buf_puts(&b, "<li>\xf0\x9f\x93\x81 <a href=\"/");
+            buf_puts(&b, "<tr><td class=\"ic\">\xf0\x9f\x93\x81</td><td><a class=\"file-name dir\" href=\"/");
             buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, line);
             buf_puts(&b, "\">"); buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, line);
-            buf_puts(&b, "</a></li>");
+            buf_puts(&b, "</a></td></tr>");
         }
-        buf_puts(&b, "</ul>");
+        buf_puts(&b, "</tbody></table>");
     }
     if (!any) buf_puts(&b, "<p class=\"muted\">No repositories.</p>");
-    buf_puts(&b, "</section>");
+    panel_close(&b);
     free(names);
     page_close_and_send(s, &b, keep_alive);
 }
@@ -1412,31 +1519,52 @@ static void page_repo_issues(struct yloop *loop, struct yloop_stream *s,
     snprintf(args, sizeof(args), "[%u]", rid);
     long open_n = rpc_result_int(loop, sud, sid, "issues.store.count_open_in_repo", args, -1);
 
+    long rc = -1;
+    if (service_active(sud, "git_pipeline")) {
+        long p = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_pending", "[]", 0);
+        long r = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_running", "[]", 0);
+        rc = p + r;
+    }
+
     struct buf b; buf_init(&b);
     char title[160];
     snprintf(title, sizeof(title), "Issues — %s/%s", acct, repo);
-    page_open(&b, title, uname);
-    webapp_repo_tabs(&b, acct, repo, "issues");
-    buf_puts(&b, "<header class=\"page-header\"><div><h1>Issues</h1>"
-                 "<p class=\"muted small\"><a href=\"/");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo); buf_puts(&b, "\">\xe2\x86\x90 ");
+    page_open(&b, title, uname, "projects");
+    render_project_header(&b, acct, repo, rid);
+    render_project_tabs(&b, acct, repo, "issues", open_n, rc);
+
+    /* Issues work queue. List API isn't available yet, so the rows are an
+     * empty/summary state — but the panel header, filters, .issue-list and
+     * the New issue action are the final shape. */
+    buf_puts(&b, "<section class=\"panel\"><header class=\"panel-header\"><div><strong>Issues</strong> ");
+    if (open_n >= 0) buf_printf(&b, "<span class=\"muted\">%ld open</span>", open_n);
+    else             buf_puts(&b, "<span class=\"muted\">service unreachable</span>");
+    buf_puts(&b, "</div><div class=\"panel-actions\"><form method=\"post\" action=\"/");
     buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    buf_puts(&b, "</a></p></div></header><section class=\"card\">");
-    if (open_n >= 0)
-        buf_printf(&b, "<p>%ld open issue%s in this repo.</p>",
+    buf_puts(&b, "/issues/new\"><button class=\"primary\" type=\"submit\">New issue</button></form></div></header>");
+
+    buf_puts(&b, "<div class=\"filters\"><a class=\"active\" href=\"?status=open\">Open</a>"
+                 "<a href=\"?status=closed\">Closed</a></div>");
+
+    buf_puts(&b, "<ul class=\"issue-list\">");
+    if (open_n > 0) {
+        buf_printf(&b, "<li class=\"issue-row\"><div class=\"issue-main\">"
+                       "<span class=\"issue-title\">%ld open issue%s</span>"
+                       "<div class=\"issue-meta\">per-issue rows arrive with the list API</div>"
+                       "</div><span class=\"badge open\">open</span></li>",
                    open_n, open_n == 1 ? "" : "s");
-    else
-        buf_puts(&b, "<p class=\"muted\">issues service unreachable.</p>");
+    } else {
+        buf_puts(&b, "<li class=\"issue-row empty\"><div class=\"issue-main\">"
+                     "<span class=\"muted\">No open issues.</span></div></li>");
+    }
+    buf_puts(&b, "</ul>");
+
+    /* Close-by-id, until per-row close actions exist. */
+    buf_puts(&b, "<div class=\"panel-body\"><form class=\"inline-form\" method=\"post\" action=\"/");
+    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
+    buf_puts(&b, "/issues/close\"><label>Close issue <input type=\"number\" name=\"issue_id\" required></label>"
+                 "<button type=\"submit\">Close</button></form></div>");
     buf_puts(&b, "</section>");
-    buf_puts(&b, "<section class=\"card\"><h2>File a new issue</h2>"
-                 "<form method=\"post\" action=\"/");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    buf_puts(&b, "/issues/new\"><button type=\"submit\" class=\"primary\">Open issue as you</button></form></section>");
-    buf_puts(&b, "<section class=\"card\"><h2>Close an issue</h2>"
-                 "<form method=\"post\" action=\"/");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    buf_puts(&b, "/issues/close\"><label>Issue id <input type=\"number\" name=\"issue_id\" required></label>"
-                 "<button type=\"submit\">Close</button></form></section>");
     page_close_and_send(s, &b, keep_alive);
 }
 
@@ -1452,63 +1580,384 @@ static void page_repo_runs(struct yloop *loop, struct yloop_stream *s,
     long r = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_running", "[]", 0);
     long d = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_done",    "[]", 0);
 
+    uint32_t rid = repo_hash(acct, repo);
+    long ic = -1;
+    if (service_active(sud, "issues")) {
+        char ia[48]; snprintf(ia, sizeof(ia), "[%u]", rid);
+        ic = rpc_result_int(loop, sud, sid, "issues.store.count_open_in_repo", ia, -1);
+    }
+
     struct buf b; buf_init(&b);
     char title[160];
     snprintf(title, sizeof(title), "Pipelines — %s/%s", acct, repo);
-    page_open(&b, title, uname);
-    webapp_repo_tabs(&b, acct, repo, "runs");
-    buf_puts(&b, "<header class=\"page-header\"><div><h1>Pipeline runs</h1>"
-                 "<p class=\"muted small\"><a href=\"/");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo); buf_puts(&b, "\">\xe2\x86\x90 ");
+    page_open(&b, title, uname, "projects");
+    render_project_header(&b, acct, repo, rid);
+    render_project_tabs(&b, acct, repo, "runs", ic, q + r);
+
+    /* Pipeline runs. No per-run list API yet, so the rows summarize the
+     * state counts — but the panel header, .pipeline-table and the Run
+     * pipeline action are the final shape. */
+    buf_puts(&b, "<section class=\"panel\"><header class=\"panel-header\"><div>"
+                 "<strong>Pipeline runs</strong> <span class=\"muted\">queued, running, finished</span>"
+                 "</div><div class=\"panel-actions\"><form method=\"post\" action=\"/");
     buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    buf_puts(&b, "</a></p></div></header>");
+    buf_puts(&b, "/runs/new\"><button class=\"primary\" type=\"submit\">Run pipeline</button></form></div></header>");
     buf_printf(&b,
-        "<section class=\"card\"><table class=\"grid\">"
-        "<thead><tr><th>State</th><th>Count</th></tr></thead><tbody>"
-        "<tr><td>queued</td><td><span class=\"badge queued\">%ld</span></td></tr>"
-        "<tr><td>running</td><td><span class=\"badge running\">%ld</span></td></tr>"
-        "<tr><td>finished</td><td><span class=\"badge succeeded\">%ld</span></td></tr>"
-        "</tbody></table></section>", q, r, d);
-    buf_puts(&b, "<section class=\"card\"><h2>Enqueue a job for this repo</h2>"
-                 "<form method=\"post\" action=\"/");
+        "<table class=\"pipeline-table\"><thead><tr>"
+        "<th>Status</th><th>Run</th><th>Ref</th><th>Runner</th><th>Count</th></tr></thead><tbody>"
+        "<tr><td><span class=\"badge queued\">queued</span></td><td class=\"muted\">-</td>"
+        "<td><code>main</code></td><td class=\"muted\">-</td><td>%ld</td></tr>"
+        "<tr><td><span class=\"badge running\">running</span></td><td class=\"muted\">-</td>"
+        "<td><code>main</code></td><td class=\"muted\">-</td><td>%ld</td></tr>"
+        "<tr><td><span class=\"badge succeeded\">finished</span></td><td class=\"muted\">-</td>"
+        "<td><code>main</code></td><td class=\"muted\">-</td><td>%ld</td></tr>"
+        "</tbody></table>", q, r, d);
+    /* Lease action for a runner, until per-run controls exist. */
+    buf_puts(&b, "<div class=\"panel-body\"><form class=\"inline-form\" method=\"post\" action=\"/");
     buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    buf_puts(&b, "/runs/new\"><button type=\"submit\" class=\"primary\">Enqueue</button></form></section>");
-    buf_puts(&b, "<section class=\"card\"><h2>Lease the next job</h2>"
-                 "<form method=\"post\" action=\"/");
-    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
-    buf_puts(&b, "/runs/lease\"><label>Runner uid <input type=\"number\" name=\"runner\" value=\"1\"></label>"
-                 "<button type=\"submit\">Lease</button></form></section>");
+    buf_puts(&b, "/runs/lease\"><label>Lease next job — runner uid "
+                 "<input type=\"number\" name=\"runner\" value=\"1\"></label>"
+                 "<button type=\"submit\">Lease</button></form></div>");
+    buf_puts(&b, "</section>");
     page_close_and_send(s, &b, keep_alive);
 }
 
-/* GET /admin/users — accounts roster summary: registered users +
- * active PATs. Data: accounts.store.count, personal_access_tokens.store.count_active. */
+/* Render a single stat tile into an open .stats-grid. `value` < 0 → em-dash. */
+static void stat_tile(struct buf *b, long value, const char *label)
+{
+    buf_puts(b, "<div class=\"stat\"><span class=\"stat-value\">");
+    if (value >= 0) buf_printf(b, "%ld", value); else buf_puts(b, "\xe2\x80\x94");
+    buf_puts(b, "</span><span class=\"stat-label\">");
+    buf_esc(b, label);
+    buf_puts(b, "</span></div>");
+}
+
+/* GET /admin — admin area landing: a deployment overview (counts across
+ * every aspect) + quick links into the admin pages. */
+static void page_admin_overview(struct yloop *loop, struct yloop_stream *s,
+                                const struct serve_ud *sud, const char *sid,
+                                const char *uname, int keep_alive)
+{
+    long users = service_active(sud, "accounts")
+        ? rpc_result_int(loop, sud, sid, "accounts.store.count", "[]", -1) : -1;
+    long repos = service_active(sud, "git_repo")
+        ? rpc_result_int(loop, sud, sid, "git_repo.store.count_total", "[]", -1) : -1;
+    long toks  = service_active(sud, "personal_access_tokens")
+        ? rpc_result_int(loop, sud, sid, "personal_access_tokens.store.count_active", "[]", -1) : -1;
+    long runs = -1;
+    if (service_active(sud, "git_pipeline")) {
+        long p = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_pending", "[]", 0);
+        long r = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_running", "[]", 0);
+        long d = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_done",    "[]", 0);
+        runs = p + r + d;
+    }
+
+    struct buf b; buf_init(&b);
+    render_shell_open(&b, "Admin", uname, "admin-overview");
+    render_page_header(&b, "Admin", "Operational overview of this picoforge deployment.", NULL);
+    buf_puts(&b, "<section class=\"stats-grid\">");
+    stat_tile(&b, users, "users");
+    stat_tile(&b, repos, "repositories");
+    stat_tile(&b, toks,  "active tokens");
+    stat_tile(&b, (long)sud->services.n, "services");
+    stat_tile(&b, runs,  "pipeline runs");
+    buf_puts(&b, "</section>");
+
+    panel_open(&b, "Manage", NULL);
+    buf_puts(&b, "<table class=\"file-table\"><tbody>"
+                 "<tr><td><a class=\"file-name\" href=\"/admin/users\">Users</a></td>"
+                 "<td class=\"muted\">accounts &amp; registration</td></tr>"
+                 "<tr><td><a class=\"file-name\" href=\"/admin/repos\">Repositories</a></td>"
+                 "<td class=\"muted\">all repositories in the mesh</td></tr>"
+                 "<tr><td><a class=\"file-name\" href=\"/admin/tokens\">Tokens</a></td>"
+                 "<td class=\"muted\">personal access tokens</td></tr>"
+                 "<tr><td><a class=\"file-name\" href=\"/admin/services\">Services</a></td>"
+                 "<td class=\"muted\">mesh service health</td></tr>"
+                 "</tbody></table>");
+    panel_close(&b);
+    render_shell_close(s, &b, keep_alive);
+}
+
+/* GET /admin/users — accounts administration. Data: accounts.store.count. */
 static void page_admin_users(struct yloop *loop, struct yloop_stream *s,
                              const struct serve_ud *sud, const char *sid,
                              const char *uname, int keep_alive)
 {
     long users = rpc_result_int(loop, sud, sid, "accounts.store.count", "[]", -1);
-    long pats  = service_active(sud, "personal_access_tokens")
-                   ? rpc_result_int(loop, sud, sid,
-                       "personal_access_tokens.store.count_active", "[]", -1)
-                   : -1;
 
     struct buf b; buf_init(&b);
-    page_open(&b, "Users", uname);
-    buf_puts(&b, "<header class=\"page-header\"><h1>Users</h1></header>"
-                 "<section class=\"card\"><h2>accounts</h2>");
-    if (users >= 0) buf_printf(&b, "<p>Total registered users: <strong>%ld</strong></p>", users);
-    else            buf_puts(&b, "<p class=\"muted\">accounts service unreachable.</p>");
-    buf_puts(&b, "<form method=\"post\" action=\"/admin/users/register\">"
+    page_open(&b, "Users", uname, "admin-users");
+    render_page_header(&b, "Users", "Registered accounts and registration.", NULL);
+    buf_puts(&b, "<section class=\"stats-grid\">");
+    stat_tile(&b, users, "users");
+    buf_puts(&b, "</section>");
+    panel_open(&b, "Create user", NULL);
+    if (users < 0) buf_puts(&b, "<p class=\"muted\">accounts service unreachable.</p>");
+    buf_puts(&b, "<form class=\"form-grid\" method=\"post\" action=\"/admin/users/register\">"
                  "<label>uid <input type=\"number\" name=\"uid\" value=\"100\"></label>"
-                 "<button type=\"submit\" class=\"primary\">register</button></form></section>");
-    buf_puts(&b, "<section class=\"card\"><h2>personal access tokens</h2>");
-    if (pats >= 0)  buf_printf(&b, "<p>Active PATs: <strong>%ld</strong></p>", pats);
-    else            buf_puts(&b, "<p class=\"muted\">PAT service not active.</p>");
-    buf_puts(&b, "<form method=\"post\" action=\"/admin/users/mint_pat\">"
-                 "<label>uid <input type=\"number\" name=\"uid\" value=\"100\"></label>"
-                 "<button type=\"submit\">mint</button></form></section>");
+                 "<button type=\"submit\" class=\"primary\">Register</button></form>");
+    panel_close(&b);
     page_close_and_send(s, &b, keep_alive);
+}
+
+/* GET /admin/repos — repositories administration. Data:
+ * git_repo.store.count_total (no global list API yet). */
+static void page_admin_repos(struct yloop *loop, struct yloop_stream *s,
+                             const struct serve_ud *sud, const char *sid,
+                             const char *uname, int keep_alive)
+{
+    long total = rpc_result_int(loop, sud, sid, "git_repo.store.count_total", "[]", -1);
+
+    struct buf b; buf_init(&b);
+    page_open(&b, "Repositories", uname, "admin-repos");
+    render_page_header(&b, "Repositories", "All repositories across the mesh.", NULL);
+    buf_puts(&b, "<section class=\"stats-grid\">");
+    stat_tile(&b, total, "repositories");
+    buf_puts(&b, "</section>");
+    panel_open(&b, "Repositories", NULL);
+    buf_puts(&b, "<p class=\"muted\">A mesh-wide repository listing arrives with the "
+                 "<code>git_repo.store.list_all</code> API; today only the total is "
+                 "exposed. Browse a specific account's repositories from its namespace "
+                 "page (e.g. <code>/&lt;account&gt;</code>).</p>");
+    panel_close(&b);
+    page_close_and_send(s, &b, keep_alive);
+}
+
+/* GET /admin/tokens — personal access token administration. Data:
+ * personal_access_tokens.store.count_active. */
+static void page_admin_tokens(struct yloop *loop, struct yloop_stream *s,
+                              const struct serve_ud *sud, const char *sid,
+                              const char *uname, int keep_alive)
+{
+    int active = service_active(sud, "personal_access_tokens");
+    long toks = active
+        ? rpc_result_int(loop, sud, sid, "personal_access_tokens.store.count_active", "[]", -1)
+        : -1;
+
+    struct buf b; buf_init(&b);
+    page_open(&b, "Tokens", uname, "admin-tokens");
+    render_page_header(&b, "Tokens", "Personal access tokens issued by the gateway.", NULL);
+    buf_puts(&b, "<section class=\"stats-grid\">");
+    stat_tile(&b, toks, "active tokens");
+    buf_puts(&b, "</section>");
+    panel_open(&b, "Mint personal access token", NULL);
+    if (!active) buf_puts(&b, "<p class=\"muted\">PAT service not active.</p>");
+    buf_puts(&b, "<form class=\"form-grid\" method=\"post\" action=\"/admin/tokens/mint_pat\">"
+                 "<label>uid <input type=\"number\" name=\"uid\" value=\"100\"></label>"
+                 "<button type=\"submit\" class=\"primary\">Mint</button></form>");
+    panel_close(&b);
+    page_close_and_send(s, &b, keep_alive);
+}
+
+/* GET /<account>/<repo>/settings — repository settings overview. Read-only
+ * project metadata (owner, default branch, visibility) + how to reach the
+ * repo. No mutation surface yet; the tab exists so the project shell is
+ * complete (Code / Issues / Pipelines / Settings). */
+static void page_repo_settings(struct yloop *loop, struct yloop_stream *s,
+                               const struct serve_ud *sud, const char *sid,
+                               const char *uname, const char *acct, const char *repo,
+                               int keep_alive)
+{
+    uint32_t rid = repo_hash(acct, repo);
+    long ic = -1, rc = -1;
+    repo_tab_counts(loop, sud, sid, rid, &ic, &rc);
+
+    struct buf b; buf_init(&b);
+    char title[160];
+    snprintf(title, sizeof(title), "Settings — %s/%s", acct, repo);
+    render_shell_open(&b, title, uname, "projects");
+    render_project_header(&b, acct, repo, rid);
+    render_project_tabs(&b, acct, repo, "settings", ic, rc);
+
+    panel_open(&b, "Project", NULL);
+    buf_puts(&b, "<table class=\"grid\"><tbody><tr><th>Owner</th><td>");
+    buf_esc(&b, acct);
+    buf_puts(&b, "</td></tr><tr><th>Repository</th><td>");
+    buf_esc(&b, repo);
+    buf_puts(&b, "</td></tr><tr><th>Default branch</th><td><span class=\"branch\">main</span></td></tr>"
+                 "<tr><th>Visibility</th><td>public</td></tr></tbody></table>");
+    panel_close(&b);
+
+    panel_open(&b, "Access", NULL);
+    buf_puts(&b, "<p>Browse this repository at <a href=\"/");
+    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
+    buf_puts(&b, "\">/");
+    buf_esc(&b, acct); buf_puts(&b, "/"); buf_esc(&b, repo);
+    buf_puts(&b, "</a>.</p><p class=\"muted small\">Files are served over the gateway "
+                 "<code>/_rpc</code> surface; direct git clone is not wired in this build.</p>");
+    panel_close(&b);
+
+    render_shell_close(s, &b, keep_alive);
+}
+
+/* GET /search?q=<term> — filter the signed-in user's repositories by name
+ * substring (case-insensitive). Reuses git_repo.store.list_for_owner over
+ * the gateway and matches in-process; no backend search method is assumed.
+ * Not signed in → bounce to /login. */
+static void page_search(struct yloop *loop, struct yloop_stream *s,
+                        const struct serve_ud *sud, const char *sid,
+                        const char *uname, const char *full_path, int keep_alive)
+{
+    if (!sid || !*sid || !uname || !*uname) {
+        send_redirect(s, "/login", NULL, keep_alive);
+        return;
+    }
+    char *q = query_get(full_path, "q");
+    char ql[128];
+    size_t qn = 0;
+    for (const char *p = q ? q : ""; *p && qn + 1 < sizeof(ql); ++p) {
+        char c = *p; if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        ql[qn++] = c;
+    }
+    ql[qn] = 0;
+
+    char args[48];
+    snprintf(args, sizeof(args), "[%u]", hash_username(uname));
+    char *names = rpc_result_str(loop, sud, sid, "git_repo.store.list_for_owner", args, NULL);
+
+    struct buf b; buf_init(&b);
+    page_open(&b, "Search", uname, "projects");
+    render_page_header(&b, "Search", "Find a repository by name.", NULL);
+    char metabuf[180];
+    if (q && *q) snprintf(metabuf, sizeof(metabuf),
+                          "Your repositories matching \xe2\x80\x9c%s\xe2\x80\x9d", q);
+    else         snprintf(metabuf, sizeof(metabuf), "Your repositories");
+    panel_open(&b, metabuf, NULL);
+    int any = 0;
+    if (names && *names) {
+        buf_puts(&b, "<table class=\"file-table\"><tbody>");
+        char *save = NULL;
+        for (char *line = strtok_r(names, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+            if (!*line) continue;
+            if (qn) {
+                char low[256]; size_t ln = 0;
+                for (const char *p = line; *p && ln + 1 < sizeof(low); ++p) {
+                    char c = *p; if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+                    low[ln++] = c;
+                }
+                low[ln] = 0;
+                if (!strstr(low, ql)) continue;
+            }
+            any = 1;
+            buf_puts(&b, "<tr><td class=\"ic\">\xf0\x9f\x93\x81</td><td><a class=\"file-name dir\" href=\"/");
+            buf_esc(&b, uname); buf_puts(&b, "/"); buf_esc(&b, line);
+            buf_puts(&b, "\">"); buf_esc(&b, uname); buf_puts(&b, "/"); buf_esc(&b, line);
+            buf_puts(&b, "</a></td></tr>");
+        }
+        buf_puts(&b, "</tbody></table>");
+    }
+    if (!any) buf_puts(&b, "<p class=\"muted\">No matching repositories.</p>");
+    panel_close(&b);
+    free(names); free(q);
+    page_close_and_send(s, &b, keep_alive);
+}
+
+/* GET /repos/new — the create-repository form (the POST action is
+ * webapp_repos_new on the same path). Needs a signed-in user. */
+static void page_repos_new_form(struct yloop_stream *s, const char *uname, int keep_alive)
+{
+    if (!uname || !*uname) { send_redirect(s, "/login", NULL, keep_alive); return; }
+    struct buf b; buf_init(&b);
+    render_shell_open(&b, "New repository", uname, "projects");
+    render_page_header(&b, "New repository", "Create a repository you own.", NULL);
+    panel_open(&b, "Repository details", NULL);
+    buf_puts(&b, "<form class=\"form-grid\" method=\"post\" action=\"/repos/new\">"
+                 "<label>Name <input name=\"name\" placeholder=\"my-repo\" "
+                 "pattern=\"[a-zA-Z0-9._-]{1,32}\" required autofocus></label>"
+                 "<button type=\"submit\" class=\"primary\">Create repository</button></form>");
+    panel_close(&b);
+    render_shell_close(s, &b, keep_alive);
+}
+
+/* GET /admin/services — the live service roster discovered from the
+ * gateway's /_describe (cached in sud->services). */
+static void page_admin_services(struct yloop_stream *s, const struct serve_ud *sud,
+                                const char *uname, int keep_alive)
+{
+    struct buf b; buf_init(&b);
+    render_shell_open(&b, "Services", uname, "admin-services");
+    render_page_header(&b, "Services",
+                       "Active services discovered from the gateway /_describe.", NULL);
+    panel_open(&b, "Active services", "from gateway /_describe");
+    buf_puts(&b, "<table class=\"service-table\"><thead><tr>"
+                 "<th>Service</th><th>Source</th><th>Status</th></tr></thead><tbody>");
+    for (size_t i = 0; i < sud->services.n; ++i) {
+        buf_puts(&b, "<tr><td><code>"); buf_esc(&b, sud->services.names[i]);
+        buf_puts(&b, "</code></td><td>"); buf_esc(&b, sud->services.sources[i]);
+        buf_puts(&b, "</td><td><span class=\"badge succeeded\">active</span></td></tr>");
+    }
+    if (sud->services.n == 0)
+        buf_puts(&b, "<tr><td colspan=\"3\" class=\"muted\">No services discovered.</td></tr>");
+    buf_puts(&b, "</tbody></table>");
+    panel_close(&b);
+    render_shell_close(s, &b, keep_alive);
+}
+
+/* GET /dashboard/runs — global pipeline activity across the mesh. */
+static void page_dashboard_runs(struct yloop *loop, struct yloop_stream *s,
+                                const struct serve_ud *sud, const char *sid,
+                                const char *uname, int keep_alive)
+{
+    long q = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_pending", "[]", 0);
+    long r = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_running", "[]", 0);
+    long d = rpc_result_int(loop, sud, sid, "git_pipeline.store.count_done",    "[]", 0);
+    struct buf b; buf_init(&b);
+    render_shell_open(&b, "Pipelines", uname, "runs");
+    render_page_header(&b, "Pipelines", "Pipeline activity across the mesh.", NULL);
+    panel_open(&b, "Pipeline runs", "queued, running, finished");
+    buf_printf(&b,
+        "<table class=\"pipeline-table\"><thead><tr>"
+        "<th>Status</th><th>Ref</th><th>Count</th></tr></thead><tbody>"
+        "<tr><td><span class=\"badge queued\">queued</span></td><td><code>main</code></td><td>%ld</td></tr>"
+        "<tr><td><span class=\"badge running\">running</span></td><td><code>main</code></td><td>%ld</td></tr>"
+        "<tr><td><span class=\"badge succeeded\">finished</span></td><td><code>main</code></td><td>%ld</td></tr>"
+        "</tbody></table>", q, r, d);
+    panel_close(&b);
+    render_shell_close(s, &b, keep_alive);
+}
+
+/* GET /dashboard/issues — open issues summed across the user's repos
+ * (no global list API yet; aggregate per-repo counts). */
+static void page_dashboard_issues(struct yloop *loop, struct yloop_stream *s,
+                                  const struct serve_ud *sud, const char *sid,
+                                  const char *uname, int keep_alive)
+{
+    char args[48];
+    snprintf(args, sizeof(args), "[%u]", hash_username(uname));
+    char *names = rpc_result_str(loop, sud, sid, "git_repo.store.list_for_owner", args, NULL);
+
+    struct buf b; buf_init(&b);
+    render_shell_open(&b, "Issues", uname, "issues");
+    render_page_header(&b, "Issues", "Open issues across your repositories.", NULL);
+    panel_open(&b, "By repository", NULL);
+    int any = 0;
+    if (names && *names) {
+        buf_puts(&b, "<table class=\"file-table\"><thead><tr>"
+                     "<th>Repository</th><th>Open</th></tr></thead><tbody>");
+        char *save = NULL;
+        for (char *line = strtok_r(names, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+            if (!*line) continue;
+            any = 1;
+            uint32_t rid = repo_hash(uname, line);
+            long open_n = -1;
+            if (service_active(sud, "issues")) {
+                char ia[48]; snprintf(ia, sizeof(ia), "[%u]", rid);
+                open_n = rpc_result_int(loop, sud, sid, "issues.store.count_open_in_repo", ia, -1);
+            }
+            buf_puts(&b, "<tr><td><a class=\"file-name\" href=\"/");
+            buf_esc(&b, uname); buf_puts(&b, "/"); buf_esc(&b, line); buf_puts(&b, "/issues\">");
+            buf_esc(&b, uname); buf_puts(&b, "/"); buf_esc(&b, line);
+            buf_puts(&b, "</a></td><td>");
+            if (open_n >= 0) buf_printf(&b, "<span class=\"badge open\">%ld</span>", open_n);
+            else             buf_puts(&b, "<span class=\"muted\">-</span>");
+            buf_puts(&b, "</td></tr>");
+        }
+        buf_puts(&b, "</tbody></table>");
+    }
+    if (!any) buf_puts(&b, "<p class=\"muted\">No repositories.</p>");
+    panel_close(&b);
+    free(names);
+    render_shell_close(s, &b, keep_alive);
 }
 
 /* ---- action POSTs forwarded to the gateway /_rpc -------------------- *
@@ -1674,17 +2123,18 @@ static int parse_action_path(const char *path, size_t path_len,
  * that must be active for the page to exist (gated against /_describe)
  * and the page it renders. This — not a hardcoded path ladder — is what
  * makes the page set service-driven. */
-enum repo_page { RP_BROWSE, RP_ISSUES, RP_RUNS, RP_EDIT };
+enum repo_page { RP_BROWSE, RP_ISSUES, RP_RUNS, RP_EDIT, RP_SETTINGS };
 struct repo_route { const char *verb; const char *service; enum repo_page page; };
 
 static const struct repo_route *repo_routes(size_t *count)
 {
     static const struct repo_route ROUTES[] = {
-        { "",       "git_repo",     RP_BROWSE },
-        { "issues", "issues",       RP_ISSUES },
-        { "runs",   "git_pipeline", RP_RUNS   },
-        { "edit",   "git_repo",     RP_EDIT   },
-        { "new",    "git_repo",     RP_EDIT   },
+        { "",         "git_repo",     RP_BROWSE   },
+        { "issues",   "issues",       RP_ISSUES   },
+        { "runs",     "git_pipeline", RP_RUNS     },
+        { "edit",     "git_repo",     RP_EDIT     },
+        { "new",      "git_repo",     RP_EDIT     },
+        { "settings", "git_repo",     RP_SETTINGS },
     };
     *count = sizeof(ROUTES) / sizeof(ROUTES[0]);
     return ROUTES;
@@ -1768,9 +2218,32 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
             if (path_equals(path, path_len, "/repos")) {
                 if (service_active(sud, "git_repo")) route_repos_get(l, s, sud, sid, uname, keep_alive);
                 else send_text(s, 404, "no such page (git_repo not active)\n", keep_alive);
+            } else if (path_equals(path, path_len, "/search") ||
+                       starts_with(path, path_len, "/search?")) {
+                if (service_active(sud, "git_repo")) page_search(l, s, sud, sid, uname, fp, keep_alive);
+                else send_text(s, 404, "no such page (git_repo not active)\n", keep_alive);
+            } else if (path_equals(path, path_len, "/repos/new")) {
+                if (service_active(sud, "git_repo")) page_repos_new_form(s, uname, keep_alive);
+                else send_text(s, 404, "no such page (git_repo not active)\n", keep_alive);
+            } else if (path_equals(path, path_len, "/admin")) {
+                page_admin_overview(l, s, sud, sid, uname, keep_alive);
             } else if (path_equals(path, path_len, "/admin/users")) {
                 if (service_active(sud, "accounts")) page_admin_users(l, s, sud, sid, uname, keep_alive);
                 else send_text(s, 404, "no such page (accounts not active)\n", keep_alive);
+            } else if (path_equals(path, path_len, "/admin/repos")) {
+                if (service_active(sud, "git_repo")) page_admin_repos(l, s, sud, sid, uname, keep_alive);
+                else send_text(s, 404, "no such page (git_repo not active)\n", keep_alive);
+            } else if (path_equals(path, path_len, "/admin/tokens")) {
+                page_admin_tokens(l, s, sud, sid, uname, keep_alive);
+            } else if (path_equals(path, path_len, "/admin/services")) {
+                page_admin_services(s, sud, uname, keep_alive);
+            } else if (path_equals(path, path_len, "/dashboard/issues") ||
+                       starts_with(path, path_len, "/dashboard/issues?")) {
+                if (service_active(sud, "git_repo")) page_dashboard_issues(l, s, sud, sid, uname, keep_alive);
+                else send_text(s, 404, "no such page (git_repo not active)\n", keep_alive);
+            } else if (path_equals(path, path_len, "/dashboard/runs")) {
+                if (service_active(sud, "git_pipeline")) page_dashboard_runs(l, s, sud, sid, uname, keep_alive);
+                else send_text(s, 404, "no such page (git_pipeline not active)\n", keep_alive);
             } else if (parse_repo_path(path, path_len, acct, sizeof(acct),
                                        repo, sizeof(repo), verb, sizeof(verb))) {
                 /* /<account>/<repo>[/<verb>] — looked up in the route table,
@@ -1781,10 +2254,11 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
                 } else if (!service_active(sud, rt->service)) {
                     send_text(s, 404, "no such page (service not active)\n", keep_alive);
                 } else switch (rt->page) {
-                case RP_BROWSE: route_repo_browse(l, s, sud, sid, uname, acct, repo, fp, keep_alive); break;
-                case RP_ISSUES: page_repo_issues(l, s, sud, sid, uname, acct, repo, fp, keep_alive); break;
-                case RP_RUNS:   page_repo_runs(l, s, sud, sid, uname, acct, repo, fp, keep_alive);   break;
-                case RP_EDIT:   route_repo_edit_get(l, s, sud, sid, uname, acct, repo, verb, fp, keep_alive); break;
+                case RP_BROWSE:   route_repo_browse(l, s, sud, sid, uname, acct, repo, fp, keep_alive); break;
+                case RP_ISSUES:   page_repo_issues(l, s, sud, sid, uname, acct, repo, fp, keep_alive); break;
+                case RP_RUNS:     page_repo_runs(l, s, sud, sid, uname, acct, repo, fp, keep_alive);   break;
+                case RP_EDIT:     route_repo_edit_get(l, s, sud, sid, uname, acct, repo, verb, fp, keep_alive); break;
+                case RP_SETTINGS: page_repo_settings(l, s, sud, sid, uname, acct, repo, keep_alive); break;
                 }
             } else {
                 /* Single-segment /<account> → account landing. */
@@ -1867,6 +2341,12 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
                     char *sid = cookie_get(headers, num_headers, "picomesh-sid");
                     relay_post(l, s, sud, sid, "/admin/users/mint_pat",
                                body_buf, (size_t)cl, "/admin/users", keep_alive);
+                    free(sid);
+                } else if (path_equals(path, path_len, "/admin/tokens/mint_pat")) {
+                    /* Tokens-page mint: same gateway action, bounce back here. */
+                    char *sid = cookie_get(headers, num_headers, "picomesh-sid");
+                    relay_post(l, s, sud, sid, "/admin/users/mint_pat",
+                               body_buf, (size_t)cl, "/admin/tokens", keep_alive);
                     free(sid);
                 } else {
                     int ns = parse_action_path(path, path_len, acct, sizeof(acct),

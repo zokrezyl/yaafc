@@ -121,8 +121,19 @@ out=$(curl -sS --max-time 10 -XPOST http://127.0.0.1:$WEB/login \
            --data-urlencode 'username=alice' --data-urlencode 'password=hunter2')
 expect_contains 'POST /login on unregistered user fails' "$out" 'no such user'
 
-# Register → creates account, mints session, redirects to /alice
-# (GitHub-style namespace landing, mirroring yaapp's _landing_url).
+# The FIRST account to ever register becomes the deployment site-owner
+# (admin) — the same bootstrap GitLab uses for its `root` user. Register
+# it first, under the conventional name, so the deployment admin is
+# `root` and not a demo user. Its session is discarded here; every flow
+# below runs as alice, a regular (non-admin) user.
+hdrs=$(curl -sS --max-time 10 -D - -o /dev/null \
+            -XPOST http://127.0.0.1:$WEB/register \
+            --data-urlencode 'username=root' --data-urlencode 'password=rootpw')
+expect_contains 'POST /register (root) → 303 (site-owner bootstrap)' "$hdrs" '303 See Other'
+
+# Register alice — the SECOND user, so a regular (non-owner) account.
+# Creates the account, mints a session, redirects to /alice (GitHub-style
+# namespace landing, mirroring yaapp's _landing_url).
 hdrs=$(curl -sS --max-time 10 -D - -o /dev/null -c tmp/cookies.txt \
             -XPOST http://127.0.0.1:$WEB/register \
             --data-urlencode 'username=alice' --data-urlencode 'password=hunter2')
@@ -217,12 +228,45 @@ expect_contains 'sidecar /repos sourced via gateway /_rpc' "$out" 'via the gatew
 # pipeline runs, admin users.
 out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/alice")
 expect_contains 'webapp GET /<account> (account landing)' "$out" '<h1>alice</h1>'
+# Repo-scoped pages carry the repo name as <h1> (project header) and the
+# section name in the panel header + the active project tab.
 out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/alice/website/issues")
-expect_contains 'webapp GET /<acct>/<repo>/issues'        "$out" '<h1>Issues</h1>'
+expect_contains 'webapp GET /<acct>/<repo>/issues'        "$out" '<strong>Issues</strong>'
+expect_contains 'webapp issues page active tab'           "$out" 'class="active" href="/alice/website/issues"'
 out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/alice/website/runs")
-expect_contains 'webapp GET /<acct>/<repo>/runs'          "$out" '<h1>Pipeline runs</h1>'
+expect_contains 'webapp GET /<acct>/<repo>/runs'          "$out" '<strong>Pipeline runs</strong>'
+# The Admin area is its OWN section with its OWN left menu (distinct from
+# the project nav). /admin is the overview; each aspect is a page; every
+# admin page shows the "Admin area" sidebar, not the project sidebar.
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/admin")
+expect_contains 'webapp GET /admin (overview)'            "$out" '<h1>Admin</h1>'
+expect_contains 'admin area has its own sidebar'          "$out" 'Admin area'
+expect_contains 'admin overview links to Repositories'    "$out" 'href="/admin/repos"'
 out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/admin/users")
 expect_contains 'webapp GET /admin/users'                 "$out" '<h1>Users</h1>'
+expect_contains 'admin/users uses admin sidebar'          "$out" 'class="active" href="/admin/users"'
+expect_contains 'admin sidebar excludes Projects nav'     "$out" 'href="/admin/services"'
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/admin/repos")
+expect_contains 'webapp GET /admin/repos'                 "$out" '<h1>Repositories</h1>'
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/admin/tokens")
+expect_contains 'webapp GET /admin/tokens'                "$out" '<h1>Tokens</h1>'
+
+# New GitLab-like shell additions (gh#10): repo settings tab, services
+# health page, cross-repo dashboards, and the dedicated new-repo form —
+# all sourced from the gateway, all inside the same shell.
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/alice/website/settings")
+expect_contains 'webapp GET /<acct>/<repo>/settings'      "$out" 'class="active" href="/alice/website/settings"'
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/admin/services")
+expect_contains 'webapp GET /admin/services lists services' "$out" 'service-table'
+expect_contains 'webapp /admin/services shows git_repo'   "$out" 'git_repo'
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/dashboard/issues")
+expect_contains 'webapp GET /dashboard/issues'            "$out" 'Open issues across your repositories'
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/dashboard/runs")
+expect_contains 'webapp GET /dashboard/runs'              "$out" 'pipeline-table'
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt "http://127.0.0.1:${SIDE}/repos/new")
+expect_contains 'webapp GET /repos/new (form)'            "$out" '<h1>New repository</h1>'
+# Every signed-in page wears the same shell (topbar + sidebar).
+expect_contains 'webapp pages share the shell'            "$out" 'class="sidebar-nav"'
 
 # Same pages refuse on the GATEWAY — it serves no HTML (B1 / gh#5 invariant).
 code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${WEB}/admin/users")
