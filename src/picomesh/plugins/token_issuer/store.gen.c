@@ -4,11 +4,9 @@
 __attribute__((unused))
 static token_issuer_token_issuer_login_fn _token_issuer_token_issuer_token_issuer_token_issuer_login_check = token_issuer_token_issuer_login_impl;
 __attribute__((unused))
-static token_issuer_token_issuer_validate_fn _token_issuer_token_issuer_token_issuer_token_issuer_validate_check = token_issuer_token_issuer_validate_impl;
-__attribute__((unused))
 static token_issuer_token_issuer_refresh_fn _token_issuer_token_issuer_token_issuer_token_issuer_refresh_check = token_issuer_token_issuer_refresh_impl;
 __attribute__((unused))
-static token_issuer_token_issuer_revoke_fn _token_issuer_token_issuer_token_issuer_token_issuer_revoke_check = token_issuer_token_issuer_revoke_impl;
+static token_issuer_token_issuer_mint_fn _token_issuer_token_issuer_token_issuer_token_issuer_mint_check = token_issuer_token_issuer_mint_impl;
 __attribute__((unused))
 static token_issuer_token_issuer_count_active_fn _token_issuer_token_issuer_token_issuer_token_issuer_count_active_check = token_issuer_token_issuer_count_active_impl;
 __attribute__((unused))
@@ -29,9 +27,8 @@ struct class_ptr_result token_issuer_token_issuer_class_get(void)
     };
     static const struct op ops[] = {
         {"token_issuer", "token_issuer_login", (method_id_t)token_issuer_token_issuer_login, (impl_t)token_issuer_token_issuer_login_impl},
-        {"token_issuer", "token_issuer_validate", (method_id_t)token_issuer_token_issuer_validate, (impl_t)token_issuer_token_issuer_validate_impl},
         {"token_issuer", "token_issuer_refresh", (method_id_t)token_issuer_token_issuer_refresh, (impl_t)token_issuer_token_issuer_refresh_impl},
-        {"token_issuer", "token_issuer_revoke", (method_id_t)token_issuer_token_issuer_revoke, (impl_t)token_issuer_token_issuer_revoke_impl},
+        {"token_issuer", "token_issuer_mint", (method_id_t)token_issuer_token_issuer_mint, (impl_t)token_issuer_token_issuer_mint_impl},
         {"token_issuer", "token_issuer_count_active", (method_id_t)token_issuer_token_issuer_count_active, (impl_t)token_issuer_token_issuer_count_active_impl},
         {"token_issuer", "token_issuer_list", (method_id_t)token_issuer_token_issuer_list, (impl_t)token_issuer_token_issuer_list_impl},
         {"token_issuer", "token_issuer_list_all", (method_id_t)token_issuer_token_issuer_list_all, (impl_t)token_issuer_token_issuer_list_all_impl},

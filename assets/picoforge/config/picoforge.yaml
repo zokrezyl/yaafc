@@ -35,6 +35,18 @@ storage:
   backend: sqlite
   db_path: /tmp/picoforge/mesh-state.db
 
+# Mesh-wide security material (issue #19). The HS256 signing key for access
+# JWTs is shared across the trusted mesh: the token issuer signs with it and
+# the gateway verifies with it. It is REQUIRED — sourced from the environment,
+# never a baked-in default (a predictable key would let anyone forge a JWT).
+# Children inherit this env from the control parent, so every node resolves the
+# same key. The authenticator chain + policy authorizer live ONLY on the
+# gateway service (see mesh.services.gateway.config.security below); putting
+# them here would turn every node into an auth boundary.
+security:
+  jwt_secret: "${PICOMESH_JWT_SECRET}"
+  access_ttl_seconds: 900
+
 # Parent process control port — clients (including the smoke script)
 # talk to the mesh here.
 control:
@@ -231,6 +243,9 @@ mesh:
             port: 8220
           - service: accounts
             port: 8204
+          # login delegates credential verification to password_authn.
+          - service: password_authn
+            port: 8205
 
     issues:
       port: 8208
@@ -276,6 +291,22 @@ mesh:
     personal_access_tokens:
       port: 8211
       plugins: [personal_access_tokens]
+      config:
+        remotes:
+          - service: sharded_storage
+            port: 8212
+          - service: trace_collector
+            port: 8220
+
+    # runner_agent (docs/runner-agent.md): the registry of external CI runner
+    # agents. Owns runner identity — opaque `rnr_` token mint/lookup/revoke and
+    # the runner record (name, labels, version, host, status, last_seen). The
+    # gateway's bearer authenticator resolves an `rnr_` token here to a runner
+    # id and mints a runner JWT; git_pipeline owns the job state the runner then
+    # leases. yrpc backend like the rest — no HTTP, behind the gateway.
+    runner_agent:
+      port: 8214
+      plugins: [runner_agent]
       config:
         remotes:
           - service: sharded_storage
@@ -334,6 +365,97 @@ mesh:
       plugins: []
       config:
         yhttp:
+        # issue #19: this gateway is THE auth boundary. The authenticator
+        # chain turns an accepted credential into a verified JWT (or
+        # anonymous); the policy authorizer then gates endpoint + args before
+        # any backend is invoked. Endpoints absent from `policy` are denied by
+        # default (403). Only this service carries a `security` block, so only
+        # this node is an auth boundary (the top-level `security.jwt_secret`
+        # deep-merges in, supplying the shared signing key).
+        #
+        # `bearer_jwt_token` is intentionally OMITTED: the framework
+        # implements it, but a PUBLIC gateway must never accept a raw client
+        # JWT — external clients present opaque tokens (session cookie / PAT)
+        # only, and the gateway resolves those to a verified JWT internally.
+        security:
+          authenticators:
+            - session_cookie
+            - bearer_opaque_token
+          policy:
+            # Service discovery is open (handled as a gateway route, listed
+            # here for intent/forward-compat).
+            _describe: anonymous
+            _describe_tree: anonymous
+            # Product reads/writes require a signed-in user; git_repo enforces
+            # resource-level ownership on top of this gate.
+            git_repo.git_repo.count_total: authenticated
+            git_repo.git_repo.count_for_owner: authenticated
+            git_repo.git_repo.list_for_owner: authenticated
+            git_repo.git_repo.read_file: authenticated
+            git_repo.git_repo.read_tree: authenticated
+            git_repo.git_repo.make: authenticated
+            git_repo.git_repo.put_file: authenticated
+            issues.issues.open: authenticated
+            issues.issues.close: authenticated
+            issues.issues.count_open_in_repo: authenticated
+            git_pipeline.git_pipeline.enqueue: authenticated
+            git_pipeline.git_pipeline.enqueue_job: authenticated
+            git_pipeline.git_pipeline.lease: authenticated
+            git_pipeline.git_pipeline.count_pending: authenticated
+            git_pipeline.git_pipeline.count_running: authenticated
+            git_pipeline.git_pipeline.count_done: authenticated
+            git_pipeline.git_pipeline.job_descriptor: authenticated
+            git_pipeline.git_pipeline.read_log: authenticated
+            # Runner-only job lifecycle: the caller must hold a runner token
+            # (gateway mints groups "site:runner,runner:<id>" for an rnr_ token).
+            git_pipeline.git_pipeline.lease_job:
+              required_group: "site:runner"
+            git_pipeline.git_pipeline.append_log:
+              required_group: "site:runner"
+            git_pipeline.git_pipeline.complete_job:
+              required_group: "site:runner"
+            git_pipeline.git_pipeline.requeue_expired:
+              required_role: owner
+              account_from: site
+            # Runner registry: admins mint/revoke/list tokens; runners
+            # register/heartbeat/get themselves with their runner token.
+            runner_agent.runner_agent.create_token:
+              required_role: owner
+              account_from: site
+            runner_agent.runner_agent.revoke_token:
+              required_role: owner
+              account_from: site
+            runner_agent.runner_agent.list:
+              required_role: owner
+              account_from: site
+            runner_agent.runner_agent.list_all:
+              required_role: owner
+              account_from: site
+            runner_agent.runner_agent.count_active:
+              required_role: owner
+              account_from: site
+            runner_agent.runner_agent.register:
+              required_group: "site:runner"
+            runner_agent.runner_agent.heartbeat:
+              required_group: "site:runner"
+            runner_agent.runner_agent.get:
+              required_group: "site:runner"
+            trace_collector.trace_collector.get_trace: authenticated
+            trace_collector.trace_collector.services: authenticated
+            trace_collector.trace_collector.operations: authenticated
+            trace_collector.trace_collector.latency: authenticated
+            trace_collector.trace_collector.errors: authenticated
+            # Admin surfaces — site-owner only, expressed through the model
+            # (replaces the gateway's old raw role:<uid> read).
+            accounts.accounts.list:
+              required_role: owner
+              account_from: site
+            accounts.accounts.count:
+              required_role: owner
+              account_from: site
+            personal_access_tokens.personal_access_tokens.count_active:
+              required_role: owner
+              account_from: site
         # gh#14: per-node Linux perf_event_open(2) profiling, driven from
         # this service's own config — no separate `perf record` wrapper.
         # Flip `enabled: true` to have each gateway worker open the listed
@@ -378,6 +500,8 @@ mesh:
             port: 8210
           - service: personal_access_tokens
             port: 8211
+          - service: runner_agent
+            port: 8214
 
     # ---- gh#15: generic service-console tooling ------------------------
     #
@@ -433,6 +557,8 @@ mesh:
             port: 8210
           - service: personal_access_tokens
             port: 8211
+          - service: runner_agent
+            port: 8214
           - service: portalloc
             port: 8201
 

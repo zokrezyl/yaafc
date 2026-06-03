@@ -45,6 +45,12 @@ FAIL=0
 note_pass() { PASS=$((PASS+1)); echo "  PASS: $1"; }
 note_fail() { FAIL=$((FAIL+1)); echo "  FAIL: $1" >&2; }
 
+# issue #19: the mesh signs/verifies access JWTs with a shared HS256 secret
+# sourced from PICOMESH_JWT_SECRET. Children inherit this env from the parent,
+# so every node resolves the same key. A dev default is fine here; a real
+# deployment exports its own secret before bring-up.
+export PICOMESH_JWT_SECRET="${PICOMESH_JWT_SECRET:-picoforge-dev-mesh-secret-change-me}"
+
 echo "[1/6] starting parent picomesh (yhttp control) on :${CTRL}"
 "$PICOMESH" --config-file "$CONFIG" --frontend yhttp --host 127.0.0.1 --port "$CTRL" serve \
     > tmp/mesh-parent.log 2>&1 &
@@ -171,11 +177,72 @@ hdrs=$(curl -sS --max-time 10 -D - -o /dev/null -b tmp/cookies.txt \
 expect_contains 'POST /repos/new → 303 /alice/website' "$hdrs" '303 See Other.*/alice/website|/alice/website.*303'
 
 # The repo's data is reachable via the gateway API (/_rpc) — this is how
-# the webapp sources the page the gateway no longer renders.
-out=$(curl -sS --max-time 10 -XPOST http://127.0.0.1:$WEB/_rpc \
+# the webapp sources the page the gateway no longer renders. The gateway is
+# now an auth boundary (issue #19): this read requires a signed-in session, so
+# we send alice's cookie (captured at /login above).
+out=$(curl -sS --max-time 10 -b tmp/cookies.txt -XPOST http://127.0.0.1:$WEB/_rpc \
            -H 'Content-Type: application/json' \
            -d '{"path":"git_repo.git_repo.count_total","args":[]}')
-expect_contains 'gateway /_rpc git_repo.count_total (repo data via API)' "$out" '"result":[1-9][0-9]*'
+expect_contains 'gateway /_rpc git_repo.count_total (authed, repo data via API)' "$out" '"result":[1-9][0-9]*'
+
+# ---- [5a] security pipeline (issue #19): authn chain + policy authorizer ----
+# The browser only ever holds an OPAQUE sid — the cookie value must NOT be a
+# JWT (no dot-separated base64url segments). The JWT lives server-side only.
+SID_VAL=$(awk '/picomesh-sid/ {print $NF}' tmp/cookies.txt 2>/dev/null | tail -1)
+if [[ -n "$SID_VAL" && "$SID_VAL" != *.* ]]; then
+    note_pass "login sets an opaque sid cookie (not a JWT)"
+else
+    note_fail "sid cookie looks like a JWT or is empty: '${SID_VAL}'"
+fi
+
+# Anonymous call to an authenticated endpoint → 401 (no credential, policy
+# requires one). It must NOT silently succeed as anonymous.
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -XPOST http://127.0.0.1:$WEB/_rpc \
+            -H 'Content-Type: application/json' \
+            -d '{"path":"git_repo.git_repo.count_total","args":[]}')
+[ "$code" = "401" ] && note_pass "anonymous /_rpc authed endpoint → 401" \
+                     || note_fail "anonymous /_rpc count_total returned $code (want 401)"
+
+# An INVALID session id → 401 (credential present but bad; no fall-through to
+# anonymous/weaker auth).
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -XPOST http://127.0.0.1:$WEB/_rpc \
+            -H 'picomesh-sid: deadbeefdeadbeefdeadbeefdeadbeef' \
+            -H 'Content-Type: application/json' \
+            -d '{"path":"git_repo.git_repo.count_total","args":[]}')
+[ "$code" = "401" ] && note_pass "invalid sid → 401 (no credential downgrade)" \
+                     || note_fail "invalid sid returned $code (want 401)"
+
+# A method ABSENT from the policy is denied by default → 403, even for a
+# signed-in user (accounts.exists is not in the gateway policy).
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -b tmp/cookies.txt -XPOST http://127.0.0.1:$WEB/_rpc \
+            -H 'Content-Type: application/json' \
+            -d '{"path":"accounts.accounts.exists","args":[1]}')
+[ "$code" = "403" ] && note_pass "policy default-deny: unlisted method → 403" \
+                     || note_fail "unlisted method returned $code (want 403)"
+
+# Credential-exchange methods are never callable via public /_rpc → 403.
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -b tmp/cookies.txt -XPOST http://127.0.0.1:$WEB/_rpc \
+            -H 'Content-Type: application/json' \
+            -d "{\"path\":\"session.session.lookup\",\"args\":[\"${SID_VAL:-x}\"]}")
+[ "$code" = "403" ] && note_pass "credential-exchange session.lookup blocked → 403" \
+                     || note_fail "session.lookup via /_rpc returned $code (want 403)"
+
+# A regular user (alice) is NOT site-owner → an owner/site-gated admin method
+# returns 403 (role insufficient), proving role-gating through the policy.
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -b tmp/cookies.txt -XPOST http://127.0.0.1:$WEB/_rpc \
+            -H 'Content-Type: application/json' \
+            -d '{"path":"accounts.accounts.count","args":[]}')
+[ "$code" = "403" ] && note_pass "role-gate: non-owner alice → accounts.count 403" \
+                     || note_fail "non-owner accounts.count returned $code (want 403)"
+
+# /_whoami exposes only non-sensitive claims — never the JWT or a secret.
+who=$(curl -sS --max-time 10 -b tmp/cookies.txt http://127.0.0.1:$WEB/_whoami)
+expect_contains '/_whoami returns alice uid' "$who" '"username":"alice"'
+if [[ "$who" != *jwt* && "$who" != *access_jwt* ]]; then
+    note_pass "/_whoami leaks no JWT"
+else
+    note_fail "/_whoami exposed a JWT: ${who:0:120}"
+fi
 
 # Parent control still alive.
 out=$(http_post "$CTRL" /invoke "{\"method\":\"mesh_mesh_count_children\",\"handle\":$H,\"args\":[]}")
@@ -328,20 +395,22 @@ code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$
                      || note_fail "gateway GET /admin/users returned $code (want 404)"
 
 # Direct gateway-API checks: yaapp-style surface present, legacy gone.
-out=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+# The gateway gates /_rpc (issue #19), so this read carries alice's session
+# cookie (captured by the sidecar login above).
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
            -H 'Content-Type: application/json' \
            -d '{"path":"git_repo.git_repo.count_total","args":[]}')
-expect_contains 'gateway POST /_rpc {path,args}' "$out" '"result":'
+expect_contains 'gateway POST /_rpc {path,args} (authed)' "$out" '"result":'
 
-# Authenticated /_rpc round-trip with a real positional arg + result:
-# resolve alice's session (the sid the sidecar just stored) back to her
-# uid via session.session.lookup. Proves args marshalling, the remote
-# forward, and a meaningful non-zero return — not just a 0 count.
-ASID=$(awk '/picomesh-sid/ {print $NF}' tmp/side-cookies.txt 2>/dev/null | tail -1)
-out=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+# Authenticated /_rpc round-trip returning a meaningful non-zero result —
+# alice created /alice/website above, so count_total is >= 1. Proves the
+# authenticated forward + remote round-trip end to end. (session.lookup is no
+# longer a public method — it is an authenticator-internal credential
+# exchange, exercised via the 403 check in [5a].)
+out=$(curl -sS --max-time 10 -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
            -H 'Content-Type: application/json' \
-           -d "{\"path\":\"session.session.lookup\",\"args\":[\"${ASID:-0}\"]}")
-expect_contains 'gateway /_rpc authed round-trip (session.lookup→uid)' "$out" '"result":[1-9][0-9]*'
+           -d '{"path":"git_repo.git_repo.count_total","args":[]}')
+expect_contains 'gateway /_rpc authed round-trip (non-zero result)' "$out" '"result":[1-9][0-9]*'
 
 # Malformed path → stable 400; unknown method → 404.
 code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -XPOST "http://127.0.0.1:${WEB}/_rpc" \
@@ -420,7 +489,7 @@ PARENT_SPAN=1122334455667788
 # traceparent, opens the root span, and forwards to git_repo (which reads
 # sharded_storage) — so one trace_id fans out into a gateway → git_repo →
 # sharded_storage span chain.
-traced=$(curl -sS --max-time 10 -D - -o /dev/null -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+traced=$(curl -sS --max-time 10 -D - -o /dev/null -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
     -H "traceparent: 00-${TRACE_ID}-${PARENT_SPAN}-01" \
     -H 'Content-Type: application/json' \
     -d '{"path":"git_repo.git_repo.count_total","args":[]}')
@@ -431,7 +500,7 @@ sleep 1.5
 
 # Query the trace back through the gateway: trace_collector.trace_collector.get_trace
 # returns the whole trace as a JSON string in the /_rpc "result" field.
-trace_rpc=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+trace_rpc=$(curl -sS --max-time 10 -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
     -H 'Content-Type: application/json' \
     -d "{\"path\":\"trace_collector.trace_collector.get_trace\",\"args\":[\"${TRACE_ID}\"]}")
 # Reconstruct the tree: >= 2 spans across >1 service, with a child whose
@@ -451,12 +520,12 @@ print("OK" if ok else "NO len=%d linked=%s svcs=%s" % (len(spans), linked, sorte
 expect_contains 'collector reconstructs a linked cross-service span tree' "$tree_ok" 'OK'
 
 # Service + latency aggregates are queryable through the gateway too.
-svc=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+svc=$(curl -sS --max-time 10 -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
     -H 'Content-Type: application/json' \
     -d '{"path":"trace_collector.trace_collector.services","args":[]}')
 expect_contains 'collector services() lists the gateway'  "$svc" 'gateway'
 expect_contains 'collector services() lists git_repo'     "$svc" 'git_repo'
-lat=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+lat=$(curl -sS --max-time 10 -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
     -H 'Content-Type: application/json' \
     -d '{"path":"trace_collector.trace_collector.latency","args":["gateway","",0]}')
 expect_contains 'collector latency() returns an aggregate' "$lat" 'p50_ns'
@@ -466,6 +535,109 @@ perf=$(curl -sS --max-time 10 "http://127.0.0.1:${WEB}/_perf")
 expect_contains 'gateway /_perf shows the local latency aggregate' "$perf" 'p50_us'
 moved=$(curl -sS --max-time 10 "http://127.0.0.1:${WEB}/_trace")
 expect_contains 'gateway /_trace is demoted, points at /_perf' "$moved" '/_perf'
+
+echo
+echo "[5d] runner agent (docs/runner-agent.md) — token → register → lease → log → complete"
+# External CI runner agents authenticate to the gateway with an opaque rnr_
+# bearer token, register, then poll-lease pipeline jobs from git_pipeline. The
+# gateway resolves the rnr_ token to a runner JWT (groups site:runner,runner:<id>)
+# so the policy can gate the runner-only lifecycle. root (site-owner) mints the
+# tokens; alice (regular user) triggers builds; the runner executes them.
+JSONH='Content-Type: application/json'
+
+# Admin (site-owner root) mints a runner token. create_token is owner-gated.
+ct=$(curl -sS --max-time 10 -b tmp/root-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "$JSONH" -d '{"path":"runner_agent.runner_agent.create_token","args":["ci-runner-1","linux,x86_64"]}')
+expect_contains 'admin create_token mints an rnr_ token' "$ct" '"token":"rnr_'
+RUNNER_TOKEN=$(printf '%s' "$ct" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["token"])' 2>/dev/null)
+RUNNER_ID=$(printf '%s' "$ct" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["runner_id"])' 2>/dev/null)
+
+# A non-owner (alice) must NOT be able to mint a runner token → 403.
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+            -H "$JSONH" -d '{"path":"runner_agent.runner_agent.create_token","args":["evil","linux"]}')
+[ "$code" = "403" ] && note_pass "non-owner alice create_token → 403" \
+                    || note_fail "alice create_token returned $code (want 403)"
+
+# The runner registers itself with its opaque token (Authorization: Bearer rnr_).
+reg=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+      -H "Authorization: Bearer ${RUNNER_TOKEN}" -H "$JSONH" \
+      -d "{\"path\":\"runner_agent.runner_agent.register\",\"args\":[${RUNNER_ID},\"ci-runner-1\",\"linux,x86_64\",\"0.1.0\",\"smoke-host\"]}")
+expect_contains 'runner register echoes its runner_id' "$reg" "\"result\":${RUNNER_ID}"
+
+# A user cookie carries no site:runner group → register is forbidden (403).
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+            -H "$JSONH" -d "{\"path\":\"runner_agent.runner_agent.register\",\"args\":[${RUNNER_ID},\"x\",\"linux\",\"0\",\"h\"]}")
+[ "$code" = "403" ] && note_pass "non-runner alice register → 403" \
+                    || note_fail "alice register returned $code (want 403)"
+
+# A user (alice) enqueues a CI job with execution metadata; the runner leases it.
+ej=$(curl -sS --max-time 10 -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "$JSONH" -d '{"path":"git_pipeline.git_pipeline.enqueue_job","args":[1,"refs/heads/main","",60]}')
+expect_contains 'user enqueue_job returns a job id' "$ej" '"result":[1-9][0-9]*'
+JOB_ID=$(printf '%s' "$ej" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"])' 2>/dev/null)
+
+# A non-runner (alice) cannot lease a job → 403 (lease_job is runner-gated).
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+            -H "$JSONH" -d "{\"path\":\"git_pipeline.git_pipeline.lease_job\",\"args\":[${RUNNER_ID},\"linux\"]}")
+[ "$code" = "403" ] && note_pass "non-runner alice lease_job → 403" \
+                    || note_fail "alice lease_job returned $code (want 403)"
+
+# The runner leases the next queued job and receives the full descriptor.
+lj=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "Authorization: Bearer ${RUNNER_TOKEN}" -H "$JSONH" \
+     -d "{\"path\":\"git_pipeline.git_pipeline.lease_job\",\"args\":[${RUNNER_ID},\"linux,x86_64\"]}")
+expect_contains 'runner lease_job returns the queued job' "$lj" "\"job_id\":${JOB_ID}"
+expect_contains 'lease_job descriptor carries the ref + expiry' "$lj" 'refs/heads/main'
+
+# The runner streams a log chunk (owner-gated), then reads it back.
+al=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "Authorization: Bearer ${RUNNER_TOKEN}" -H "$JSONH" \
+     -d "{\"path\":\"git_pipeline.git_pipeline.append_log\",\"args\":[${JOB_ID},0,\"hello from runner\n\"]}")
+expect_contains 'runner append_log returns the new length' "$al" '"result":[1-9][0-9]*'
+rl=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "Authorization: Bearer ${RUNNER_TOKEN}" -H "$JSONH" \
+     -d "{\"path\":\"git_pipeline.git_pipeline.read_log\",\"args\":[${JOB_ID}]}")
+expect_contains 'read_log echoes the streamed chunk' "$rl" 'hello from runner'
+
+# The runner reports success → count_done bumps.
+cj=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "Authorization: Bearer ${RUNNER_TOKEN}" -H "$JSONH" \
+     -d "{\"path\":\"git_pipeline.git_pipeline.complete_job\",\"args\":[${JOB_ID},0,\"build OK\"]}")
+expect_contains 'runner complete_job → 1' "$cj" '"result":1'
+
+# Ownership: a SECOND runner cannot complete the FIRST runner's job.
+ct2=$(curl -sS --max-time 10 -b tmp/root-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+      -H "$JSONH" -d '{"path":"runner_agent.runner_agent.create_token","args":["ci-runner-2","linux"]}')
+RUNNER_TOKEN2=$(printf '%s' "$ct2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["token"])' 2>/dev/null)
+RUNNER_ID2=$(printf '%s' "$ct2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["runner_id"])' 2>/dev/null)
+curl -sS --max-time 10 -o /dev/null -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "Authorization: Bearer ${RUNNER_TOKEN2}" -H "$JSONH" \
+     -d "{\"path\":\"runner_agent.runner_agent.register\",\"args\":[${RUNNER_ID2},\"ci-runner-2\",\"linux\",\"0.1.0\",\"smoke-host\"]}"
+ej2=$(curl -sS --max-time 10 -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+      -H "$JSONH" -d '{"path":"git_pipeline.git_pipeline.enqueue_job","args":[1,"refs/heads/dev","",60]}')
+JOB_ID2=$(printf '%s' "$ej2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"])' 2>/dev/null)
+curl -sS --max-time 10 -o /dev/null -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "Authorization: Bearer ${RUNNER_TOKEN2}" -H "$JSONH" \
+     -d "{\"path\":\"git_pipeline.git_pipeline.lease_job\",\"args\":[${RUNNER_ID2},\"linux\"]}"
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+            -H "Authorization: Bearer ${RUNNER_TOKEN}" -H "$JSONH" \
+            -d "{\"path\":\"git_pipeline.git_pipeline.complete_job\",\"args\":[${JOB_ID2},0,\"steal\"]}")
+[ "$code" = "500" ] && note_pass "ownership: runner1 cannot complete runner2's job (500)" \
+                    || note_fail "cross-runner complete_job returned $code (want 500)"
+# runner2 completes its own job cleanly.
+cj2=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+      -H "Authorization: Bearer ${RUNNER_TOKEN2}" -H "$JSONH" \
+      -d "{\"path\":\"git_pipeline.git_pipeline.complete_job\",\"args\":[${JOB_ID2},0,\"ok\"]}")
+expect_contains 'runner2 complete_job (own job) → 1' "$cj2" '"result":1'
+
+# Drive the REAL runner-agent.py once, end to end: a fresh job is queued, the
+# agent leases it, runs the stub build, streams logs, and completes it.
+curl -sS --max-time 10 -o /dev/null -b tmp/side-cookies.txt -XPOST "http://127.0.0.1:${WEB}/_rpc" \
+     -H "$JSONH" -d '{"path":"git_pipeline.git_pipeline.enqueue_job","args":[1,"refs/heads/agent","",60]}'
+PICOFORGE_RUNNER_TOKEN="$RUNNER_TOKEN" python3 tools/picoforge/runner-agent/runner-agent.py \
+    --gateway "http://127.0.0.1:${WEB}" --runner-id "$RUNNER_ID" --once \
+    > tmp/runner-agent.log 2>&1
+expect_contains 'runner-agent.py drives a job to completion' "$(cat tmp/runner-agent.log)" 'completed job'
 
 echo
 # Storage migrated from the single-env sqlite `storage` plugin to the
@@ -480,11 +652,13 @@ if [ -z "$shard_dats" ]; then
     note_fail "no mdbx shard files under $SHARDED_DIR (sharded_storage didn't persist?)"
 else
     have_key() { grep -aq "$1" $shard_dats 2>/dev/null; }
-    # accounts → user:/role:/count, session → uid:<token>, password_authn → count
-    if have_key "uid:" && have_key "user:" && have_key "role:"; then
-        note_pass "sharded mdbx on disk has session + account state (uid:, user:, role:)"
+    # accounts → user:/groups:/count, session → uid:<sid>, password_authn → count.
+    # (issue #19: the admin role is now a `groups:<uid>` membership — site:owner —
+    # not the retired raw `role:<uid>` key.)
+    if have_key "uid:" && have_key "user:" && have_key "groups:"; then
+        note_pass "sharded mdbx on disk has session + account state (uid:, user:, groups:)"
     else
-        present=$(for k in count "user:" "role:" "uid:"; do have_key "$k" && printf '%s ' "$k"; done)
+        present=$(for k in count "user:" "groups:" "uid:"; do have_key "$k" && printf '%s ' "$k"; done)
         note_fail "expected keys not all found in mdbx shards on disk (present: ${present:-none})"
     fi
     du -sh "$SHARDED_DIR" 2>/dev/null | sed 's/^/  sharded on-disk size: /'

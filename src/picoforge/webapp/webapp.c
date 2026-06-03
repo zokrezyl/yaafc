@@ -1484,15 +1484,27 @@ static long rpc_result_int(struct yloop *loop, const struct serve_ud *sud,
 }
 
 /* Resolve the opaque session token (hex-string cookie value) back to a uid
- * via the gateway. 0 when unknown / not signed in. */
+ * via the gateway's /_whoami. 0 when unknown / not signed in. /_whoami is the
+ * gateway's external→internal identity route; we do NOT call session.lookup
+ * over /_rpc — that is an authenticator-internal credential exchange the
+ * gateway blocks from public RPC (issue #19). */
 static uint32_t resolve_uid(struct yloop *loop, const struct serve_ud *sud,
                             const char *sid)
 {
     if (!sid || !*sid) return 0;
-    char args[96];
-    snprintf(args, sizeof(args), "[\"%s\"]", sid);
-    long uid = rpc_result_int(loop, sud, sid, "session.session.lookup", args, 0);
-    return uid > 0 ? (uint32_t)uid : 0;
+    struct http_response resp;
+    int rc = http_post(loop, &sud->gw, "/_whoami", "application/json", NULL, sid, "", 0, &resp);
+    if (rc != 0) { http_response_free(&resp); return 0; }
+    uint32_t uid = 0;
+    if (resp.body) {
+        struct yjson_doc *doc = yjson_parse(resp.body, resp.body_len);
+        if (doc) {
+            uid = (uint32_t)yjson_as_int(yjson_object_get(yjson_doc_root(doc), "uid"), 0);
+            yjson_doc_free(doc);
+        }
+    }
+    http_response_free(&resp);
+    return uid;
 }
 
 /* Resolve the caller's authenticated claims (uid, username, admin bit) via

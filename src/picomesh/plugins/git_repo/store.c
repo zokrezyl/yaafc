@@ -36,6 +36,8 @@
 #include <picomesh/yengine/engine.h>
 #include <picomesh/yconfig/yconfig.h>
 #include <picomesh/yloop/yloop.h>
+#include <picomesh/ysecurity/jwt.h>
+#include <picomesh/ysecurity/secret.h>
 #include <picomesh/plugin/sharded_storage/sharded_storage.h>
 
 #include <git2.h>
@@ -1008,10 +1010,16 @@ struct picomesh_string_result git_repo_git_repo_put_file_impl(struct ctx *ctx, s
     struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
     if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: load failed", lr);
     if (lr.value == 0) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: no such repo");
-    /* Write authz: owner-only, always (independent of public/private).
-     * Anonymous (uid 0) is always refused. */
-    uint32_t uid = hdrs ? yheaders_get_u32(hdrs, "uid", 0) : 0;
-    if (uid == 0 || uid != rec.owner_id)
+    /* Write authz (resource-level, on top of the gateway's policy gate): the
+     * verified caller must own the repo, OR hold a site-admin role. Identity
+     * comes from the JWT the gateway placed in the headers — a backend trusts
+     * the signed claims (uid + groups), not a bare uid. A site
+     * owner/maintainer may write any repo; anonymous (uid 0) is always refused. */
+    struct picomesh_authctx caller;
+    picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
+    int site_admin = caller.authenticated &&
+        picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer");
+    if (caller.uid == 0 || (caller.uid != rec.owner_id && !site_admin))
         return PICOMESH_ERR(picomesh_string, "git_repo_put_file: forbidden (not repo owner)");
     if (!ensure_libgit2()) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: libgit2 init failed");
 

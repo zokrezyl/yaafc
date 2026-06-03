@@ -232,6 +232,50 @@ struct picomesh_size_result accounts_accounts_count_impl(struct ctx *ctx, struct
     return PICOMESH_OK(picomesh_size, (size_t)(cr.value < 0 ? 0 : cr.value));
 }
 
+/* Group memberships drive authorization (issue #19). Each user's groups are a
+ * comma-separated list of "<account>:<role>" slugs stored at groups:<uid>; the
+ * token issuer mints them into the JWT `groups` claim at login. This replaces
+ * the gateway poking a raw role:<uid> storage key. */
+PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_set_groups")
+struct picomesh_int_result accounts_accounts_set_groups_impl(struct ctx *ctx, struct object *obj,
+                                                             struct yheaders *hdrs,
+                                                             uint32_t uid, const char *groups_csv)
+{
+    (void)ctx; (void)obj;
+    if (!groups_csv) groups_csv = "";
+    struct acc_storage_handle_result sr = open_storage();
+    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_int, "accounts_set_groups: open_storage failed", sr);
+    struct acc_storage_handle h = sr.value;
+    char k[64];
+    snprintf(k, sizeof(k), "groups:%u", uid);
+    struct picomesh_int_result w = sharded_storage_db_set(&h.c, h.obj, hdrs, ACCOUNTS_CTX, k, groups_csv);
+    close_storage(&h);
+    if (PICOMESH_IS_ERR(w)) return PICOMESH_ERR(picomesh_int, "accounts_set_groups: write failed", w);
+    yinfo("accounts_set_groups: uid=%u groups=%s", uid, groups_csv);
+    return PICOMESH_OK(picomesh_int, 1);
+}
+
+PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_groups")
+struct picomesh_string_result accounts_accounts_groups_impl(struct ctx *ctx, struct object *obj,
+                                                            struct yheaders *hdrs, uint32_t uid)
+{
+    (void)ctx; (void)obj;
+    struct acc_storage_handle_result sr = open_storage();
+    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "accounts_groups: open_storage failed", sr);
+    struct acc_storage_handle h = sr.value;
+    char k[64];
+    snprintf(k, sizeof(k), "groups:%u", uid);
+    struct picomesh_string_result r = sharded_storage_db_get(&h.c, h.obj, hdrs, ACCOUNTS_CTX, k);
+    close_storage(&h);
+    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_string, "accounts_groups: read failed", r);
+    if (!r.value) {
+        char *empty = strdup("");
+        if (!empty) return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
+        return PICOMESH_OK(picomesh_string, empty);
+    }
+    return PICOMESH_OK(picomesh_string, r.value);
+}
+
 /* List the registered users as a JSON array `[{"uid":<n>,"name":"<s>"}, …]`.
  * State is the `index` key, stored at registration as newline-separated
  * "<uid>\t<username>" rows (the reverse map the frontend needs); this parses

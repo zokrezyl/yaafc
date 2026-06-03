@@ -11,6 +11,8 @@ typedef struct picomesh_int_result (*accounts_accounts_exists_fn)(struct ctx *, 
 typedef struct picomesh_int_result (*accounts_accounts_set_balance_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, int64_t);
 typedef struct picomesh_int64_result (*accounts_accounts_balance_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
 typedef struct picomesh_size_result (*accounts_accounts_count_fn)(struct ctx *, struct object *, struct yheaders *);
+typedef struct picomesh_int_result (*accounts_accounts_set_groups_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, const char *);
+typedef struct picomesh_string_result (*accounts_accounts_groups_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
 typedef struct picomesh_json_result (*accounts_accounts_list_fn)(struct ctx *, struct object *, struct yheaders *, int64_t, int64_t);
 typedef struct picomesh_json_result (*accounts_accounts_list_all_fn)(struct ctx *, struct object *, struct yheaders *);
 

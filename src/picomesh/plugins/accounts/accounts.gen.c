@@ -12,6 +12,10 @@ static accounts_accounts_balance_fn _accounts_accounts_accounts_accounts_balance
 __attribute__((unused))
 static accounts_accounts_count_fn _accounts_accounts_accounts_accounts_count_check = accounts_accounts_count_impl;
 __attribute__((unused))
+static accounts_accounts_set_groups_fn _accounts_accounts_accounts_accounts_set_groups_check = accounts_accounts_set_groups_impl;
+__attribute__((unused))
+static accounts_accounts_groups_fn _accounts_accounts_accounts_accounts_groups_check = accounts_accounts_groups_impl;
+__attribute__((unused))
 static accounts_accounts_list_fn _accounts_accounts_accounts_accounts_list_check = accounts_accounts_list_impl;
 __attribute__((unused))
 static accounts_accounts_list_all_fn _accounts_accounts_accounts_accounts_list_all_check = accounts_accounts_list_all_impl;
@@ -33,6 +37,8 @@ struct class_ptr_result accounts_accounts_class_get(void)
         {"accounts", "accounts_set_balance", (method_id_t)accounts_accounts_set_balance, (impl_t)accounts_accounts_set_balance_impl},
         {"accounts", "accounts_balance", (method_id_t)accounts_accounts_balance, (impl_t)accounts_accounts_balance_impl},
         {"accounts", "accounts_count", (method_id_t)accounts_accounts_count, (impl_t)accounts_accounts_count_impl},
+        {"accounts", "accounts_set_groups", (method_id_t)accounts_accounts_set_groups, (impl_t)accounts_accounts_set_groups_impl},
+        {"accounts", "accounts_groups", (method_id_t)accounts_accounts_groups, (impl_t)accounts_accounts_groups_impl},
         {"accounts", "accounts_list", (method_id_t)accounts_accounts_list, (impl_t)accounts_accounts_list_impl},
         {"accounts", "accounts_list_all", (method_id_t)accounts_accounts_list_all, (impl_t)accounts_accounts_list_all_impl},
     };

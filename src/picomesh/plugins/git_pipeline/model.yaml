@@ -12,6 +12,25 @@ methods:
         type: "struct yheaders *"
       - name: repo_id
         type: uint32_t
+  - slot: git_pipeline_enqueue_job
+    domain: git_pipeline
+    owning_class: git_pipeline
+    return_type: struct picomesh_uint32_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: repo_id
+        type: uint32_t
+      - name: ref
+        type: "const char *"
+      - name: pipeline_path
+        type: "const char *"
+      - name: timeout_seconds
+        type: int64_t
   - slot: git_pipeline_lease
     domain: git_pipeline
     owning_class: git_pipeline
@@ -24,6 +43,64 @@ methods:
       - name: hdrs
         type: "struct yheaders *"
       - name: runner_id
+        type: uint32_t
+  - slot: git_pipeline_lease_job
+    domain: git_pipeline
+    owning_class: git_pipeline
+    return_type: struct picomesh_json_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: runner_id
+        type: uint32_t
+      - name: labels
+        type: "const char *"
+  - slot: git_pipeline_job_descriptor
+    domain: git_pipeline
+    owning_class: git_pipeline
+    return_type: struct picomesh_json_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: job_id
+        type: uint32_t
+  - slot: git_pipeline_append_log
+    domain: git_pipeline
+    owning_class: git_pipeline
+    return_type: struct picomesh_int64_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: job_id
+        type: uint32_t
+      - name: offset
+        type: int64_t
+      - name: chunk
+        type: "const char *"
+  - slot: git_pipeline_read_log
+    domain: git_pipeline
+    owning_class: git_pipeline
+    return_type: struct picomesh_string_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: job_id
         type: uint32_t
   - slot: git_pipeline_complete
     domain: git_pipeline
@@ -40,6 +117,34 @@ methods:
         type: uint32_t
       - name: status
         type: int32_t
+  - slot: git_pipeline_complete_job
+    domain: git_pipeline
+    owning_class: git_pipeline
+    return_type: struct picomesh_int_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: job_id
+        type: uint32_t
+      - name: status
+        type: int32_t
+      - name: summary
+        type: "const char *"
+  - slot: git_pipeline_requeue_expired
+    domain: git_pipeline
+    owning_class: git_pipeline
+    return_type: struct picomesh_size_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
   - slot: git_pipeline_count_pending
     domain: git_pipeline
     owning_class: git_pipeline
@@ -112,12 +217,33 @@ classes:
       - slot: git_pipeline_enqueue
         slot_domain: git_pipeline
         impl: git_pipeline_git_pipeline_enqueue_impl
+      - slot: git_pipeline_enqueue_job
+        slot_domain: git_pipeline
+        impl: git_pipeline_git_pipeline_enqueue_job_impl
       - slot: git_pipeline_lease
         slot_domain: git_pipeline
         impl: git_pipeline_git_pipeline_lease_impl
+      - slot: git_pipeline_lease_job
+        slot_domain: git_pipeline
+        impl: git_pipeline_git_pipeline_lease_job_impl
+      - slot: git_pipeline_job_descriptor
+        slot_domain: git_pipeline
+        impl: git_pipeline_git_pipeline_job_descriptor_impl
+      - slot: git_pipeline_append_log
+        slot_domain: git_pipeline
+        impl: git_pipeline_git_pipeline_append_log_impl
+      - slot: git_pipeline_read_log
+        slot_domain: git_pipeline
+        impl: git_pipeline_git_pipeline_read_log_impl
       - slot: git_pipeline_complete
         slot_domain: git_pipeline
         impl: git_pipeline_git_pipeline_complete_impl
+      - slot: git_pipeline_complete_job
+        slot_domain: git_pipeline
+        impl: git_pipeline_git_pipeline_complete_job_impl
+      - slot: git_pipeline_requeue_expired
+        slot_domain: git_pipeline
+        impl: git_pipeline_git_pipeline_requeue_expired_impl
       - slot: git_pipeline_count_pending
         slot_domain: git_pipeline
         impl: git_pipeline_git_pipeline_count_pending_impl

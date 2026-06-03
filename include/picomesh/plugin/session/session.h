@@ -23,7 +23,8 @@ struct class_ptr_result session_session_class_get(void);
 struct object_ptr_result session_session_create(struct ctx *ctx);
 
 /* ---- methods ---- */
-struct picomesh_string_result session_session_start(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t user_id, uint32_t provider_id);
+struct picomesh_string_result session_session_start(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t user_id, const char * access_jwt, const char * refresh_token);
+struct picomesh_string_result session_session_jwt(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * sid);
 struct picomesh_uint32_result session_session_lookup(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * token);
 struct picomesh_int_result session_session_destroy(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * token);
 struct picomesh_size_result session_session_count_active(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);

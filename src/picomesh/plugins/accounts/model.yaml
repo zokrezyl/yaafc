@@ -66,6 +66,34 @@ methods:
         type: "struct object *"
       - name: hdrs
         type: "struct yheaders *"
+  - slot: accounts_set_groups
+    domain: accounts
+    owning_class: accounts
+    return_type: struct picomesh_int_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: uid
+        type: uint32_t
+      - name: groups_csv
+        type: "const char *"
+  - slot: accounts_groups
+    domain: accounts
+    owning_class: accounts
+    return_type: struct picomesh_string_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: uid
+        type: uint32_t
   - slot: accounts_list
     domain: accounts
     owning_class: accounts
@@ -117,6 +145,12 @@ classes:
       - slot: accounts_count
         slot_domain: accounts
         impl: accounts_accounts_count_impl
+      - slot: accounts_set_groups
+        slot_domain: accounts
+        impl: accounts_accounts_set_groups_impl
+      - slot: accounts_groups
+        slot_domain: accounts
+        impl: accounts_accounts_groups_impl
       - slot: accounts_list
         slot_domain: accounts
         impl: accounts_accounts_list_impl

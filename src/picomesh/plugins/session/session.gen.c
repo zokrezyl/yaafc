@@ -4,6 +4,8 @@
 __attribute__((unused))
 static session_session_start_fn _session_session_session_session_start_check = session_session_start_impl;
 __attribute__((unused))
+static session_session_jwt_fn _session_session_session_session_jwt_check = session_session_jwt_impl;
+__attribute__((unused))
 static session_session_lookup_fn _session_session_session_session_lookup_check = session_session_lookup_impl;
 __attribute__((unused))
 static session_session_destroy_fn _session_session_session_session_destroy_check = session_session_destroy_impl;
@@ -27,6 +29,7 @@ struct class_ptr_result session_session_class_get(void)
     };
     static const struct op ops[] = {
         {"session", "session_start", (method_id_t)session_session_start, (impl_t)session_session_start_impl},
+        {"session", "session_jwt", (method_id_t)session_session_jwt, (impl_t)session_session_jwt_impl},
         {"session", "session_lookup", (method_id_t)session_session_lookup, (impl_t)session_session_lookup_impl},
         {"session", "session_destroy", (method_id_t)session_session_destroy, (impl_t)session_session_destroy_impl},
         {"session", "session_count_active", (method_id_t)session_session_count_active, (impl_t)session_session_count_active_impl},

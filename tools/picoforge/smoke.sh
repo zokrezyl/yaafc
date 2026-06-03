@@ -10,6 +10,9 @@ PICOMESH=./build-desktop-release/picomesh
 CONFIG=assets/picoforge/config/picoforge.yaml
 PORT=8801
 
+# issue #19: token_issuer signs access JWTs with this shared secret.
+export PICOMESH_JWT_SECRET="${PICOMESH_JWT_SECRET:-picoforge-dev-mesh-secret-change-me}"
+
 mkdir -p tmp
 
 # Start the yttp server. The picoforge.yaml binds yttp on 0.0.0.0:8801 (see
@@ -66,11 +69,11 @@ call password_authn_password_authn_authenticate  '[100, 42]'  "${H[password_auth
 call password_authn_password_authn_authenticate  '[100, 43]'  "${H[password_authn_password_authn]}"
 
 echo
-echo "== token_issuer.login(uid=100, provider=1) → tid, validate(tid) =="
-out=$(call token_issuer_token_issuer_login '[100, 1]' "${H[token_issuer_token_issuer]}")
-echo "  login: $out"
-TID=$(echo "$out" | sed -E 's/.*"result":([0-9]+).*/\1/')
-call token_issuer_token_issuer_validate "[$TID]" "${H[token_issuer_token_issuer]}"
+echo "== token_issuer.login(password, uid=100, user100, hash=42) → token pair, count_active =="
+# login delegates to password_authn (uid 100 registered above with hash 42),
+# loads groups from accounts, and mints {access_jwt, refresh_token, ...}.
+call token_issuer_token_issuer_login '["password", 100, "user100", 42]' "${H[token_issuer_token_issuer]}"
+call token_issuer_token_issuer_count_active '[]' "${H[token_issuer_token_issuer]}"
 
 echo
 echo "== personal_access_tokens.mint(uid=100) → pat, lookup =="
@@ -111,11 +114,13 @@ call mesh_mesh_resolve          '[10]'       "${H[mesh_mesh]}"
 call mesh_mesh_count_services   ''           "${H[mesh_mesh]}"
 
 echo
-echo "== session.start(uid=100, provider=1) → sid, lookup =="
-out=$(call session_session_start '[100, 1]' "${H[session_session]}")
-SID=$(echo "$out" | sed -E 's/.*"result":([0-9]+).*/\1/')
+echo "== session.start(uid=100, jwt, refresh) → opaque sid, lookup =="
+# issue #19: a session now stores the access JWT + refresh keyed by sid; start
+# returns the opaque sid string, and lookup maps it back to the uid.
+out=$(call session_session_start '[100, "smoke-jwt", "smoke-refresh"]' "${H[session_session]}")
+SID=$(echo "$out" | sed -E 's/.*"result":"([0-9a-f]+)".*/\1/')
 echo "  start: $out"
-call session_session_lookup "[$SID]" "${H[session_session]}"
+call session_session_lookup "[\"$SID\"]" "${H[session_session]}"
 
 echo
 echo "== github_authn.set_credentials(client=1, secret=2), register_code, resolve =="

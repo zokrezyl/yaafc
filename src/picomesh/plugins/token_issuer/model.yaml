@@ -2,7 +2,7 @@ methods:
   - slot: token_issuer_login
     domain: token_issuer
     owning_class: token_issuer
-    return_type: struct picomesh_uint32_result
+    return_type: struct picomesh_json_result
     args:
       - name: ctx
         type: "struct ctx *"
@@ -10,27 +10,18 @@ methods:
         type: "struct object *"
       - name: hdrs
         type: "struct yheaders *"
-      - name: user_id
+      - name: method
+        type: "const char *"
+      - name: uid
         type: uint32_t
-      - name: provider_id
-        type: uint32_t
-  - slot: token_issuer_validate
-    domain: token_issuer
-    owning_class: token_issuer
-    return_type: struct picomesh_uint32_result
-    args:
-      - name: ctx
-        type: "struct ctx *"
-      - name: obj
-        type: "struct object *"
-      - name: hdrs
-        type: "struct yheaders *"
-      - name: token_id
-        type: uint32_t
+      - name: username
+        type: "const char *"
+      - name: pw_hash
+        type: int64_t
   - slot: token_issuer_refresh
     domain: token_issuer
     owning_class: token_issuer
-    return_type: struct picomesh_uint32_result
+    return_type: struct picomesh_json_result
     args:
       - name: ctx
         type: "struct ctx *"
@@ -38,12 +29,12 @@ methods:
         type: "struct object *"
       - name: hdrs
         type: "struct yheaders *"
-      - name: token_id
-        type: uint32_t
-  - slot: token_issuer_revoke
+      - name: refresh_token
+        type: "const char *"
+  - slot: token_issuer_mint
     domain: token_issuer
     owning_class: token_issuer
-    return_type: struct picomesh_int_result
+    return_type: struct picomesh_string_result
     args:
       - name: ctx
         type: "struct ctx *"
@@ -51,8 +42,14 @@ methods:
         type: "struct object *"
       - name: hdrs
         type: "struct yheaders *"
-      - name: token_id
+      - name: uid
         type: uint32_t
+      - name: username
+        type: "const char *"
+      - name: groups_csv
+        type: "const char *"
+      - name: ttl_seconds
+        type: int64_t
   - slot: token_issuer_count_active
     domain: token_issuer
     owning_class: token_issuer
@@ -103,15 +100,12 @@ classes:
       - slot: token_issuer_login
         slot_domain: token_issuer
         impl: token_issuer_token_issuer_login_impl
-      - slot: token_issuer_validate
-        slot_domain: token_issuer
-        impl: token_issuer_token_issuer_validate_impl
       - slot: token_issuer_refresh
         slot_domain: token_issuer
         impl: token_issuer_token_issuer_refresh_impl
-      - slot: token_issuer_revoke
+      - slot: token_issuer_mint
         slot_domain: token_issuer
-        impl: token_issuer_token_issuer_revoke_impl
+        impl: token_issuer_token_issuer_mint_impl
       - slot: token_issuer_count_active
         slot_domain: token_issuer
         impl: token_issuer_token_issuer_count_active_impl

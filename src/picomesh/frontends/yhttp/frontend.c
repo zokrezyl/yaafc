@@ -40,6 +40,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "frontend.h"
+#include "authz.h"
 
 #include <picomesh/yengine/engine.h>
 #include <picomesh/yengine/resolve.h>
@@ -55,6 +56,8 @@
 #include <picomesh/ycore/ytrace.h>
 #include <picomesh/ycore/yspan.h>
 #include <picomesh/ycore/ytelemetry.h>
+#include <picomesh/ysecurity/jwt.h>
+#include <picomesh/ysecurity/secret.h>
 
 /* Each service header brings in its create() + method stubs. */
 #include <picomesh/plugin/sharded_storage/sharded_storage.h>
@@ -185,7 +188,6 @@ static int64_t hash_password(const char *s)
  * whether the signed-in user is a site admin) and from
  * route_register_post (bootstrap). */
 static int is_site_admin(uint32_t uid);
-static void promote_to_site_admin(uint32_t uid);
 static const char *landing_url(uint32_t uid, const char *uname,
                                char *out, size_t cap);
 
@@ -849,37 +851,56 @@ static int build_session_cookies(char *out, size_t cap,
 }
 
 /* Authenticate + mint a session. Used by both /login and /register
- * (after register has put the credential record in place). On error
- * the function does NOT render — it returns 0 and fills *err with a
- * static error string. On success returns 1 and writes the opaque
- * session token (128-bit hex string) into tok_out. */
-static int auth_and_start_session(uint32_t uid, int64_t pw,
+ * (after register has put the credential record in place). The gateway is
+ * the authenticator FRONTEND: it asks `token_issuer.login` to verify the
+ * credential (delegated to password_authn), load groups, and mint an access
+ * JWT + refresh token. The gateway then stores that token pair in `session`
+ * keyed by a fresh opaque sid and hands ONLY the sid to the browser — the JWT
+ * never leaves the mesh.
+ *
+ * On error the function does NOT render — it returns 0 and fills *err with a
+ * static error string. On success returns 1 and writes the opaque sid into
+ * tok_out. */
+static int auth_and_start_session(uint32_t uid, const char *username, int64_t pw,
                                   char *tok_out, size_t tok_cap,
                                   const char **err)
 {
     struct picomesh_engine *e = picomesh_active_engine();
     if (!e) { *err = "no engine"; return 0; }
 
-    SVC_OPEN(pw_sv, "password_authn", password_authn_password_authn_create);
-    if (!pw_sv.ok) { *err = "password_authn unreachable"; return 0; }
-    struct picomesh_int_result auth =
-        password_authn_password_authn_authenticate(&pw_sv.c, pw_sv.obj, NULL, uid, pw);
-    SVC_CLOSE(pw_sv);
-    if (PICOMESH_IS_ERR(auth) || auth.value != 1) {
-        if (PICOMESH_IS_ERR(auth)) picomesh_error_destroy(auth.error);
+    /* token_issuer.login verifies the password (via password_authn), loads
+     * groups, and returns {access_jwt, refresh_token, uid, username, groups}.
+     * An auth failure surfaces as an error here → "invalid username/password". */
+    SVC_OPEN(ti, "token_issuer", token_issuer_token_issuer_create);
+    if (!ti.ok) { *err = "token_issuer unreachable"; return 0; }
+    struct picomesh_json_result login =
+        token_issuer_token_issuer_login(&ti.c, ti.obj, NULL, "password", uid, username ? username : "", pw);
+    SVC_CLOSE(ti);
+    if (PICOMESH_IS_ERR(login)) {
+        picomesh_error_destroy(login.error);
         *err = "invalid username or password";
         return 0;
     }
 
-    SVC_OPEN(ti, "token_issuer", token_issuer_token_issuer_create);
-    if (!ti.ok) { *err = "token_issuer unreachable"; return 0; }
-    token_issuer_token_issuer_login(&ti.c, ti.obj, NULL, uid, /*provider*/1);
-    SVC_CLOSE(ti);
+    /* Pull the minted token pair out of the issuer's JSON. */
+    char access_jwt[2048] = {0};
+    char refresh_token[64] = {0};
+    struct yjson_doc *doc = yjson_parse(login.value, strlen(login.value));
+    if (doc) {
+        const struct yjson_value *root = yjson_doc_root(doc);
+        const char *aj = yjson_as_string(yjson_object_get(root, "access_jwt"), NULL);
+        const char *rt = yjson_as_string(yjson_object_get(root, "refresh_token"), NULL);
+        if (aj) snprintf(access_jwt, sizeof(access_jwt), "%s", aj);
+        if (rt) snprintf(refresh_token, sizeof(refresh_token), "%s", rt);
+        yjson_doc_free(doc);
+    }
+    free(login.value);
+    if (!access_jwt[0]) { *err = "login produced no token"; return 0; }
 
     SVC_OPEN(ses, "session", session_session_create);
     if (!ses.ok) { *err = "session unreachable"; return 0; }
     struct picomesh_string_result tok_r =
-        session_session_start(&ses.c, ses.obj, NULL, uid, /*provider*/1);
+        session_session_start(&ses.c, ses.obj, NULL, uid, access_jwt, refresh_token);
     SVC_CLOSE(ses);
     if (PICOMESH_IS_ERR(tok_r)) {
         picomesh_error_destroy(tok_r.error);
@@ -923,7 +944,7 @@ static void route_login_post(struct yloop_stream *s, const char *body,
 
     const char *err = NULL;
     char tok[64];
-    if (!auth_and_start_session(uid, pw, tok, sizeof(tok), &err)) {
+    if (!auth_and_start_session(uid, uname, pw, tok, sizeof(tok), &err)) {
         render_login(s, err ? err : "login failed", keep_alive);
         return;
     }
@@ -988,23 +1009,31 @@ static void route_register_post(struct yloop_stream *s, const char *body,
         return;
     }
 
-    /* Bootstrap: the very first user becomes site-owner. After
-     * `accounts.register` succeeds and the running total is 1, this
-     * uid is the only registered account → promote it. */
+    /* Assign the account's group memberships, which become the JWT `groups`
+     * claim at login and drive authorization. Every user owns their own
+     * namespace (`<username>:owner`). Bootstrap: the very first registrant —
+     * the only account when the running total is 1 — also becomes the
+     * deployment site-owner (`site:owner`), the same convention GitLab's
+     * `root` uses. This replaces the old raw role:<uid> storage poke. */
     SVC_OPEN(acc2, "accounts", accounts_accounts_create);
     if (acc2.ok) {
+        int first_user = 0;
         struct picomesh_size_result cr = accounts_accounts_count(&acc2.c, acc2.obj, NULL);
-        if (PICOMESH_IS_OK(cr) && cr.value == 1) {
-            promote_to_site_admin(uid);
-        } else if (PICOMESH_IS_ERR(cr)) {
-            picomesh_error_destroy(cr.error);
-        }
+        if (PICOMESH_IS_OK(cr)) first_user = (cr.value == 1);
+        else picomesh_error_destroy(cr.error);
+
+        char groups[160];
+        if (first_user) snprintf(groups, sizeof(groups), "site:owner,%s:owner", uname);
+        else snprintf(groups, sizeof(groups), "%s:owner", uname);
+        struct picomesh_int_result gr = accounts_accounts_set_groups(&acc2.c, acc2.obj, NULL, uid, groups);
+        if (PICOMESH_IS_ERR(gr)) picomesh_error_destroy(gr.error);
+        if (first_user) yinfo("authz: uid=%u bootstrapped as site-owner", uid);
         SVC_CLOSE(acc2);
     }
 
     const char *err = NULL;
     char tok[64];
-    if (!auth_and_start_session(uid, pw, tok, sizeof(tok), &err)) {
+    if (!auth_and_start_session(uid, uname, pw, tok, sizeof(tok), &err)) {
         render_register(s, err ? err : "register failed", keep_alive);
         return;
     }
@@ -1136,44 +1165,25 @@ static int repo_storage_open(struct svc_ctx *out)
 
 /* ---------- authz: site-owner / regular-user role check ----------
  *
- * Mirrors yaapp's `'site:owner' in user.groups` check. We store the
- * role as an int64 at key `role:<uid>` in the `accounts` storage
- * context (0 = regular user, 1 = site-owner). The first user to
- * /register gets role=1 automatically (bootstrap); subsequent users
- * get 0.
- *
- * Without this gate any signed-in user could hit /admin/users — the
- * frontend has to enforce policy explicitly because the underlying
- * accounts plugin doesn't carry authz state itself. */
+ * Mirrors yaapp's `'site:owner' in user.groups` check, now sourced from the
+ * account's group memberships (issue #19) rather than a raw role:<uid> key:
+ * a site admin holds `site:owner` or `site:maintainer` in their groups. The
+ * groups are owned by the accounts service; the gateway reads them through
+ * `accounts.groups`. Used by /_whoami and the /admin action gate. */
 
-/* Read the role bit. Returns 0 (regular) on any error / absent key. */
+/* 1 if `uid` holds a site-level admin role (maintainer or owner). 0 on any
+ * error / absent membership. */
 static int is_site_admin(uint32_t uid)
 {
     if (!uid) return 0;
-    struct svc_ctx st = {0};
-    if (!repo_storage_open(&st)) return 0;
-    char k[64];
-    snprintf(k, sizeof(k), "role:%u", uid);
-    struct picomesh_string_result r = sharded_storage_db_get(&st.c, st.obj, NULL, "accounts", k);
-    int admin = PICOMESH_IS_OK(r) && r.value && strtoll(r.value, NULL, 10) >= 1;
-    if (PICOMESH_IS_OK(r)) free(r.value); else picomesh_error_destroy(r.error);
-    SVC_CLOSE(st);
+    SVC_OPEN(acc, "accounts", accounts_accounts_create);
+    if (!acc.ok) return 0;
+    struct picomesh_string_result r = accounts_accounts_groups(&acc.c, acc.obj, NULL, uid);
+    SVC_CLOSE(acc);
+    if (PICOMESH_IS_ERR(r)) { picomesh_error_destroy(r.error); return 0; }
+    int admin = r.value && picomesh_groups_max_role(r.value, "site") >= picomesh_role_rank("maintainer");
+    free(r.value);
     return admin;
-}
-
-/* Promote `uid` to site-owner. Called from /register when accounts
- * count is exactly 1 right after a successful register — i.e. this
- * was the first user to ever join. */
-static void promote_to_site_admin(uint32_t uid)
-{
-    if (!uid) return;
-    struct svc_ctx st = {0};
-    if (!repo_storage_open(&st)) return;
-    char k[64];
-    snprintf(k, sizeof(k), "role:%u", uid);
-    sharded_storage_db_set(&st.c, st.obj, NULL, "accounts", k, "1");
-    SVC_CLOSE(st);
-    yinfo("authz: uid=%u bootstrapped as site-owner", uid);
 }
 
 /* Record uid→username so /admin/users can list the actual users. Storage
@@ -1292,6 +1302,8 @@ static void send_json_ex(struct yloop_stream *s, int status,
 {
     const char *reason = "OK";
     if (status == 400) reason = "Bad Request";
+    else if (status == 401) reason = "Unauthorized";
+    else if (status == 403) reason = "Forbidden";
     else if (status == 404) reason = "Not Found";
     else if (status == 410) reason = "Gone";
     else if (status == 500) reason = "Internal Server Error";
@@ -1445,11 +1457,8 @@ static void route_json_rpc(struct yloop_stream *s,
     }
     struct picomesh_service_call call = call_r.value;
 
-    char token[64];
-    uint32_t uid = 0;
-    if (extract_session_token(headers_raw, headers_raw_len, token, sizeof(token)))
-        uid = uid_for_token(token);
-
+    /* Method resolution first: an unknown method is a 404 regardless of auth,
+     * so a probe cannot use the auth status to distinguish real methods. */
     jinvoke_fn fn = jinvoke_for(call.method_qname);
     if (!fn) {
         picomesh_service_call_release(&call);
@@ -1460,13 +1469,61 @@ static void route_json_rpc(struct yloop_stream *s,
         return;
     }
 
-    /* Request-header bag handed to the backend: resolved auth identity
-     * (uid) + distributed-trace context. The gateway is the trace root:
-     * it continues an inbound W3C `traceparent` (or mints a fresh trace)
-     * and opens the root SERVER span; downstream client stubs read
-     * parent_span_id from the bag and nest beneath it. Only the resolved
-     * uid + trace context cross to the backend — the opaque session token
-     * never leaves the gateway. */
+    /* Authentication + authorization (issue #19). On a node configured with
+     * `security.authenticators` (the gateway), every /_rpc call runs the
+     * authenticator chain, then the policy authorizer, BEFORE the backend is
+     * invoked. A node with no security block (a plain transport bridge) keeps
+     * the legacy session→uid resolution with no policy. */
+    uint32_t uid = 0;
+    char *verified_jwt = NULL; /* owned; copied into yheaders below */
+    if (picomesh_security_configured(e)) {
+        /* Credential-exchange methods (sid→JWT, refresh, PAT lookup, login,
+         * mint) are authenticator-internal and never callable via public
+         * /_rpc — the gateway invokes them itself, off this path. */
+        if (picomesh_is_credential_exchange(path)) {
+            picomesh_service_call_release(&call);
+            yjson_doc_free(doc);
+            send_json_error(s, 403, "_rpc: credential-exchange method not callable here", keep_alive);
+            return;
+        }
+        struct picomesh_authn_outcome authn =
+            picomesh_gateway_authenticate(e, headers_raw, headers_raw_len);
+        if (authn.http_status != 0) {
+            int code = authn.http_status;
+            picomesh_authn_outcome_free(&authn);
+            picomesh_service_call_release(&call);
+            yjson_doc_free(doc);
+            send_json_error(s, code,
+                            code == 401 ? "_rpc: invalid or missing credentials"
+                                        : "_rpc: security misconfigured", keep_alive);
+            return;
+        }
+        int decision = picomesh_gateway_authorize(e, path, args, &authn.claims);
+        if (decision != 0) {
+            picomesh_authn_outcome_free(&authn);
+            picomesh_service_call_release(&call);
+            yjson_doc_free(doc);
+            send_json_error(s, decision,
+                            decision == 401 ? "_rpc: authentication required"
+                                            : "_rpc: forbidden", keep_alive);
+            return;
+        }
+        uid = authn.claims.uid;
+        if (authn.jwt) verified_jwt = strdup(authn.jwt);
+        picomesh_authn_outcome_free(&authn);
+    } else {
+        char token[64];
+        if (extract_session_token(headers_raw, headers_raw_len, token, sizeof(token)))
+            uid = uid_for_token(token);
+    }
+
+    /* Request-header bag handed to the backend: the verified auth context +
+     * distributed-trace context. The backend receives the verified access JWT
+     * (claims, not just a numeric uid) plus the resolved uid for back-compat;
+     * the opaque session token / bearer credential never leaves the gateway.
+     * The gateway is the trace root: it continues an inbound W3C `traceparent`
+     * (or mints a fresh trace) and opens the root SERVER span; downstream
+     * client stubs read parent_span_id from the bag and nest beneath it. */
     char span_name[96];
     snprintf(span_name, sizeof(span_name), "gateway.%s", path);
     struct yheaders *hdrs = yheaders_new();
@@ -1474,6 +1531,7 @@ static void route_json_rpc(struct yloop_stream *s,
     memset(&sp, 0, sizeof(sp));
     if (hdrs) {
         yheaders_set_u32(hdrs, "uid", uid);
+        if (verified_jwt) yheaders_set(hdrs, "jwt", verified_jwt);
         char traceparent[128] = {0};
         header_value(headers_raw, headers_raw_len, "traceparent",
                      traceparent, sizeof(traceparent));
@@ -1481,6 +1539,7 @@ static void route_json_rpc(struct yloop_stream *s,
         ytelemetry_server_span_begin(&sp, hdrs, span_name);
         yinfo("[gateway] _rpc trace=%s path=%s uid=%u", sp.trace_id, path, uid);
     }
+    free(verified_jwt);
 
     struct yjson_writer *w = yjson_writer_new();
     yjson_writer_begin_object(w);

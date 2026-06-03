@@ -1,20 +1,25 @@
-/* session — session-id ↔ user/token mapping.
+/* session — opaque session-id ↔ stored access JWT (issue #19).
  *
  * Scenario shape:
- *   start(user_id, provider_id)  → opaque session token string (mints, stores)
- *   lookup(token)                → uint32 user_id (0 if absent / expired)
- *   destroy(token)               → 1 if removed, 0 if unknown
- *   count_active                 → number of sessions live now
+ *   start(uid, access_jwt, refresh_token) → opaque session id string (sid)
+ *   jwt(sid)                              → the stored access JWT ("" if absent)
+ *   lookup(sid)                           → uint32 uid (0 if absent) — back-compat
+ *   destroy(sid)                          → 1 if removed, 0 if unknown
+ *   count_active                          → number of sessions live now
  *
- * The token is a 128-bit random value (hex). It is an OPAQUE bearer secret:
- * unguessable, never logged, never derived from anything client-supplied.
+ * The sid is a 128-bit random value (hex): an OPAQUE bearer secret, never
+ * derived from anything client-supplied, never logged. The browser only ever
+ * holds the sid; the access JWT it maps to never leaves the mesh in the normal
+ * cookie flow — the gateway's session_cookie authenticator exchanges the sid
+ * for the JWT internally via `jwt(sid)`.
  *
- * All state lives in the storage backend reached via the engine's
- * `storage` remote. Key layout in the `session` context:
+ * All state lives in the shared storage backend. Key layout in the `session`
+ * context:
  *
- *   count          → number of live sessions.
- *   uid:<token>    → user_id bound to that token.
- *   prov:<token>   → provider_id bound to that token.
+ *   count           → number of live sessions.
+ *   uid:<sid>       → uid bound to that session (for listing / back-compat).
+ *   jwt:<sid>       → access JWT bound to that session.
+ *   refresh:<sid>   → refresh token bound to that session.
  *
  * The plugin process itself carries no in-memory bookkeeping, so a
  * crash + restart still serves the same sessions, and every remote
@@ -149,9 +154,12 @@ static int alloc_token(char *out, size_t cap)
 
 PICOMESH_CLASS_ANNOTATE("override@session:session:session_start")
 struct picomesh_string_result session_session_start_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                                                    uint32_t user_id, uint32_t provider_id)
+                                                    uint32_t user_id, const char *access_jwt,
+                                                    const char *refresh_token)
 {
     (void)ctx; (void)obj;
+    if (!access_jwt) access_jwt = "";
+    if (!refresh_token) refresh_token = "";
     struct session_storage_handle_result sr = open_storage();
     if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "session_start: open_storage failed", sr);
     struct storage_handle h = sr.value;
@@ -161,24 +169,54 @@ struct picomesh_string_result session_session_start_impl(struct ctx *ctx, struct
         return PICOMESH_ERR(picomesh_string, "session_start: secure random unavailable");
 
     /* Every row here is mandatory: if any write fails, the session is only
-     * partially persisted, so we must NOT hand back a valid-looking token.
+     * partially persisted, so we must NOT hand back a valid-looking sid.
      * Propagate the first failure instead. */
     char k[64];
     snprintf(k, sizeof(k), "uid:%s", tok);
     struct picomesh_void_result w1 = kv_set_int(&h, hdrs, k, (int64_t)user_id);
     if (PICOMESH_IS_ERR(w1)) { close_storage(&h); return PICOMESH_ERR(picomesh_string, "session_start: persist uid failed", w1); }
-    snprintf(k, sizeof(k), "prov:%s", tok);
-    struct picomesh_void_result w2 = kv_set_int(&h, hdrs, k, (int64_t)provider_id);
-    if (PICOMESH_IS_ERR(w2)) { close_storage(&h); return PICOMESH_ERR(picomesh_string, "session_start: persist provider failed", w2); }
+    snprintf(k, sizeof(k), "jwt:%s", tok);
+    struct picomesh_int_result wj = sharded_storage_db_set(&h.c, h.obj, hdrs, SESSION_CTX, k, access_jwt);
+    if (PICOMESH_IS_ERR(wj)) { close_storage(&h); return PICOMESH_ERR(picomesh_string, "session_start: persist jwt failed", wj); }
+    snprintf(k, sizeof(k), "refresh:%s", tok);
+    struct picomesh_int_result wr = sharded_storage_db_set(&h.c, h.obj, hdrs, SESSION_CTX, k, refresh_token);
+    if (PICOMESH_IS_ERR(wr)) { close_storage(&h); return PICOMESH_ERR(picomesh_string, "session_start: persist refresh failed", wr); }
     struct picomesh_int64_result wc = kv_incr(&h, hdrs, "count", 1);
     if (PICOMESH_IS_ERR(wc)) { close_storage(&h); return PICOMESH_ERR(picomesh_string, "session_start: bump count failed", wc); }
 
     close_storage(&h);
-    /* Never log the token itself — it is the bearer secret. */
-    yinfo("session: started user=%u provider=%u", user_id, provider_id);
+    /* Never log the sid or the JWT — both are bearer secrets. */
+    yinfo("session: started user=%u", user_id);
     char *out = strdup(tok);
     if (!out) return PICOMESH_ERR(picomesh_string, "session_start: out of memory");
     return PICOMESH_OK(picomesh_string, out);
+}
+
+/* Exchange an opaque sid for the stored access JWT. This is an
+ * authenticator-internal credential exchange (the gateway's session_cookie
+ * authenticator calls it); it must not be reachable as a public /_rpc call. */
+PICOMESH_CLASS_ANNOTATE("override@session:session:session_jwt")
+struct picomesh_string_result session_session_jwt_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
+                                                       const char *sid)
+{
+    (void)ctx; (void)obj;
+    if (!sid || !*sid) {
+        char *empty = strdup("");
+        return empty ? PICOMESH_OK(picomesh_string, empty) : PICOMESH_ERR(picomesh_string, "session_jwt: out of memory");
+    }
+    struct session_storage_handle_result sr = open_storage();
+    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "session_jwt: open_storage failed", sr);
+    struct storage_handle h = sr.value;
+    char k[64];
+    snprintf(k, sizeof(k), "jwt:%s", sid);
+    struct picomesh_string_result r = sharded_storage_db_get(&h.c, h.obj, hdrs, SESSION_CTX, k);
+    close_storage(&h);
+    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_string, "session_jwt: read failed", r);
+    if (!r.value) {
+        char *empty = strdup("");
+        return empty ? PICOMESH_OK(picomesh_string, empty) : PICOMESH_ERR(picomesh_string, "session_jwt: out of memory");
+    }
+    return PICOMESH_OK(picomesh_string, r.value);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@session:session:session_lookup")
@@ -219,9 +257,12 @@ struct picomesh_int_result session_session_destroy_impl(struct ctx *ctx, struct 
     if (PICOMESH_IS_ERR(del)) { close_storage(&h); return PICOMESH_ERR(picomesh_int, "session_destroy: delete failed", del); }
     if (del.value == 0) { close_storage(&h); return PICOMESH_OK(picomesh_int, 0); }  /* unknown / already gone */
 
-    snprintf(k, sizeof(k), "prov:%s", token);
-    struct picomesh_int_result pdel = sharded_storage_db_del(&h.c, h.obj, hdrs, SESSION_CTX, k);
-    if (PICOMESH_IS_ERR(pdel)) { close_storage(&h); return PICOMESH_ERR(picomesh_int, "session_destroy: delete prov failed", pdel); }
+    snprintf(k, sizeof(k), "jwt:%s", token);
+    struct picomesh_int_result jdel = sharded_storage_db_del(&h.c, h.obj, hdrs, SESSION_CTX, k);
+    if (PICOMESH_IS_ERR(jdel)) { close_storage(&h); return PICOMESH_ERR(picomesh_int, "session_destroy: delete jwt failed", jdel); }
+    snprintf(k, sizeof(k), "refresh:%s", token);
+    struct picomesh_int_result rdel = sharded_storage_db_del(&h.c, h.obj, hdrs, SESSION_CTX, k);
+    if (PICOMESH_IS_ERR(rdel)) { close_storage(&h); return PICOMESH_ERR(picomesh_int, "session_destroy: delete refresh failed", rdel); }
     struct picomesh_int64_result dc = kv_incr(&h, hdrs, "count", -1);
     if (PICOMESH_IS_ERR(dc)) { close_storage(&h); return PICOMESH_ERR(picomesh_int, "session_destroy: count update failed", dc); }
 

@@ -11,6 +11,7 @@ struct picomesh_int64_result;
 struct picomesh_int_result;
 struct picomesh_json_result;
 struct picomesh_size_result;
+struct picomesh_string_result;
 struct yheaders;
 struct object_ptr_result;
 struct class_ptr_result;
@@ -27,6 +28,8 @@ struct picomesh_int_result accounts_accounts_exists(struct ctx * ctx, struct obj
 struct picomesh_int_result accounts_accounts_set_balance(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid, int64_t n);
 struct picomesh_int64_result accounts_accounts_balance(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid);
 struct picomesh_size_result accounts_accounts_count(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
+struct picomesh_int_result accounts_accounts_set_groups(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid, const char * groups_csv);
+struct picomesh_string_result accounts_accounts_groups(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid);
 struct picomesh_json_result accounts_accounts_list(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, int64_t offset, int64_t limit);
 struct picomesh_json_result accounts_accounts_list_all(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 

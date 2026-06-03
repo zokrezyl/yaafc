@@ -6,10 +6,9 @@
 
 #include <picomesh/plugin/token_issuer/token_issuer.h>
 
-typedef struct picomesh_uint32_result (*token_issuer_token_issuer_login_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, uint32_t);
-typedef struct picomesh_uint32_result (*token_issuer_token_issuer_validate_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
-typedef struct picomesh_uint32_result (*token_issuer_token_issuer_refresh_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
-typedef struct picomesh_int_result (*token_issuer_token_issuer_revoke_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
+typedef struct picomesh_json_result (*token_issuer_token_issuer_login_fn)(struct ctx *, struct object *, struct yheaders *, const char *, uint32_t, const char *, int64_t);
+typedef struct picomesh_json_result (*token_issuer_token_issuer_refresh_fn)(struct ctx *, struct object *, struct yheaders *, const char *);
+typedef struct picomesh_string_result (*token_issuer_token_issuer_mint_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, const char *, const char *, int64_t);
 typedef struct picomesh_size_result (*token_issuer_token_issuer_count_active_fn)(struct ctx *, struct object *, struct yheaders *);
 typedef struct picomesh_json_result (*token_issuer_token_issuer_list_fn)(struct ctx *, struct object *, struct yheaders *, int64_t, int64_t);
 typedef struct picomesh_json_result (*token_issuer_token_issuer_list_all_fn)(struct ctx *, struct object *, struct yheaders *);

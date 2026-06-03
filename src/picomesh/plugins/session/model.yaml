@@ -12,8 +12,23 @@ methods:
         type: "struct yheaders *"
       - name: user_id
         type: uint32_t
-      - name: provider_id
-        type: uint32_t
+      - name: access_jwt
+        type: "const char *"
+      - name: refresh_token
+        type: "const char *"
+  - slot: session_jwt
+    domain: session
+    owning_class: session
+    return_type: struct picomesh_string_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: sid
+        type: "const char *"
   - slot: session_lookup
     domain: session
     owning_class: session
@@ -90,6 +105,9 @@ classes:
       - slot: session_start
         slot_domain: session
         impl: session_session_start_impl
+      - slot: session_jwt
+        slot_domain: session
+        impl: session_session_jwt_impl
       - slot: session_lookup
         slot_domain: session
         impl: session_session_lookup_impl

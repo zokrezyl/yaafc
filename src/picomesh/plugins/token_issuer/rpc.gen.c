@@ -37,17 +37,37 @@ static size_t token_issuer_token_issuer_login_skel(const void *_body, size_t _bo
         memcpy(&_h, (const uint8_t *)_body + _off, 8); _off += 8;
         _obj = (struct object *)rpc_handle_resolve(_h);
     }
-    uint32_t _v1 = 0;
-    if (_off + sizeof(_v1) > _body_len) goto _short_body;
-    memcpy(&_v1, (const uint8_t *)_body + _off, sizeof(_v1));
-    _off += sizeof(_v1);
+    char _s1[4096];
+    {
+        if (_off + 4 > _body_len) goto _short_body;
+        uint32_t _slen;
+        memcpy(&_slen, (const uint8_t *)_body + _off, 4); _off += 4;
+        if (_off + _slen > _body_len) goto _short_body;
+        if (_slen >= sizeof(_s1)) goto _short_body;
+        if (_slen) memcpy(_s1, (const uint8_t *)_body + _off, _slen);
+        _s1[_slen] = 0; _off += _slen;
+    }
     uint32_t _v2 = 0;
     if (_off + sizeof(_v2) > _body_len) goto _short_body;
     memcpy(&_v2, (const uint8_t *)_body + _off, sizeof(_v2));
     _off += sizeof(_v2);
+    char _s3[4096];
+    {
+        if (_off + 4 > _body_len) goto _short_body;
+        uint32_t _slen;
+        memcpy(&_slen, (const uint8_t *)_body + _off, 4); _off += 4;
+        if (_off + _slen > _body_len) goto _short_body;
+        if (_slen >= sizeof(_s3)) goto _short_body;
+        if (_slen) memcpy(_s3, (const uint8_t *)_body + _off, _slen);
+        _s3[_slen] = 0; _off += _slen;
+    }
+    int64_t _v4 = 0;
+    if (_off + sizeof(_v4) > _body_len) goto _short_body;
+    memcpy(&_v4, (const uint8_t *)_body + _off, sizeof(_v4));
+    _off += sizeof(_v4);
     struct ytelemetry_span _tsp;
     ytelemetry_server_span_begin(&_tsp, _hdrs, "skel.token_issuer_token_issuer_login");
-    struct picomesh_uint32_result _r = token_issuer_token_issuer_login(&_local, _obj, _hdrs, _v1, _v2);
+    struct picomesh_json_result _r = token_issuer_token_issuer_login(&_local, _obj, _hdrs, _s1, _v2, _s3, _v4);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
@@ -67,67 +87,16 @@ static size_t token_issuer_token_issuer_login_skel(const void *_body, size_t _bo
         picomesh_error_destroy(_r.error);
         return 1 + 4 + _ml;
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
-    ((uint8_t *)_resp)[0] = 0;
-    memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
-_short_body:
-    yheaders_free(_hdrs);
-    if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
-}
-
-static size_t token_issuer_token_issuer_validate_skel(const void *_body, size_t _body_len,
-                          void *_resp, size_t _resp_max)
-{
-    size_t _off = 0;
-    struct ctx _local = {0};
-    /* The framework header section is first on every CALL body — parse
-     * it back into the `hdrs` argument before the packed business args. */
-    struct yheaders *_hdrs = NULL;
     {
-        size_t _hconsumed = 0;
-        _hdrs = yheaders_parse(_body, _body_len, &_hconsumed);
-        if (!_hdrs) goto _short_body;
-        _off = _hconsumed;
+        const char *_sv = _r.value ? _r.value : "";
+        uint32_t _svlen = (uint32_t)strlen(_sv);
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        ((uint8_t *)_resp)[0] = 0;
+        memcpy((uint8_t *)_resp + 1, &_svlen, 4);
+        if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
+        free(_r.value);
+        return 1 + 4 + (size_t)_svlen;
     }
-    struct object *_obj = NULL;
-    {
-        if (_off + 8 > _body_len) goto _short_body;
-        uint64_t _h;
-        memcpy(&_h, (const uint8_t *)_body + _off, 8); _off += 8;
-        _obj = (struct object *)rpc_handle_resolve(_h);
-    }
-    uint32_t _v1 = 0;
-    if (_off + sizeof(_v1) > _body_len) goto _short_body;
-    memcpy(&_v1, (const uint8_t *)_body + _off, sizeof(_v1));
-    _off += sizeof(_v1);
-    struct ytelemetry_span _tsp;
-    ytelemetry_server_span_begin(&_tsp, _hdrs, "skel.token_issuer_token_issuer_validate");
-    struct picomesh_uint32_result _r = token_issuer_token_issuer_validate(&_local, _obj, _hdrs, _v1);
-    ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
-    yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
-    if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] token_issuer_token_issuer_validate", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
-        uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
-        if (_resp_max < 1 + 4 + _ml) {
-            picomesh_error_destroy(_r.error);
-            ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
-        }
-        ((uint8_t *)_resp)[0] = 1;
-        memcpy((uint8_t *)_resp + 1, &_ml, 4);
-        memcpy((uint8_t *)_resp + 5, _msg, _ml);
-        picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
-    }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
-    ((uint8_t *)_resp)[0] = 0;
-    memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
@@ -155,13 +124,19 @@ static size_t token_issuer_token_issuer_refresh_skel(const void *_body, size_t _
         memcpy(&_h, (const uint8_t *)_body + _off, 8); _off += 8;
         _obj = (struct object *)rpc_handle_resolve(_h);
     }
-    uint32_t _v1 = 0;
-    if (_off + sizeof(_v1) > _body_len) goto _short_body;
-    memcpy(&_v1, (const uint8_t *)_body + _off, sizeof(_v1));
-    _off += sizeof(_v1);
+    char _s1[4096];
+    {
+        if (_off + 4 > _body_len) goto _short_body;
+        uint32_t _slen;
+        memcpy(&_slen, (const uint8_t *)_body + _off, 4); _off += 4;
+        if (_off + _slen > _body_len) goto _short_body;
+        if (_slen >= sizeof(_s1)) goto _short_body;
+        if (_slen) memcpy(_s1, (const uint8_t *)_body + _off, _slen);
+        _s1[_slen] = 0; _off += _slen;
+    }
     struct ytelemetry_span _tsp;
     ytelemetry_server_span_begin(&_tsp, _hdrs, "skel.token_issuer_token_issuer_refresh");
-    struct picomesh_uint32_result _r = token_issuer_token_issuer_refresh(&_local, _obj, _hdrs, _v1);
+    struct picomesh_json_result _r = token_issuer_token_issuer_refresh(&_local, _obj, _hdrs, _s1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
@@ -181,17 +156,23 @@ static size_t token_issuer_token_issuer_refresh_skel(const void *_body, size_t _
         picomesh_error_destroy(_r.error);
         return 1 + 4 + _ml;
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
-    ((uint8_t *)_resp)[0] = 0;
-    memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    {
+        const char *_sv = _r.value ? _r.value : "";
+        uint32_t _svlen = (uint32_t)strlen(_sv);
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        ((uint8_t *)_resp)[0] = 0;
+        memcpy((uint8_t *)_resp + 1, &_svlen, 4);
+        if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
+        free(_r.value);
+        return 1 + 4 + (size_t)_svlen;
+    }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
     return _resp_max >= 1 ? 1 : 0;
 }
 
-static size_t token_issuer_token_issuer_revoke_skel(const void *_body, size_t _body_len,
+static size_t token_issuer_token_issuer_mint_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -216,14 +197,38 @@ static size_t token_issuer_token_issuer_revoke_skel(const void *_body, size_t _b
     if (_off + sizeof(_v1) > _body_len) goto _short_body;
     memcpy(&_v1, (const uint8_t *)_body + _off, sizeof(_v1));
     _off += sizeof(_v1);
+    char _s2[4096];
+    {
+        if (_off + 4 > _body_len) goto _short_body;
+        uint32_t _slen;
+        memcpy(&_slen, (const uint8_t *)_body + _off, 4); _off += 4;
+        if (_off + _slen > _body_len) goto _short_body;
+        if (_slen >= sizeof(_s2)) goto _short_body;
+        if (_slen) memcpy(_s2, (const uint8_t *)_body + _off, _slen);
+        _s2[_slen] = 0; _off += _slen;
+    }
+    char _s3[4096];
+    {
+        if (_off + 4 > _body_len) goto _short_body;
+        uint32_t _slen;
+        memcpy(&_slen, (const uint8_t *)_body + _off, 4); _off += 4;
+        if (_off + _slen > _body_len) goto _short_body;
+        if (_slen >= sizeof(_s3)) goto _short_body;
+        if (_slen) memcpy(_s3, (const uint8_t *)_body + _off, _slen);
+        _s3[_slen] = 0; _off += _slen;
+    }
+    int64_t _v4 = 0;
+    if (_off + sizeof(_v4) > _body_len) goto _short_body;
+    memcpy(&_v4, (const uint8_t *)_body + _off, sizeof(_v4));
+    _off += sizeof(_v4);
     struct ytelemetry_span _tsp;
-    ytelemetry_server_span_begin(&_tsp, _hdrs, "skel.token_issuer_token_issuer_revoke");
-    struct picomesh_int_result _r = token_issuer_token_issuer_revoke(&_local, _obj, _hdrs, _v1);
+    ytelemetry_server_span_begin(&_tsp, _hdrs, "skel.token_issuer_token_issuer_mint");
+    struct picomesh_string_result _r = token_issuer_token_issuer_mint(&_local, _obj, _hdrs, _v1, _s2, _s3, _v4);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] token_issuer_token_issuer_revoke", _r.error);
+        picomesh_error_print(stderr, "[skel] token_issuer_token_issuer_mint", _r.error);
         const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
         uint32_t _ml = (uint32_t)strlen(_msg);
         if (_ml > 256) _ml = 256;
@@ -238,10 +243,16 @@ static size_t token_issuer_token_issuer_revoke_skel(const void *_body, size_t _b
         picomesh_error_destroy(_r.error);
         return 1 + 4 + _ml;
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
-    ((uint8_t *)_resp)[0] = 0;
-    memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    {
+        const char *_sv = _r.value ? _r.value : "";
+        uint32_t _svlen = (uint32_t)strlen(_sv);
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        ((uint8_t *)_resp)[0] = 0;
+        memcpy((uint8_t *)_resp + 1, &_svlen, 4);
+        if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
+        free(_r.value);
+        return 1 + 4 + (size_t)_svlen;
+    }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
@@ -431,36 +442,21 @@ static int token_issuer_token_issuer_login_jinvoke(struct ctx *ctx, struct objec
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
+    const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
+    int64_t arg3 = (int64_t)yjson_as_int(yjson_array_at(args, 3), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_uint32_result call_result = token_issuer_token_issuer_login(call_ctx, obj, hdrs, arg0, arg1);
+    struct picomesh_json_result call_result = token_issuer_token_issuer_login(call_ctx, obj, hdrs, arg0, arg1, arg2, arg3);
     if (PICOMESH_IS_ERR(call_result)) {
         snprintf(err, err_cap, "%s: %s", "token_issuer_token_issuer_login",
                  call_result.error.msg ? call_result.error.msg : "<no message>");
         picomesh_error_destroy(call_result.error);
         return -1;
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
-}
-
-static int token_issuer_token_issuer_validate_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
-{
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    struct ctx local_ctx = {0};
-    struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_uint32_result call_result = token_issuer_token_issuer_validate(call_ctx, obj, hdrs, arg0);
-    if (PICOMESH_IS_ERR(call_result)) {
-        snprintf(err, err_cap, "%s: %s", "token_issuer_token_issuer_validate",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
-        picomesh_error_destroy(call_result.error);
-        return -1;
-    }
-    yjson_writer_int(result, (int64_t)call_result.value);
+    yjson_writer_raw(result, call_result.value ? call_result.value : "null");
+    free(call_result.value);
     return 0;
 }
 
@@ -468,35 +464,40 @@ static int token_issuer_token_issuer_refresh_jinvoke(struct ctx *ctx, struct obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_uint32_result call_result = token_issuer_token_issuer_refresh(call_ctx, obj, hdrs, arg0);
+    struct picomesh_json_result call_result = token_issuer_token_issuer_refresh(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
         snprintf(err, err_cap, "%s: %s", "token_issuer_token_issuer_refresh",
                  call_result.error.msg ? call_result.error.msg : "<no message>");
         picomesh_error_destroy(call_result.error);
         return -1;
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
+    yjson_writer_raw(result, call_result.value ? call_result.value : "null");
+    free(call_result.value);
     return 0;
 }
 
-static int token_issuer_token_issuer_revoke_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
+static int token_issuer_token_issuer_mint_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
+    const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
+    int64_t arg3 = (int64_t)yjson_as_int(yjson_array_at(args, 3), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_int_result call_result = token_issuer_token_issuer_revoke(call_ctx, obj, hdrs, arg0);
+    struct picomesh_string_result call_result = token_issuer_token_issuer_mint(call_ctx, obj, hdrs, arg0, arg1, arg2, arg3);
     if (PICOMESH_IS_ERR(call_result)) {
-        snprintf(err, err_cap, "%s: %s", "token_issuer_token_issuer_revoke",
+        snprintf(err, err_cap, "%s: %s", "token_issuer_token_issuer_mint",
                  call_result.error.msg ? call_result.error.msg : "<no message>");
         picomesh_error_destroy(call_result.error);
         return -1;
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
+    yjson_writer_string(result, call_result.value ? call_result.value : "");
+    free(call_result.value);
     return 0;
 }
 
@@ -560,63 +561,49 @@ static int token_issuer_token_issuer_login_minvoke(struct ctx *ctx, struct objec
                           char *_err, size_t _err_cap)
 {
     (void)_mr;
-    if (_argc != 2u) {
-        snprintf(_err, _err_cap, "token_issuer_token_issuer_login: expected 2 arg(s), got %u", _argc);
+    if (_argc != 4u) {
+        snprintf(_err, _err_cap, "token_issuer_token_issuer_login: expected 4 arg(s), got %u", _argc);
         return -1;
     }
-    uint32_t _v0;
+    char _v0[4096];
     {
-        uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "user_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "user_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
-        _v0 = (uint32_t)_u;
+        uint32_t _sz = (uint32_t)sizeof(_v0);
+        if (!cmp_read_str(_mr, _v0, &_sz)) {
+            snprintf(_err, _err_cap, "method: expected str arg (%s)", cmp_strerror(_mr));
+            return -1;
+        }
     }
     uint32_t _v1;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "provider_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "provider_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "uid: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "uid: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
         _v1 = (uint32_t)_u;
     }
+    char _v2[4096];
+    {
+        uint32_t _sz = (uint32_t)sizeof(_v2);
+        if (!cmp_read_str(_mr, _v2, &_sz)) {
+            snprintf(_err, _err_cap, "username: expected str arg (%s)", cmp_strerror(_mr));
+            return -1;
+        }
+    }
+    int64_t _v3;
+    if (!cmp_read_integer(_mr, &_v3)) { snprintf(_err, _err_cap, "pw_hash: expected int (%s)", cmp_strerror(_mr)); return -1; }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_uint32_result call_result = token_issuer_token_issuer_login(call_ctx, obj, hdrs, _v0, _v1);
+    struct picomesh_json_result call_result = token_issuer_token_issuer_login(call_ctx, obj, hdrs, _v0, _v1, _v2, _v3);
     if (PICOMESH_IS_ERR(call_result)) {
         snprintf(_err, _err_cap, "%s: %s", "token_issuer_token_issuer_login",
                  call_result.error.msg ? call_result.error.msg : "<no message>");
         picomesh_error_destroy(call_result.error);
         return -1;
     }
-    cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
-}
-
-static int token_issuer_token_issuer_validate_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
-{
-    (void)_mr;
-    if (_argc != 1u) {
-        snprintf(_err, _err_cap, "token_issuer_token_issuer_validate: expected 1 arg(s), got %u", _argc);
-        return -1;
-    }
-    uint32_t _v0;
     {
-        uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "token_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "token_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
-        _v0 = (uint32_t)_u;
+        const char *_sv = call_result.value ? call_result.value : "";
+        cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
+        free(call_result.value);
     }
-    struct ctx local_ctx = {0};
-    struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_uint32_result call_result = token_issuer_token_issuer_validate(call_ctx, obj, hdrs, _v0);
-    if (PICOMESH_IS_ERR(call_result)) {
-        snprintf(_err, _err_cap, "%s: %s", "token_issuer_token_issuer_validate",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
-        picomesh_error_destroy(call_result.error);
-        return -1;
-    }
-    cmp_write_uinteger(_mw, (uint64_t)call_result.value);
     return 0;
 }
 
@@ -629,52 +616,79 @@ static int token_issuer_token_issuer_refresh_minvoke(struct ctx *ctx, struct obj
         snprintf(_err, _err_cap, "token_issuer_token_issuer_refresh: expected 1 arg(s), got %u", _argc);
         return -1;
     }
-    uint32_t _v0;
+    char _v0[4096];
     {
-        uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "token_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "token_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
-        _v0 = (uint32_t)_u;
+        uint32_t _sz = (uint32_t)sizeof(_v0);
+        if (!cmp_read_str(_mr, _v0, &_sz)) {
+            snprintf(_err, _err_cap, "refresh_token: expected str arg (%s)", cmp_strerror(_mr));
+            return -1;
+        }
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_uint32_result call_result = token_issuer_token_issuer_refresh(call_ctx, obj, hdrs, _v0);
+    struct picomesh_json_result call_result = token_issuer_token_issuer_refresh(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
         snprintf(_err, _err_cap, "%s: %s", "token_issuer_token_issuer_refresh",
                  call_result.error.msg ? call_result.error.msg : "<no message>");
         picomesh_error_destroy(call_result.error);
         return -1;
     }
-    cmp_write_uinteger(_mw, (uint64_t)call_result.value);
+    {
+        const char *_sv = call_result.value ? call_result.value : "";
+        cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
+        free(call_result.value);
+    }
     return 0;
 }
 
-static int token_issuer_token_issuer_revoke_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
+static int token_issuer_token_issuer_mint_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
                           cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
                           char *_err, size_t _err_cap)
 {
     (void)_mr;
-    if (_argc != 1u) {
-        snprintf(_err, _err_cap, "token_issuer_token_issuer_revoke: expected 1 arg(s), got %u", _argc);
+    if (_argc != 4u) {
+        snprintf(_err, _err_cap, "token_issuer_token_issuer_mint: expected 4 arg(s), got %u", _argc);
         return -1;
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "token_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "token_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "uid: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "uid: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
         _v0 = (uint32_t)_u;
     }
+    char _v1[4096];
+    {
+        uint32_t _sz = (uint32_t)sizeof(_v1);
+        if (!cmp_read_str(_mr, _v1, &_sz)) {
+            snprintf(_err, _err_cap, "username: expected str arg (%s)", cmp_strerror(_mr));
+            return -1;
+        }
+    }
+    char _v2[4096];
+    {
+        uint32_t _sz = (uint32_t)sizeof(_v2);
+        if (!cmp_read_str(_mr, _v2, &_sz)) {
+            snprintf(_err, _err_cap, "groups_csv: expected str arg (%s)", cmp_strerror(_mr));
+            return -1;
+        }
+    }
+    int64_t _v3;
+    if (!cmp_read_integer(_mr, &_v3)) { snprintf(_err, _err_cap, "ttl_seconds: expected int (%s)", cmp_strerror(_mr)); return -1; }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
-    struct picomesh_int_result call_result = token_issuer_token_issuer_revoke(call_ctx, obj, hdrs, _v0);
+    struct picomesh_string_result call_result = token_issuer_token_issuer_mint(call_ctx, obj, hdrs, _v0, _v1, _v2, _v3);
     if (PICOMESH_IS_ERR(call_result)) {
-        snprintf(_err, _err_cap, "%s: %s", "token_issuer_token_issuer_revoke",
+        snprintf(_err, _err_cap, "%s: %s", "token_issuer_token_issuer_mint",
                  call_result.error.msg ? call_result.error.msg : "<no message>");
         picomesh_error_destroy(call_result.error);
         return -1;
     }
-    cmp_write_integer(_mw, (int64_t)call_result.value);
+    {
+        const char *_sv = call_result.value ? call_result.value : "";
+        cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
+        free(call_result.value);
+    }
     return 0;
 }
 
@@ -774,9 +788,8 @@ struct token_issuer_jinvoke_row { const char *name; jinvoke_fn fn; };
 
 static const struct token_issuer_jinvoke_row token_issuer_jinvoke_rows[] = {
     {"token_issuer_token_issuer_login", token_issuer_token_issuer_login_jinvoke},
-    {"token_issuer_token_issuer_validate", token_issuer_token_issuer_validate_jinvoke},
     {"token_issuer_token_issuer_refresh", token_issuer_token_issuer_refresh_jinvoke},
-    {"token_issuer_token_issuer_revoke", token_issuer_token_issuer_revoke_jinvoke},
+    {"token_issuer_token_issuer_mint", token_issuer_token_issuer_mint_jinvoke},
     {"token_issuer_token_issuer_count_active", token_issuer_token_issuer_count_active_jinvoke},
     {"token_issuer_token_issuer_list", token_issuer_token_issuer_list_jinvoke},
     {"token_issuer_token_issuer_list_all", token_issuer_token_issuer_list_all_jinvoke}
@@ -797,9 +810,8 @@ struct token_issuer_minvoke_row { const char *name; minvoke_fn fn; };
 
 static const struct token_issuer_minvoke_row token_issuer_minvoke_rows[] = {
     {"token_issuer_token_issuer_login", token_issuer_token_issuer_login_minvoke},
-    {"token_issuer_token_issuer_validate", token_issuer_token_issuer_validate_minvoke},
     {"token_issuer_token_issuer_refresh", token_issuer_token_issuer_refresh_minvoke},
-    {"token_issuer_token_issuer_revoke", token_issuer_token_issuer_revoke_minvoke},
+    {"token_issuer_token_issuer_mint", token_issuer_token_issuer_mint_minvoke},
     {"token_issuer_token_issuer_count_active", token_issuer_token_issuer_count_active_minvoke},
     {"token_issuer_token_issuer_list", token_issuer_token_issuer_list_minvoke},
     {"token_issuer_token_issuer_list_all", token_issuer_token_issuer_list_all_minvoke}
@@ -817,17 +829,19 @@ static minvoke_fn token_issuer_minvoke_lookup(const char *qname)
 /* ---- token_issuer: per-method parameter signatures (runtime reflection) -- */
 
 static const struct jinvoke_param token_issuer_token_issuer_login_params[] = {
-    {"user_id", "uint32_t"},
-    {"provider_id", "uint32_t"}
-};
-static const struct jinvoke_param token_issuer_token_issuer_validate_params[] = {
-    {"token_id", "uint32_t"}
+    {"method", "const char *"},
+    {"uid", "uint32_t"},
+    {"username", "const char *"},
+    {"pw_hash", "int64_t"}
 };
 static const struct jinvoke_param token_issuer_token_issuer_refresh_params[] = {
-    {"token_id", "uint32_t"}
+    {"refresh_token", "const char *"}
 };
-static const struct jinvoke_param token_issuer_token_issuer_revoke_params[] = {
-    {"token_id", "uint32_t"}
+static const struct jinvoke_param token_issuer_token_issuer_mint_params[] = {
+    {"uid", "uint32_t"},
+    {"username", "const char *"},
+    {"groups_csv", "const char *"},
+    {"ttl_seconds", "int64_t"}
 };
 static const struct jinvoke_param token_issuer_token_issuer_list_params[] = {
     {"offset", "int64_t"},
@@ -836,10 +850,9 @@ static const struct jinvoke_param token_issuer_token_issuer_list_params[] = {
 struct token_issuer_params_row { const char *name; struct jinvoke_params params; };
 
 static const struct token_issuer_params_row token_issuer_params_rows[] = {
-    {"token_issuer_token_issuer_login", {token_issuer_token_issuer_login_params, 2}},
-    {"token_issuer_token_issuer_validate", {token_issuer_token_issuer_validate_params, 1}},
+    {"token_issuer_token_issuer_login", {token_issuer_token_issuer_login_params, 4}},
     {"token_issuer_token_issuer_refresh", {token_issuer_token_issuer_refresh_params, 1}},
-    {"token_issuer_token_issuer_revoke", {token_issuer_token_issuer_revoke_params, 1}},
+    {"token_issuer_token_issuer_mint", {token_issuer_token_issuer_mint_params, 4}},
     {"token_issuer_token_issuer_count_active", {NULL, 0}},
     {"token_issuer_token_issuer_list", {token_issuer_token_issuer_list_params, 2}},
     {"token_issuer_token_issuer_list_all", {NULL, 0}}
@@ -867,9 +880,8 @@ struct token_issuer_skel_row { const char *name; rpc_skel_fn fn; };
 
 static const struct token_issuer_skel_row token_issuer_skel_rows[] = {
     {"token_issuer_token_issuer_login", token_issuer_token_issuer_login_skel},
-    {"token_issuer_token_issuer_validate", token_issuer_token_issuer_validate_skel},
     {"token_issuer_token_issuer_refresh", token_issuer_token_issuer_refresh_skel},
-    {"token_issuer_token_issuer_revoke", token_issuer_token_issuer_revoke_skel},
+    {"token_issuer_token_issuer_mint", token_issuer_token_issuer_mint_skel},
     {"token_issuer_token_issuer_count_active", token_issuer_token_issuer_count_active_skel},
     {"token_issuer_token_issuer_list", token_issuer_token_issuer_list_skel},
     {"token_issuer_token_issuer_list_all", token_issuer_token_issuer_list_all_skel}

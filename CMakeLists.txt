@@ -59,6 +59,10 @@ add_library(picomesh_runtime STATIC
     src/picomesh/yclass/jinvoke.c
     src/picomesh/yclass/minvoke.c
     src/picomesh/yclass/yheaders.c
+    src/picomesh/ysecurity/sha256.c
+    src/picomesh/ysecurity/base64.c
+    src/picomesh/ysecurity/jwt.c
+    src/picomesh/ysecurity/secret.c
     src/picomesh/msgpack/msgpack.c
     vendor/cmp/cmp.c
     src/picomesh/yco/coro.c
@@ -69,6 +73,7 @@ add_library(picomesh_runtime STATIC
     src/picomesh/frontends/yttp/yttp.c
     src/picomesh/frontends/yhttp/yhttp.c
     src/picomesh/frontends/yhttp/frontend.c
+    src/picomesh/frontends/yhttp/authz.c
     src/picomesh/frontends/alpine/alpine.c
     src/picomesh/frontends/msgpack/msgpack.c
     src/picomesh/frontends/cli/cli.c
@@ -204,6 +209,7 @@ set(PICOMESH_PLUGINS
     git_repo
     git_pipeline
     personal_access_tokens
+    runner_agent
     trace_collector
     mesh
 )
@@ -219,7 +225,7 @@ endforeach()
 # regenerated the header. List the producer→consumer edges here.
 foreach(_consumer session accounts password_authn token_issuer
                   personal_access_tokens issues git_repo git_pipeline
-                  github_authn)
+                  github_authn runner_agent)
     add_dependencies(picomesh_plugin_${_consumer}_codegen
                      picomesh_plugin_storage_codegen)
     # These consume sharded_storage's generated header too (db_get/db_set/…
@@ -227,6 +233,13 @@ foreach(_consumer session accounts password_authn token_issuer
     add_dependencies(picomesh_plugin_${_consumer}_codegen
                      picomesh_plugin_sharded_storage_codegen)
 endforeach()
+
+# token_issuer.login delegates to password_authn and loads groups from
+# accounts (issue #19), so it #includes their generated headers — its
+# AST-dump must run after both have regenerated.
+add_dependencies(picomesh_plugin_token_issuer_codegen
+                 picomesh_plugin_password_authn_codegen
+                 picomesh_plugin_accounts_codegen)
 
 # The runtime's frontend (yhttp/frontend.c) and ymain's smoke `client`
 # subcommand both pull in plugin public headers. They must therefore
