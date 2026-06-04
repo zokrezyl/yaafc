@@ -123,14 +123,19 @@ mesh:
     # constraints/indexes/joins/transactions, sharded by namespace_id % N.
     # The core product services use this; sharded_storage stays for KV-shaped
     # runtime state (sessions, tokens, caches). See docs/relational-storage.md.
-    relational_storage:
+    # Four relational clusters (docs/sharded-relational-storage.md): one
+    # `relational_storage` instance per cluster. rstore_uid is the uid-sharded
+    # DATA cluster (users + product tables); the other three are lookup clusters
+    # sharded by hash(external id). Each is the same generic plugin, its own
+    # shard files.
+    rstore_uid:
       port: 8213
       workers: 4
       plugins: [relational_storage]
       config:
         relational_storage:
           shards: 8
-          path: /tmp/picoforge/relational
+          path: /tmp/picoforge/rel/uid
           # The picoforge PRODUCT data model lives HERE, not in the engine.
           # relational_storage is generic: it applies this DDL verbatim to
           # each shard on open. Sharded by namespace (the caller's shard key).
@@ -185,6 +190,42 @@ mesh:
           - service: trace_collector
             port: 8220
 
+    # Lookup clusters: map an external id → uid, sharded by hash(id). Tables are
+    # plugin-owned (accounts/session/token_issuer create them via DDL broadcast).
+    rstore_username:
+      port: 8215
+      workers: 4
+      plugins: [relational_storage]
+      config:
+        relational_storage:
+          shards: 8
+          path: /tmp/picoforge/rel/username
+        remotes:
+          - service: trace_collector
+            port: 8220
+    rstore_session:
+      port: 8216
+      workers: 4
+      plugins: [relational_storage]
+      config:
+        relational_storage:
+          shards: 8
+          path: /tmp/picoforge/rel/session
+        remotes:
+          - service: trace_collector
+            port: 8220
+    rstore_token:
+      port: 8217
+      workers: 4
+      plugins: [relational_storage]
+      config:
+        relational_storage:
+          shards: 8
+          path: /tmp/picoforge/rel/token
+        remotes:
+          - service: trace_collector
+            port: 8220
+
     session:
       port: 8203
       # Hit on EVERY authenticated /_rpc (token→uid). State is in
@@ -197,11 +238,10 @@ mesh:
         remotes:
           - service: sharded_storage
             port: 8212
-          # session rows live in relational_storage (issue #18 migration):
-          # the sid↔access-JWT table is owned by the session plugin and
-          # reached over yrpc, not collocated.
-          - service: relational_storage
-            port: 8213
+          # session rows live in the rstore_session lookup cluster, sharded by
+          # hash(session_id); the session plugin owns the table.
+          - service: rstore_session
+            port: 8216
           - service: trace_collector
             port: 8220
           - service: token_issuer
@@ -214,9 +254,12 @@ mesh:
         remotes:
           - service: sharded_storage
             port: 8212
-          # accounts' users/roster rows live in relational_storage (issue #18).
-          - service: relational_storage
+          # accounts: users in rstore_uid (sharded by uid); the username→uid
+          # uniqueness lookup in rstore_username (sharded by hash(username)).
+          - service: rstore_uid
             port: 8213
+          - service: rstore_username
+            port: 8215
           - service: trace_collector
             port: 8220
 
@@ -249,9 +292,9 @@ mesh:
         remotes:
           - service: sharded_storage
             port: 8212
-          # refresh_tokens rows live in relational_storage (issue #18).
-          - service: relational_storage
-            port: 8213
+          # refresh_tokens live in rstore_token, sharded by hash(token).
+          - service: rstore_token
+            port: 8217
           - service: trace_collector
             port: 8220
           - service: accounts
@@ -577,8 +620,14 @@ mesh:
         remotes:
           - service: sharded_storage
             port: 8212
-          - service: relational_storage
+          - service: rstore_uid
             port: 8213
+          - service: rstore_username
+            port: 8215
+          - service: rstore_session
+            port: 8216
+          - service: rstore_token
+            port: 8217
           - service: trace_collector
             port: 8220
           - service: session

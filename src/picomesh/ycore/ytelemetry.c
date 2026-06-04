@@ -10,11 +10,13 @@
 #include <picomesh/yclass/rpc.h>
 #include <picomesh/yclass/yheaders.h>
 #include <picomesh/yengine/engine.h>
+#include <picomesh/yconfig/yconfig.h>
 
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/random.h>
 #include <time.h>
 #include <unistd.h>
@@ -153,9 +155,39 @@ void ytelemetry_traceparent_format(char *buf, size_t cap, const char *trace_id_h
 
 /* ---- trace context on yheaders --------------------------------------- */
 
+/* Telemetry on/off, resolved ONCE per process and cached. Source order:
+ *   1. env PICOMESH_TELEMETRY = off/0/false/no  → a global kill-switch (handy
+ *      for benchmarking; inherited by every spawned child);
+ *   2. config `telemetry.enabled` — the per-service ROOT config knob (after
+ *      service projection it sits at the node's config root), default ON.
+ * When OFF, every span op below is a single cached `if` and nothing is minted,
+ * serialized, or shipped to the collector. */
+static int ytel_enabled(void)
+{
+    static int cached = -1;
+    if (cached < 0) {
+        int enabled = 1;
+        const char *env = getenv("PICOMESH_TELEMETRY");
+        if (env && (!strcasecmp(env, "off") || !strcasecmp(env, "false") ||
+                    !strcasecmp(env, "no") || !strcmp(env, "0"))) {
+            enabled = 0;
+        } else {
+            struct picomesh_engine *e = picomesh_active_engine();
+            const struct yconfig *cfg = e ? picomesh_engine_config(e) : NULL;
+            if (cfg) {
+                struct yconfig_node_ptr_result r = yconfig_get(cfg, "telemetry.enabled");
+                if (PICOMESH_IS_OK(r) && r.value) enabled = yconfig_node_as_bool(r.value, 1) ? 1 : 0;
+                else if (PICOMESH_IS_ERR(r)) picomesh_error_destroy(r.error);
+            }
+        }
+        cached = enabled;
+    }
+    return cached;
+}
+
 void ytelemetry_hdrs_seed_root(struct yheaders *hdrs, const char *inbound_traceparent)
 {
-    if (!hdrs) return;
+    if (!hdrs || !ytel_enabled()) return;
     char tid[33], sid[17];
     int sampled = 1;
     if (inbound_traceparent && *inbound_traceparent &&
@@ -198,6 +230,7 @@ static void ytel_span_begin(struct ytelemetry_span *sp, struct yheaders *hdrs,
 void ytelemetry_server_span_begin(struct ytelemetry_span *sp, struct yheaders *hdrs,
                                   const char *name)
 {
+    if (!ytel_enabled()) { if (sp) memset(sp, 0, sizeof(*sp)); return; }
     ytel_span_begin(sp, hdrs, name, YTELEMETRY_KIND_SERVER);
     if (hdrs) {
         yheaders_set(hdrs, "parent_span_id", sp->span_id);
@@ -208,13 +241,14 @@ void ytelemetry_server_span_begin(struct ytelemetry_span *sp, struct yheaders *h
 void ytelemetry_client_span_begin(struct ytelemetry_span *sp, struct yheaders *hdrs,
                                   const char *name)
 {
+    if (!ytel_enabled()) { if (sp) memset(sp, 0, sizeof(*sp)); return; }
     ytel_span_begin(sp, hdrs, name, YTELEMETRY_KIND_CLIENT);
 }
 
 size_t ytelemetry_client_serialize_headers(const struct ytelemetry_span *sp,
                                            struct yheaders *hdrs, void *buf, size_t cap)
 {
-    if (!hdrs) return yheaders_serialize(hdrs, buf, cap);
+    if (!hdrs || !ytel_enabled()) return yheaders_serialize(hdrs, buf, cap);
     char save[17] = {0};
     const char *cur = yheaders_get(hdrs, "parent_span_id");
     if (cur) ytel_copystr(save, sizeof(save), cur);
@@ -367,6 +401,8 @@ static void ytel_ship(const struct ytelemetry_span *sp, int ok, const char *err,
 
 void ytelemetry_span_end(struct ytelemetry_span *sp, int ok, const char *err)
 {
+    /* Telemetry off (or a span that begin() zeroed): nothing to record or ship. */
+    if (!ytel_enabled() || !sp || sp->start_mono_ns == 0) return;
     uint64_t dur = ytel_mono_ns() - sp->start_mono_ns;
     /* Local /_perf aggregate, regardless of collector availability. */
     yspan_record(sp->name, (double)dur / 1000.0);

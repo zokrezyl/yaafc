@@ -4,21 +4,32 @@ This document defines the Picomesh security design to port from yaapp. It is a
 target design, not a statement that the current C implementation already
 matches it.
 
-The important yaapp idea is a pluggable auth pipeline on every untrusted
-frontend:
+The core idea: authentication/authorization is a **core picomesh mechanism run
+at the service-invoke boundary**, selected per node by config — not logic baked
+into any frontend. Every protocol carries headers, so a frontend's only auth job
+is to fold its wire headers into `yheaders` and invoke the target method with
+them; the core then runs the configured authn chain + authorizer off those
+headers before the method body executes:
 
 ```text
-request
-  -> frontend authenticator chain
-  -> JWT or anonymous
-  -> frontend authorizer(endpoint, args/kwargs, JWT)
-  -> service invocation with verified auth context
+request (any frontend: yhttp / yrpc / msgpack)
+  -> frontend folds protocol headers into yheaders, invokes the method
+  -> CORE auth-at-invoke (only when this node's config enables it):
+       authenticator chain   -> JWT or anonymous
+       authorizer(endpoint, args/kwargs, JWT)
+  -> verified auth context (JWT claims) replaces the credential in yheaders
+  -> the resolved service method runs
 ```
+
+Because the mechanism is core and reads `yheaders` (which every protocol
+carries), the same auth works under any frontend with zero per-frontend auth
+code. Which authenticators/authorizer a node runs — and therefore whether it is
+an auth boundary at all — is that node's own config.
 
 Services such as `session`, `token_issuer`, `accounts`, `password_authn`, and
 `personal_access_tokens` are mesh plugins/services. They can run in the same
-node as the gateway or in another node reached through the mesh. The frontend
-pipeline must call them through configured service paths; it must not hardcode
+node as the boundary or in another node reached through the mesh. The auth
+mechanism must call them through configured service paths; it must not hardcode
 their storage details.
 
 ## Yaapp Reference Model
@@ -45,18 +56,22 @@ Picomesh may keep that framework-authorizer shape or deliberately implement an
 In Picomesh, "plugin" means a mesh feature/service that can be activated in a
 specific node or run in a remote node. Security must preserve that boundary.
 
-The frontend/gateway is responsible for orchestration:
+Orchestration is a CORE step at the invoke boundary, not a frontend
+responsibility. The frontend only carries headers and invokes; the core, when
+this node's config enables auth, does:
 
-- extract a cookie token or bearer token;
+- read the credential from `yheaders` (the frontend already folded the wire
+  headers in — cookie / bearer / forwarded header);
 - run the configured authenticator chain;
 - receive or verify an access JWT;
 - run the configured authorizer;
-- invoke the target service only after allow;
-- forward only verified auth context/JWT downstream.
+- invoke the target service method only after allow;
+- replace the credential in `yheaders` with the verified JWT/auth context and
+  forward only that downstream.
 
-The frontend/gateway must not know how PATs are stored, how session rows are
-laid out, or how account memberships are stored. Those are plugin/service
-contracts.
+Neither the frontend nor the core auth step may know how PATs are stored, how
+session rows are laid out, or how account memberships are stored. Those are
+plugin/service contracts the configured authenticators reach over RPC.
 
 Low-level library code may exist for crypto/JWT primitives, but it must stay
 boring:
@@ -70,50 +85,67 @@ boring:
 It must not contain policy decisions such as "fall back to uid if JWT
 verification fails".
 
-## Gateway Pattern
+## Boundary Pattern (config-selected, not a special frontend)
 
 A deployment may have several frontends: `yhttp`, `yrpc`, future bridge
-frontends, and service-console frontends. Any frontend reachable by untrusted
-clients is an auth boundary and must run the same security pipeline.
+frontends, and service-console frontends. **Whether a node is an auth boundary
+is decided by that node's config, not by which frontend it runs.** The
+"gateway" is simply a node whose config declares opaque-resolving authenticators
+plus a policy authorizer; the same yhttp binary on another node with no
+`security` block is a dumb transport carrier. One core mechanism, three config
+shapes:
+
+- **boundary** — opaque-resolving authenticators (`session_cookie`,
+  `bearer_opaque_token`) + an authorizer: resolves the external credential to a
+  JWT, scrubs the opaque credential, authorizes, forwards JWT-only;
+- **internal verifier** — a `bearer_jwt_token` authenticator only: verifies the
+  JWT already in the prefix and rejects if absent/invalid;
+- **trusting internal** — no `security` block: runs no auth-at-invoke and trusts
+  the upstream-stamped context (safe only behind a boundary).
 
 Typical Picoforge shape:
 
 ```text
-browser or API client
-  -> Picoforge webapp or direct gateway client
-  -> Picomesh gateway frontend
-       1. authenticate cookie/bearer credential to JWT or anonymous
-       2. authorize endpoint and arguments
-       3. invoke active local or remote service
-  -> backend service plugins
+browser or API client            (presents an OPAQUE cookie/bearer)
+  -> Picoforge webapp or direct client
+  -> a node configured as a BOUNDARY
+       core auth-at-invoke:
+         1. resolve cookie/bearer -> JWT (or anonymous), SCRUB the opaque
+         2. authorize endpoint + arguments
+         3. invoke active local or remote service with JWT-only context
+  -> backend service nodes              (see only the internal JWT)
 ```
 
-Backend services that do not run their own auth pipeline are safe only behind
-this gateway trust boundary. Their RPC surface must not be reachable by
-untrusted clients. If a backend frontend is exposed, it must run the same
-pipeline or reject external traffic.
+Internally only the JWT travels. The opaque cookie/bearer crosses only the
+external edge into the boundary node and is scrubbed there; every hop after that
+carries the verified JWT in `yheaders`, never the opaque secret. Backend nodes
+without their own auth config are safe only behind a boundary; their RPC surface
+must not be reachable by untrusted clients. The external edge stays opaque-only:
+a boundary must reject a client-presented raw JWT, so `bearer_jwt_token` is an
+internal-verification authenticator, never enabled on the external edge.
 
 ## Per-Request Pipeline
 
-When a frontend has security configured, it gates service-call surfaces such as
-`/_rpc`, `/_describe`, `/_describe_tree`, and any yrpc/msgpack service-call
-entrypoint. HTML/static/debug routes may pass through only if they do not
-invoke backend service methods.
+When a node has security configured, the core gates every service invocation at
+the invoke boundary — independent of frontend. The frontend has already folded
+its wire headers into `yheaders` and called the method; the core auth step runs
+before the method body. Surfaces gated this way include `/_rpc`, `/_describe`,
+`/_describe_tree`, and any yrpc/msgpack service-call entrypoint. HTML/static/debug
+routes may pass through only if they do not invoke backend service methods.
 
-For each service call:
+For each service invocation:
 
 ```text
-request
-  -> parse endpoint path, args/kwargs, headers, cookies
-  -> run authenticator chain
+invoke(method, yheaders, args)        (yheaders already carries the credential)
+  -> run authenticator chain, reading the credential from yheaders
        no credential shape matched: jwt = none
        credential shape matched and valid: jwt = verified JWT
        credential shape matched and invalid: fail 401
   -> run authorizer(endpoint, args/kwargs, jwt)
        allowed: continue
        denied: fail 403
-  -> attach verified JWT/auth context to request headers/context
-  -> invoke resolved active service
+  -> replace the credential in yheaders with the verified JWT/auth context
+  -> run the resolved active service method
 ```
 
 The failure rule is security-critical: if a credential of a known shape is
@@ -135,11 +167,14 @@ Authentication answers "who is this caller?" It does not decide whether the
 caller may perform the requested operation.
 
 Authenticators are configured by type. Each authenticator owns only one
-credential shape.
+credential shape, and reads it from `yheaders` — the frontend has already folded
+its protocol's cookie / `Authorization` / forwarded headers into the bag, so an
+authenticator never parses a wire format and behaves identically under any
+frontend.
 
-| Type | Credential read | How it yields a JWT |
+| Type | Credential read (from `yheaders`) | How it yields a JWT |
 |---|---|---|
-| `session_cookie` | configured cookie or same-named forwarded header | calls configured `lookup` RPC, usually `session.session.lookup`, and verifies the returned JWT |
+| `session_cookie` | configured cookie or same-named forwarded header | calls configured `lookup` RPC, usually `session.session.jwt`, and verifies the returned JWT |
 | `bearer_jwt_token` | `Authorization: Bearer <jwt>` | verifies the JWT signature and expiry directly |
 | `bearer_opaque_token` | `Authorization: Bearer <prefix>...` | calls configured `lookup` RPC, such as PAT or runner lookup, and verifies the returned JWT |
 
@@ -151,7 +186,7 @@ security:
     - type: session_cookie
       cookie: picomesh-sid
       header: picomesh-sid
-      lookup: session.session.lookup
+      lookup: session.session.jwt
 
     - type: bearer_jwt_token
       header: Authorization
@@ -266,8 +301,8 @@ request can create races with parallel browser requests.
 
 Some methods consume credentials as their arguments:
 
-- `session.session.lookup(session_id)` exchanges an opaque session id for the
-  stored access JWT.
+- `session.session.jwt(session_id)` exchanges an opaque session id for the
+  stored access JWT (the `session_cookie` authenticator's `lookup`).
 - `token_issuer.token_issuer.refresh(refresh_token)` exchanges a refresh token
   for a fresh access JWT and rotated refresh token.
 - `personal_access_tokens.personal_access_tokens.lookup(token)` exchanges an
@@ -291,9 +326,10 @@ holder of the opaque secret can retrieve a JWT. Prefer one of these designs:
 Authorization answers: "may this caller invoke this endpoint with these
 arguments?"
 
-Picomesh should support a frontend-configured authorizer. The yaapp-compatible
-default is a policy authorizer keyed by endpoint name. Endpoints absent from
-policy are denied by default.
+Picomesh runs a config-selected authorizer at the core invoke boundary (per
+node, from that node's `security` config). The yaapp-compatible default is a
+policy authorizer keyed by endpoint name. Endpoints absent from policy are
+denied by default.
 
 Policy example:
 
@@ -396,11 +432,12 @@ The current implementation only partially matches this design.
 
 Known mismatches:
 
-- `src/picomesh/frontends/yhttp/authz.c` mixes the authenticator chain,
-  hardcoded credential-exchange calls, runner/PAT special cases, and policy
-  evaluation inside the yhttp frontend. The yaapp-compatible target is a
-  reusable frontend pipeline with configured authenticators and a configured
-  authorizer.
+- `src/picomesh/frontends/yhttp/frontend.c` builds and runs the authenticator
+  chain + authorizer (`gateway_security`, the auth block in `route_json_rpc`)
+  inside the yhttp frontend, and legacy mutation routes resolve identity
+  themselves. The target moves that mechanism into the CORE invoke boundary,
+  config-selected per node, so every frontend gets it by carrying headers and
+  invoking — no per-frontend auth code.
 - The yhttp authenticator code knows PAT and runner internals instead of using
   generic `bearer_opaque_token` entries with configured `lookup` service paths.
 - `src/picomesh/ysecurity/secret.c` is low-level helper code but currently
@@ -424,8 +461,10 @@ Known mismatches:
 
 1. Keep `ysecurity` as a low-level library only. Remove policy decisions and
    any invalid-JWT fallback behavior from it.
-2. Introduce a reusable frontend auth pipeline shared by yhttp, yrpc/msgpack,
-   bridges, and future service-console frontends.
+2. Move the auth pipeline into the CORE invoke boundary (not a frontend), so
+   yhttp, yrpc/msgpack, bridges, and future frontends share it by carrying
+   headers and invoking — no per-frontend auth code. Boundary vs internal vs
+   trusting is each node's own `security` config.
 3. Implement configured authenticator modules:
    `session_cookie`, `bearer_jwt_token`, and generic
    `bearer_opaque_token`.
@@ -455,8 +494,8 @@ The target design provides:
 - default deny for methods absent from policy;
 - no credential downgrade on malformed tokens;
 - clear separation of authn and authz;
-- clear separation between frontend pipeline and mesh service plugins;
-- one gateway/frontend policy decision before service invocation;
+- clear separation between the core auth mechanism and the mesh service plugins;
+- one core policy decision at the invoke boundary before service invocation;
 - short-lived JWT claims with refresh/login updates;
 - browser sessions that expose only opaque HttpOnly cookies;
 - support for API clients using bearer JWTs or bearer opaque tokens;

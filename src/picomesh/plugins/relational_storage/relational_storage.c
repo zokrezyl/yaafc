@@ -67,6 +67,21 @@ static struct rel_set *rel_set(void)
     return &s;
 }
 
+/* mkdir -p: create `dir` and any missing parents (best-effort). The configured
+ * shard directory may be several levels deep (e.g. <root>/rel/uid), so a single
+ * mkdir is not enough. */
+static void rel_mkdir_p(const char *dir)
+{
+    char tmp[600];
+    size_t n = strlen(dir);
+    if (n == 0 || n >= sizeof(tmp)) return;
+    memcpy(tmp, dir, n + 1);
+    for (char *p = tmp + 1; *p; ++p) {
+        if (*p == '/') { *p = 0; mkdir(tmp, 0755); *p = '/'; }
+    }
+    mkdir(tmp, 0755);
+}
+
 /* Lazy one-shot open: read config, open N shard DBs, apply the schema.
  * `relational_storage.path` is REQUIRED (a data-location path must be
  * explicit — no silent /tmp fallback). Returns NULL on failure. */
@@ -102,7 +117,7 @@ static struct rel_set *rel_init(void)
     }
     if (shards < 1) shards = 1;
     if (shards > REL_MAX_SHARDS) shards = REL_MAX_SHARDS;
-    mkdir(dir, 0755); /* best-effort; sqlite3_open errors if it truly can't */
+    rel_mkdir_p(dir); /* best-effort; sqlite3_open errors if it truly can't */
 
     for (int i = 0; i < shards; ++i) {
         char path[600];
@@ -118,7 +133,14 @@ static struct rel_set *rel_init(void)
         }
         /* WAL + FK pragmas are engine policy; the table schema is whatever the
          * node configured (or nothing — then the caller runs its own DDL). */
-        sqlite3_exec(db, "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;", NULL, NULL, NULL);
+        /* WAL + FK are engine policy; a failure silently weakens guarantees, so
+         * surface it loudly (do not fail the open — some filesystems reject WAL,
+         * and the caller may not need FKs). */
+        char *pragma_err = NULL;
+        if (sqlite3_exec(db, "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;", NULL, NULL, &pragma_err) != SQLITE_OK) {
+            ywarn("relational_storage: PRAGMA WAL/FK on %s failed: %s", path, pragma_err ? pragma_err : "?");
+            sqlite3_free(pragma_err);
+        }
         if (schema && *schema) {
             char *err = NULL;
             if (sqlite3_exec(db, schema, NULL, NULL, &err) != SQLITE_OK) {
@@ -148,18 +170,23 @@ static struct rel_set *rel_init(void)
 enum rel_bind_kind { RB_INT, RB_FLOAT, RB_TEXT, RB_NULL };
 struct rel_bind { enum rel_bind_kind kind; int64_t i64; double f64; const char *str; };
 
-/* Bind the extracted params onto a prepared statement (1-based). */
-static void rel_bind_args(sqlite3_stmt *st, const struct rel_bind *b, int n)
+/* Bind the extracted params onto a prepared statement (1-based). Returns the
+ * first non-OK sqlite rc (so the caller fails the statement rather than stepping
+ * a partially-bound query), or SQLITE_OK. */
+static int rel_bind_args(sqlite3_stmt *st, const struct rel_bind *b, int n)
 {
     for (int i = 0; i < n; ++i) {
-        int idx = i + 1;
+        int idx = i + 1, rc;
         switch (b[i].kind) {
-        case RB_INT:   sqlite3_bind_int64(st, idx, b[i].i64); break;
-        case RB_FLOAT: sqlite3_bind_double(st, idx, b[i].f64); break;
-        case RB_NULL:  sqlite3_bind_null(st, idx); break;
-        case RB_TEXT:  sqlite3_bind_text(st, idx, b[i].str ? b[i].str : "", -1, SQLITE_TRANSIENT); break;
+        case RB_INT:   rc = sqlite3_bind_int64(st, idx, b[i].i64); break;
+        case RB_FLOAT: rc = sqlite3_bind_double(st, idx, b[i].f64); break;
+        case RB_NULL:  rc = sqlite3_bind_null(st, idx); break;
+        case RB_TEXT:  rc = sqlite3_bind_text(st, idx, b[i].str ? b[i].str : "", -1, SQLITE_TRANSIENT); break;
+        default:       rc = SQLITE_OK; break;
         }
+        if (rc != SQLITE_OK) return rc;
     }
+    return SQLITE_OK;
 }
 
 /* Append one result column as a JSON value. */
@@ -219,7 +246,12 @@ static void rel_work_fn(void *arg)
         pthread_mutex_unlock(&sh->mu);
         return;
     }
-    rel_bind_args(st, w->binds, w->nbinds);
+    if (rel_bind_args(st, w->binds, w->nbinds) != SQLITE_OK) {
+        snprintf(w->err, sizeof(w->err), "bind: %s", sqlite3_errmsg(sh->db));
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&sh->mu);
+        return;
+    }
 
     struct yjson_writer *jw = yjson_writer_new();
     if (!jw) { sqlite3_finalize(st); pthread_mutex_unlock(&sh->mu);

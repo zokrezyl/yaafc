@@ -22,6 +22,7 @@
 #include <picomesh/yclass/class.h>
 #include <picomesh/yengine/engine.h>
 #include <picomesh/yplatform/time.h>
+#include <picomesh/ycore/idkey.h>
 #include <picomesh/ysecurity/jwt.h>
 #include <picomesh/ysecurity/secret.h>
 #include <picomesh/plugin/relational_storage/relational_sql.h>
@@ -51,7 +52,7 @@ static struct token_issuer_token_issuer_data *ti(struct object *obj)
 
 static struct picomesh_void_result ti_open(struct rel_handle *h, struct yheaders *hdrs, struct object *obj)
 {
-    struct picomesh_void_result o = rel_open(h);
+    struct picomesh_void_result o = rel_open(h, "rstore_token");
     if (PICOMESH_IS_ERR(o)) return PICOMESH_ERR(picomesh_void, "token_issuer: open relational_storage failed", o);
     return rel_ensure_schema(h, hdrs, &ti(obj)->schema_ensured, TI_DDL);
 }
@@ -136,6 +137,7 @@ static struct picomesh_string_result ti_issue_refresh(struct rel_handle *h, stru
     char token[40];
     if (!alloc_refresh_token(token, sizeof(token)))
         return PICOMESH_ERR(picomesh_string, "token_issuer: secure random unavailable");
+    h->shard = picomesh_fnv1a32(token); /* lookup cluster: shard by the token we issue */
     struct yjson_writer *aw = yjson_writer_new();
     yjson_writer_begin_array(aw);
     yjson_writer_string(aw, token);
@@ -202,6 +204,7 @@ struct picomesh_json_result token_issuer_token_issuer_refresh_impl(struct ctx *c
     struct rel_handle h;
     struct picomesh_void_result oh = ti_open(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: storage open failed", oh);
+    h.shard = picomesh_fnv1a32(refresh_token); /* route to the presented token's shard */
 
     /* Resolve the presented refresh token to its (uid, username). */
     char *args = rel_args1s(refresh_token);
@@ -263,7 +266,7 @@ struct picomesh_size_result token_issuer_token_issuer_count_active_impl(struct c
     struct rel_handle h;
     struct picomesh_void_result oh = ti_open(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_size, "token_issuer_count: storage open failed", oh);
-    int64_t n = rel_query_int(&h, hdrs, "SELECT COUNT(*) AS n FROM refresh_tokens", "[]", "n", 0, NULL);
+    int64_t n = rel_query_int_all(&h, hdrs, "SELECT COUNT(*) AS n FROM refresh_tokens", "[]", "n");
     return PICOMESH_OK(picomesh_size, (size_t)(n < 0 ? 0 : n));
 }
 
@@ -278,15 +281,13 @@ struct picomesh_json_result token_issuer_token_issuer_list_impl(struct ctx *ctx,
                                                          int64_t offset, int64_t limit)
 {
     (void)ctx;
-    if (limit <= 0) limit = 100;
+    /* No cross-shard pagination yet (needs a global merge after fan-out); return
+     * all shards' rows shard-grouped. Use count_active() + client-side paging. */
+    (void)offset; (void)limit;
     struct rel_handle h;
     struct picomesh_void_result oh = ti_open(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_json, "token_issuer_list: storage open failed", oh);
-    char *args = rel_args2i(limit, offset < 0 ? 0 : offset);
-    struct picomesh_json_result r =
-        rel_query(&h, hdrs, "SELECT uid,username,created_at FROM refresh_tokens ORDER BY created_at LIMIT ? OFFSET ?", args);
-    free(args);
-    return r;
+    return rel_query_all(&h, hdrs, "SELECT uid,username,created_at FROM refresh_tokens ORDER BY created_at", "[]");
 }
 
 PICOMESH_CLASS_ANNOTATE("override@token_issuer:token_issuer:token_issuer_list_all")
@@ -297,7 +298,7 @@ struct picomesh_json_result token_issuer_token_issuer_list_all_impl(struct ctx *
     struct rel_handle h;
     struct picomesh_void_result oh = ti_open(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_json, "token_issuer_list_all: storage open failed", oh);
-    return rel_query(&h, hdrs, "SELECT uid,username,created_at FROM refresh_tokens ORDER BY created_at", "[]");
+    return rel_query_all(&h, hdrs, "SELECT uid,username,created_at FROM refresh_tokens ORDER BY created_at", "[]");
 }
 
 #include "store.gen.c"
