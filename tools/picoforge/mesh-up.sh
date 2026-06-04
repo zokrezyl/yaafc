@@ -21,13 +21,71 @@
 
 set -uo pipefail
 
+# Defaults — override with the options below.
+CONFIG=assets/picoforge/config/picoforge.yaml
+PORT_RANGE=8800-8999
+
+usage() {
+    cat <<EOF
+usage: mesh-up.sh [options]
+
+Bring up the picoforge mesh, run the end-to-end smoke, then stay live until
+Ctrl-C. The control, registry, gateway and webapp ports are allocated from FREE
+ports in --range; every other service is 'port: auto' (portalloc + the mesh
+allocate the backend ports themselves). Allocating instead of hardcoding means a
+re-run, or a second co-resident instance, never fights over a busy port.
+
+Options:
+  -r, --range LO-HI    range to allocate the 4 fixed ports from   [$PORT_RANGE]
+  -c, --config FILE    mesh config file                           [$CONFIG]
+  -h, --help           show this help and exit
+
+Env:
+  PICOMESH_JWT_SECRET   shared HS256 signing secret               [dev default]
+
+The 4 fixed ports are: control (the parent this script drives), registry (the
+discovery address injected into every node), gateway (the mesh HTTP API the
+webapp talks to), and webapp (the browser-facing page tier).
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -r|--range)     PORT_RANGE=${2:?--range needs LO-HI};  shift 2 ;;
+        -c|--config)    CONFIG=${2:?--config needs a path};    shift 2 ;;
+        -h|--help|help) usage; exit 0 ;;
+        *) echo "mesh-up: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+PORT_LO=${PORT_RANGE%-*}
+PORT_HI=${PORT_RANGE#*-}
+
 PICOMESH=./build-desktop-release/picomesh
 WEBAPP=./build-desktop-release/picoforge-webapp
-CONFIG=assets/picoforge/config/picoforge.yaml
-CTRL=8800
-WEB=8090
-SIDE=8080
+
+# Pick distinct FREE ports for the handful of services whose address can't be
+# auto: the webapp plus the mesh's bootstrap/front-door ports.
+mapfile -t _ports < <(python3 - "$PORT_LO" "$PORT_HI" <<'PY'
+import socket, sys
+lo, hi = int(sys.argv[1]), int(sys.argv[2])
+held, out, p = [], [], lo
+while len(out) < 4 and p <= hi:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", p)); held.append(s); out.append(p)
+    except OSError:
+        s.close()
+    p += 1
+for s in held:
+    s.close()
+print(*out, sep="\n") if len(out) == 4 else sys.exit(1)
+PY
+)
+[ "${#_ports[@]}" -eq 4 ] || { echo "mesh-up: could not allocate 4 free ports in $PORT_RANGE" >&2; exit 1; }
+CTRL=${_ports[0]}; REG=${_ports[1]}; WEB=${_ports[2]}; SIDE=${_ports[3]}
 DB=/tmp/picoforge/central.db
+echo "mesh-up: allocated ports — control=$CTRL registry=$REG gateway=$WEB webapp=$SIDE (range $PORT_RANGE)"
 
 # Start from a clean slate. Wipe the ENTIRE /tmp/picoforge tree, not just
 # central.db — the backends persist accounts/sessions in the sharded mdbx
@@ -51,9 +109,11 @@ note_fail() { FAIL=$((FAIL+1)); echo "  FAIL: $1" >&2; }
 # deployment exports its own secret before bring-up.
 export PICOMESH_JWT_SECRET="${PICOMESH_JWT_SECRET:-picoforge-dev-mesh-secret-change-me}"
 
-echo "[1/6] starting parent picomesh (yhttp control) on :${CTRL}"
-"$PICOMESH" --config-file "$CONFIG" --frontend yhttp --host 127.0.0.1 --port "$CTRL" serve \
-    > tmp/mesh-parent.log 2>&1 &
+echo "[1/6] starting parent picomesh (yhttp control) on :${CTRL} (registry :${REG}, gateway :${WEB})"
+"$PICOMESH" --config-file "$CONFIG" --frontend yhttp --host 127.0.0.1 --port "$CTRL" \
+    --config "mesh.services.registry.port=$REG" \
+    --config "mesh.services.gateway.port=$WEB" \
+    serve > tmp/mesh-parent.log 2>&1 &
 PARENT=$!
 cleanup() {
     # The mesh owns its children: SIGTERM the control parent and its reaper
@@ -61,6 +121,7 @@ cleanup() {
     # script (a pid we own), so signal that one too. Never pkill, never kill
     # a backend child directly — see CLAUDE.md "Process lifecycle & teardown".
     [ -n "${SIDECAR:-}" ] && kill -TERM "$SIDECAR" 2>/dev/null || true
+    [ -n "${PICOTRACE_PID:-}" ] && kill -TERM "$PICOTRACE_PID" 2>/dev/null || true
     kill -TERM "$PARENT" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
@@ -493,6 +554,23 @@ out=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${CONSOLE}/_rpc" \
            -H 'Content-Type: application/json' -d '{"path":"git_repo.git_repo.count_total","args":[]}')
 expect_contains 'console proxies POST /_rpc to the upstream bridge' "$out" '"result":'
 
+# picotrace is an internal operator app, not a Picoforge route and not the
+# public gateway. It binds loopback and talks to the internal yhttp bridge.
+if ss -ltn 2>/dev/null | grep -q ":${TRACEUI} "; then
+    trace_alt=""
+    for cand in $(seq $((TRACEUI+1)) $((TRACEUI+20))); do
+        ss -ltn 2>/dev/null | grep -q ":${cand} " || { trace_alt=$cand; break; }
+    done
+    [ -n "$trace_alt" ] && TRACEUI=$trace_alt
+fi
+"$PICOTRACE" --upstream-url "http://127.0.0.1:${BRIDGE}" \
+    --host 127.0.0.1 --port "$TRACEUI" \
+    > tmp/picotrace.log 2>&1 &
+PICOTRACE_PID=$!
+sleep 0.4
+out=$(curl -sS --max-time 10 "http://127.0.0.1:${TRACEUI}/")
+expect_contains 'picotrace serves internal trace browser' "$out" '<strong>picotrace</strong>'
+
 # Legacy public surface retired on the gateway (8090)…
 code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' \
             -XPOST "http://127.0.0.1:${WEB}/create" -d '{"class":"git_repo_git_repo"}')
@@ -716,6 +794,7 @@ echo "      curl http://127.0.0.1:${CTRL}/        (mesh REST)"
 echo "    Service console (gh#15 — generic, app-agnostic):"
 echo "      open http://127.0.0.1:8231/_alpine    (console -> yhttp bridge :8230 -> yrpc backends)"
 echo "    Tracing:"
+echo "      picotrace is mesh-managed: resolve service picotrace in the registry"
 echo "      curl http://127.0.0.1:${WEB}/_perf    (local op-latency aggregate)"
 echo "      curl -XPOST http://127.0.0.1:${WEB}/_rpc -d '{\"path\":\"trace_collector.trace_collector.services\",\"args\":[]}'"
 echo "                                            (trace collector via gateway — see docs/tracing.md)"

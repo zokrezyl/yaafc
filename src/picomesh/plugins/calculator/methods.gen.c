@@ -41,7 +41,7 @@ struct picomesh_int64_result calculator_calc_add(struct ctx * ctx, struct object
             cmp_write_integer(&_maw, (int64_t)x);
             cmp_write_integer(&_maw, (int64_t)y);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "calculator.calc.add", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -93,7 +93,7 @@ struct picomesh_int64_result calculator_calc_add(struct ctx * ctx, struct object
         if (_off + sizeof(y) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "calculator_calc_add: pack overflow"); return PICOMESH_ERR(picomesh_int64, "calculator_calc_add: pack overflow"); }
         memcpy(_a + _off, &y, sizeof(y)); _off += sizeof(y);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -101,7 +101,7 @@ struct picomesh_int64_result calculator_calc_add(struct ctx * ctx, struct object
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -148,7 +148,7 @@ struct picomesh_int64_result calculator_calc_sub(struct ctx * ctx, struct object
             cmp_write_integer(&_maw, (int64_t)x);
             cmp_write_integer(&_maw, (int64_t)y);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "calculator.calc.sub", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -200,7 +200,7 @@ struct picomesh_int64_result calculator_calc_sub(struct ctx * ctx, struct object
         if (_off + sizeof(y) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "calculator_calc_sub: pack overflow"); return PICOMESH_ERR(picomesh_int64, "calculator_calc_sub: pack overflow"); }
         memcpy(_a + _off, &y, sizeof(y)); _off += sizeof(y);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -208,7 +208,7 @@ struct picomesh_int64_result calculator_calc_sub(struct ctx * ctx, struct object
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -255,7 +255,7 @@ struct picomesh_int64_result calculator_calc_mul(struct ctx * ctx, struct object
             cmp_write_integer(&_maw, (int64_t)x);
             cmp_write_integer(&_maw, (int64_t)y);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "calculator.calc.mul", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -307,7 +307,7 @@ struct picomesh_int64_result calculator_calc_mul(struct ctx * ctx, struct object
         if (_off + sizeof(y) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "calculator_calc_mul: pack overflow"); return PICOMESH_ERR(picomesh_int64, "calculator_calc_mul: pack overflow"); }
         memcpy(_a + _off, &y, sizeof(y)); _off += sizeof(y);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -315,7 +315,7 @@ struct picomesh_int64_result calculator_calc_mul(struct ctx * ctx, struct object
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -362,7 +362,7 @@ struct picomesh_int64_result calculator_calc_div(struct ctx * ctx, struct object
             cmp_write_integer(&_maw, (int64_t)x);
             cmp_write_integer(&_maw, (int64_t)y);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "calculator.calc.div", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -414,7 +414,7 @@ struct picomesh_int64_result calculator_calc_div(struct ctx * ctx, struct object
         if (_off + sizeof(y) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "calculator_calc_div: pack overflow"); return PICOMESH_ERR(picomesh_int64, "calculator_calc_div: pack overflow"); }
         memcpy(_a + _off, &y, sizeof(y)); _off += sizeof(y);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -422,7 +422,7 @@ struct picomesh_int64_result calculator_calc_div(struct ctx * ctx, struct object
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

@@ -169,13 +169,13 @@ picomesh_engine_invoke_json(struct picomesh_engine *engine, const char *path,
     }
     yjson_writer_begin_object(writer);
     yjson_writer_key(writer, "result");
-    char err[256] = {0};
+    char err[8192] = {0};
     int rc = fn(&call.ctx, call.obj, hdrs, args, writer, err, sizeof(err));
     picomesh_service_call_release(&call);
     if (args_doc) yjson_doc_free(args_doc);
     if (rc != 0) {
         yjson_writer_free(writer);
-        return PICOMESH_ERR(picomesh_string, err[0] ? err : "engine_invoke: call failed");
+        return PICOMESH_ERR(picomesh_string, err[0] ? strdup(err) : "engine_invoke: call failed");
     }
     yjson_writer_end_object(writer);
     size_t len = 0;

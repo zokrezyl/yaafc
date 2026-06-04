@@ -68,10 +68,12 @@ static size_t git_repo_git_repo_make_skel(const void *_body, size_t _body_len,
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_make", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -125,10 +127,12 @@ static size_t git_repo_git_repo_delete_skel(const void *_body, size_t _body_len,
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_delete", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -182,10 +186,12 @@ static size_t git_repo_git_repo_owner_of_skel(const void *_body, size_t _body_le
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_owner_of", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -239,10 +245,12 @@ static size_t git_repo_git_repo_count_for_owner_skel(const void *_body, size_t _
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_count_for_owner", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -292,10 +300,12 @@ static size_t git_repo_git_repo_count_total_skel(const void *_body, size_t _body
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_count_total", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -349,10 +359,12 @@ static size_t git_repo_git_repo_list_for_owner_skel(const void *_body, size_t _b
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_list_for_owner", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -432,10 +444,12 @@ static size_t git_repo_git_repo_read_tree_skel(const void *_body, size_t _body_l
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_read_tree", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -515,10 +529,12 @@ static size_t git_repo_git_repo_read_file_skel(const void *_body, size_t _body_l
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_read_file", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -628,10 +644,12 @@ static size_t git_repo_git_repo_put_file_skel(const void *_body, size_t _body_le
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_put_file", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -691,10 +709,12 @@ static size_t git_repo_git_repo_is_public_skel(const void *_body, size_t _body_l
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_is_public", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -752,10 +772,12 @@ static size_t git_repo_git_repo_set_public_skel(const void *_body, size_t _body_
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_set_public", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -813,10 +835,12 @@ static size_t git_repo_git_repo_list_skel(const void *_body, size_t _body_len,
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_list", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -872,10 +896,12 @@ static size_t git_repo_git_repo_list_all_skel(const void *_body, size_t _body_le
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] git_repo_git_repo_list_all", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -914,8 +940,10 @@ static int git_repo_git_repo_make_jinvoke(struct ctx *ctx, struct object *obj, s
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_repo_git_repo_make(call_ctx, obj, hdrs, arg0, arg1, arg2);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_make",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -932,8 +960,10 @@ static int git_repo_git_repo_delete_jinvoke(struct ctx *ctx, struct object *obj,
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_repo_git_repo_delete(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_delete",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -950,8 +980,10 @@ static int git_repo_git_repo_owner_of_jinvoke(struct ctx *ctx, struct object *ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_repo_git_repo_owner_of(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_owner_of",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -968,8 +1000,10 @@ static int git_repo_git_repo_count_for_owner_jinvoke(struct ctx *ctx, struct obj
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_repo_git_repo_count_for_owner(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_count_for_owner",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -985,8 +1019,10 @@ static int git_repo_git_repo_count_total_jinvoke(struct ctx *ctx, struct object 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_repo_git_repo_count_total(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_count_total",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1003,8 +1039,10 @@ static int git_repo_git_repo_list_for_owner_jinvoke(struct ctx *ctx, struct obje
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_list_for_owner(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_list_for_owner",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1024,8 +1062,10 @@ static int git_repo_git_repo_read_tree_jinvoke(struct ctx *ctx, struct object *o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_read_tree(call_ctx, obj, hdrs, arg0, arg1, arg2);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_read_tree",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1045,8 +1085,10 @@ static int git_repo_git_repo_read_file_jinvoke(struct ctx *ctx, struct object *o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_read_file(call_ctx, obj, hdrs, arg0, arg1, arg2);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_read_file",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1069,8 +1111,10 @@ static int git_repo_git_repo_put_file_jinvoke(struct ctx *ctx, struct object *ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_put_file(call_ctx, obj, hdrs, arg0, arg1, arg2, arg3, arg4, arg5);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_put_file",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1088,8 +1132,10 @@ static int git_repo_git_repo_is_public_jinvoke(struct ctx *ctx, struct object *o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_repo_git_repo_is_public(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_is_public",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1107,8 +1153,10 @@ static int git_repo_git_repo_set_public_jinvoke(struct ctx *ctx, struct object *
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_repo_git_repo_set_public(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_set_public",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1126,8 +1174,10 @@ static int git_repo_git_repo_list_jinvoke(struct ctx *ctx, struct object *obj, s
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_repo_git_repo_list(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_list",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1144,8 +1194,10 @@ static int git_repo_git_repo_list_all_jinvoke(struct ctx *ctx, struct object *ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_repo_git_repo_list_all(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_repo_git_repo_list_all",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1190,8 +1242,10 @@ static int git_repo_git_repo_make_minvoke(struct ctx *ctx, struct object *obj, s
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_repo_git_repo_make(call_ctx, obj, hdrs, _v0, _v1, _v2);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_make",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1219,8 +1273,10 @@ static int git_repo_git_repo_delete_minvoke(struct ctx *ctx, struct object *obj,
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_repo_git_repo_delete(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_delete",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1248,8 +1304,10 @@ static int git_repo_git_repo_owner_of_minvoke(struct ctx *ctx, struct object *ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_repo_git_repo_owner_of(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_owner_of",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1277,8 +1335,10 @@ static int git_repo_git_repo_count_for_owner_minvoke(struct ctx *ctx, struct obj
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_repo_git_repo_count_for_owner(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_count_for_owner",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1299,8 +1359,10 @@ static int git_repo_git_repo_count_total_minvoke(struct ctx *ctx, struct object 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_repo_git_repo_count_total(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_count_total",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1328,8 +1390,10 @@ static int git_repo_git_repo_list_for_owner_minvoke(struct ctx *ctx, struct obje
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_list_for_owner(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_list_for_owner",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1377,8 +1441,10 @@ static int git_repo_git_repo_read_tree_minvoke(struct ctx *ctx, struct object *o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_read_tree(call_ctx, obj, hdrs, _v0, _v1, _v2);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_read_tree",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1426,8 +1492,10 @@ static int git_repo_git_repo_read_file_minvoke(struct ctx *ctx, struct object *o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_read_file(call_ctx, obj, hdrs, _v0, _v1, _v2);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_read_file",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1499,8 +1567,10 @@ static int git_repo_git_repo_put_file_minvoke(struct ctx *ctx, struct object *ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_repo_git_repo_put_file(call_ctx, obj, hdrs, _v0, _v1, _v2, _v3, _v4, _v5);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_put_file",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1532,8 +1602,10 @@ static int git_repo_git_repo_is_public_minvoke(struct ctx *ctx, struct object *o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_repo_git_repo_is_public(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_is_public",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1568,8 +1640,10 @@ static int git_repo_git_repo_set_public_minvoke(struct ctx *ctx, struct object *
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_repo_git_repo_set_public(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_set_public",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1594,8 +1668,10 @@ static int git_repo_git_repo_list_minvoke(struct ctx *ctx, struct object *obj, s
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_repo_git_repo_list(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_list",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1620,8 +1696,10 @@ static int git_repo_git_repo_list_all_minvoke(struct ctx *ctx, struct object *ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_repo_git_repo_list_all(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_repo_git_repo_list_all",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }

@@ -232,3 +232,38 @@ char *const *yargv_sub_argv(const struct yargv_chain *c)
 {
     return c ? c->sub_argv : NULL;
 }
+
+/* Build the left "  --long, -short <ARG>" column for one option. */
+static int yargv_opt_synopsis(const struct yargv_option_def *def, char *buf, size_t cap)
+{
+    const char *arg = "";
+    switch (def->kind) {
+    case YARGV_VALUE:     arg = " VALUE"; break;
+    case YARGV_KEY_VALUE: arg = " K=V";   break;
+    case YARGV_BOOL:      arg = "";       break;
+    }
+    if (def->long_name && def->short_name)
+        return snprintf(buf, cap, "%s, %s%s", def->long_name, def->short_name, arg);
+    if (def->long_name)
+        return snprintf(buf, cap, "%s%s", def->long_name, arg);
+    if (def->short_name)
+        return snprintf(buf, cap, "%s%s", def->short_name, arg);
+    return snprintf(buf, cap, "%s", def->dest ? def->dest : "?");
+}
+
+void yargv_print_options(const struct yargv_option_def *defs, size_t def_count, FILE *out)
+{
+    if (!defs || !out) return;
+    /* Two passes: measure the widest synopsis, then print aligned. */
+    int width = 0;
+    for (size_t i = 0; i < def_count; ++i) {
+        char buf[96];
+        int n = yargv_opt_synopsis(&defs[i], buf, sizeof(buf));
+        if (n > width) width = n;
+    }
+    for (size_t i = 0; i < def_count; ++i) {
+        char buf[96];
+        yargv_opt_synopsis(&defs[i], buf, sizeof(buf));
+        fprintf(out, "  %-*s  %s\n", width, buf, defs[i].help ? defs[i].help : "");
+    }
+}

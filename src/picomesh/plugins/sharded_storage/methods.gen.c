@@ -42,7 +42,7 @@ struct picomesh_int_result sharded_storage_db_set(struct ctx * ctx, struct objec
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             cmp_write_str(&_maw, value ? value : "", (uint32_t)(value ? strlen(value) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.set", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -109,7 +109,7 @@ struct picomesh_int_result sharded_storage_db_set(struct ctx * ctx, struct objec
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, value, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -117,7 +117,7 @@ struct picomesh_int_result sharded_storage_db_set(struct ctx * ctx, struct objec
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -164,7 +164,7 @@ struct picomesh_string_result sharded_storage_db_get(struct ctx * ctx, struct ob
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.get", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -242,7 +242,7 @@ struct picomesh_string_result sharded_storage_db_get(struct ctx * ctx, struct ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -294,7 +294,7 @@ struct picomesh_int_result sharded_storage_db_exists(struct ctx * ctx, struct ob
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.exists", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -354,7 +354,7 @@ struct picomesh_int_result sharded_storage_db_exists(struct ctx * ctx, struct ob
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, key, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -362,7 +362,7 @@ struct picomesh_int_result sharded_storage_db_exists(struct ctx * ctx, struct ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -409,7 +409,7 @@ struct picomesh_int_result sharded_storage_db_del(struct ctx * ctx, struct objec
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.del", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -469,7 +469,7 @@ struct picomesh_int_result sharded_storage_db_del(struct ctx * ctx, struct objec
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, key, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -477,7 +477,7 @@ struct picomesh_int_result sharded_storage_db_del(struct ctx * ctx, struct objec
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -523,7 +523,7 @@ struct picomesh_size_result sharded_storage_db_count(struct ctx * ctx, struct ob
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.count", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -576,7 +576,7 @@ struct picomesh_size_result sharded_storage_db_count(struct ctx * ctx, struct ob
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, context, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -584,7 +584,7 @@ struct picomesh_size_result sharded_storage_db_count(struct ctx * ctx, struct ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -633,7 +633,7 @@ struct picomesh_json_result sharded_storage_db_list(struct ctx * ctx, struct obj
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_integer(&_maw, (int64_t)limit);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -717,7 +717,7 @@ struct picomesh_json_result sharded_storage_db_list(struct ctx * ctx, struct obj
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -769,7 +769,7 @@ struct picomesh_json_result sharded_storage_db_list_all(struct ctx * ctx, struct
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             cmp_write_str(&_maw, prefix ? prefix : "", (uint32_t)(prefix ? strlen(prefix) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -847,7 +847,7 @@ struct picomesh_json_result sharded_storage_db_list_all(struct ctx * ctx, struct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -900,7 +900,7 @@ struct picomesh_int64_result sharded_storage_db_incr(struct ctx * ctx, struct ob
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             cmp_write_integer(&_maw, (int64_t)delta);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.incr", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -963,7 +963,7 @@ struct picomesh_int64_result sharded_storage_db_incr(struct ctx * ctx, struct ob
         if (_off + sizeof(delta) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "sharded_storage_db_incr: pack overflow"); return PICOMESH_ERR(picomesh_int64, "sharded_storage_db_incr: pack overflow"); }
         memcpy(_a + _off, &delta, sizeof(delta)); _off += sizeof(delta);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -971,7 +971,7 @@ struct picomesh_int64_result sharded_storage_db_incr(struct ctx * ctx, struct ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1019,7 +1019,7 @@ struct picomesh_int_result sharded_storage_db_put_if_absent(struct ctx * ctx, st
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             cmp_write_str(&_maw, value ? value : "", (uint32_t)(value ? strlen(value) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.put_if_absent", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1086,7 +1086,7 @@ struct picomesh_int_result sharded_storage_db_put_if_absent(struct ctx * ctx, st
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, value, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1094,7 +1094,7 @@ struct picomesh_int_result sharded_storage_db_put_if_absent(struct ctx * ctx, st
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1143,7 +1143,7 @@ struct picomesh_int_result sharded_storage_db_compare_and_set(struct ctx * ctx, 
             cmp_write_str(&_maw, expected ? expected : "", (uint32_t)(expected ? strlen(expected) : 0));
             cmp_write_str(&_maw, replacement ? replacement : "", (uint32_t)(replacement ? strlen(replacement) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "sharded_storage.db.compare_and_set", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1217,7 +1217,7 @@ struct picomesh_int_result sharded_storage_db_compare_and_set(struct ctx * ctx, 
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, replacement, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1225,7 +1225,7 @@ struct picomesh_int_result sharded_storage_db_compare_and_set(struct ctx * ctx, 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

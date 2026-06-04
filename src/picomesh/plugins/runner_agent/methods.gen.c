@@ -41,7 +41,7 @@ struct picomesh_json_result runner_agent_runner_agent_create_token(struct ctx * 
             cmp_write_str(&_maw, name ? name : "", (uint32_t)(name ? strlen(name) : 0));
             cmp_write_str(&_maw, labels ? labels : "", (uint32_t)(labels ? strlen(labels) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.create_token", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -119,7 +119,7 @@ struct picomesh_json_result runner_agent_runner_agent_create_token(struct ctx * 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -170,7 +170,7 @@ struct picomesh_uint32_result runner_agent_runner_agent_lookup_token(struct ctx 
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, token ? token : "", (uint32_t)(token ? strlen(token) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.lookup_token", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -223,7 +223,7 @@ struct picomesh_uint32_result runner_agent_runner_agent_lookup_token(struct ctx 
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, token, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -231,7 +231,7 @@ struct picomesh_uint32_result runner_agent_runner_agent_lookup_token(struct ctx 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -277,7 +277,7 @@ struct picomesh_string_result runner_agent_runner_agent_exchange(struct ctx * ct
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, token ? token : "", (uint32_t)(token ? strlen(token) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.exchange", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -348,7 +348,7 @@ struct picomesh_string_result runner_agent_runner_agent_exchange(struct ctx * ct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -399,7 +399,7 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token(struct ctx * c
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)runner_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.revoke_token", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -448,7 +448,7 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token(struct ctx * c
         if (_off + sizeof(runner_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "runner_agent_runner_agent_revoke_token: pack overflow"); return PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_revoke_token: pack overflow"); }
         memcpy(_a + _off, &runner_id, sizeof(runner_id)); _off += sizeof(runner_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -456,7 +456,7 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token(struct ctx * c
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -506,7 +506,7 @@ struct picomesh_uint32_result runner_agent_runner_agent_register(struct ctx * ct
             cmp_write_str(&_maw, version ? version : "", (uint32_t)(version ? strlen(version) : 0));
             cmp_write_str(&_maw, host ? host : "", (uint32_t)(host ? strlen(host) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.register", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -583,7 +583,7 @@ struct picomesh_uint32_result runner_agent_runner_agent_register(struct ctx * ct
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, host, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -591,7 +591,7 @@ struct picomesh_uint32_result runner_agent_runner_agent_register(struct ctx * ct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -638,7 +638,7 @@ struct picomesh_int_result runner_agent_runner_agent_heartbeat(struct ctx * ctx,
             cmp_write_uinteger(&_maw, (uint64_t)runner_id);
             cmp_write_str(&_maw, status ? status : "", (uint32_t)(status ? strlen(status) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.heartbeat", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -694,7 +694,7 @@ struct picomesh_int_result runner_agent_runner_agent_heartbeat(struct ctx * ctx,
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, status, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -702,7 +702,7 @@ struct picomesh_int_result runner_agent_runner_agent_heartbeat(struct ctx * ctx,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -748,7 +748,7 @@ struct picomesh_json_result runner_agent_runner_agent_get(struct ctx * ctx, stru
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)runner_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.get", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -815,7 +815,7 @@ struct picomesh_json_result runner_agent_runner_agent_get(struct ctx * ctx, stru
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -867,7 +867,7 @@ struct picomesh_json_result runner_agent_runner_agent_list(struct ctx * ctx, str
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_integer(&_maw, (int64_t)limit);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -937,7 +937,7 @@ struct picomesh_json_result runner_agent_runner_agent_list(struct ctx * ctx, str
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -987,7 +987,7 @@ struct picomesh_json_result runner_agent_runner_agent_list_all(struct ctx * ctx,
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1051,7 +1051,7 @@ struct picomesh_json_result runner_agent_runner_agent_list_all(struct ctx * ctx,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1101,7 +1101,7 @@ struct picomesh_size_result runner_agent_runner_agent_count_active(struct ctx * 
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.count_active", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1147,7 +1147,7 @@ struct picomesh_size_result runner_agent_runner_agent_count_active(struct ctx * 
                 { ytelemetry_span_end(&_tsp, 0, "runner_agent_runner_agent_count_active: pack overflow"); return PICOMESH_ERR(picomesh_size, "runner_agent_runner_agent_count_active: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1155,7 +1155,7 @@ struct picomesh_size_result runner_agent_runner_agent_count_active(struct ctx * 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

@@ -40,7 +40,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue(struct ctx * ctx
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)repo_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.enqueue", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -89,7 +89,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue(struct ctx * ctx
         if (_off + sizeof(repo_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_enqueue: pack overflow"); return PICOMESH_ERR(picomesh_uint32, "git_pipeline_git_pipeline_enqueue: pack overflow"); }
         memcpy(_a + _off, &repo_id, sizeof(repo_id)); _off += sizeof(repo_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -97,7 +97,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue(struct ctx * ctx
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -146,7 +146,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue_job(struct ctx *
             cmp_write_str(&_maw, pipeline_path ? pipeline_path : "", (uint32_t)(pipeline_path ? strlen(pipeline_path) : 0));
             cmp_write_integer(&_maw, (int64_t)timeout_seconds);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.enqueue_job", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -212,7 +212,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue_job(struct ctx *
         if (_off + sizeof(timeout_seconds) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_enqueue_job: pack overflow"); return PICOMESH_ERR(picomesh_uint32, "git_pipeline_git_pipeline_enqueue_job: pack overflow"); }
         memcpy(_a + _off, &timeout_seconds, sizeof(timeout_seconds)); _off += sizeof(timeout_seconds);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -220,7 +220,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue_job(struct ctx *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -266,7 +266,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_lease(struct ctx * ctx, 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)runner_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.lease", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -315,7 +315,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_lease(struct ctx * ctx, 
         if (_off + sizeof(runner_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_lease: pack overflow"); return PICOMESH_ERR(picomesh_uint32, "git_pipeline_git_pipeline_lease: pack overflow"); }
         memcpy(_a + _off, &runner_id, sizeof(runner_id)); _off += sizeof(runner_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -323,7 +323,7 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_lease(struct ctx * ctx, 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -370,7 +370,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_lease_job(struct ctx * ctx
             cmp_write_uinteger(&_maw, (uint64_t)runner_id);
             cmp_write_str(&_maw, labels ? labels : "", (uint32_t)(labels ? strlen(labels) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.lease_job", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -444,7 +444,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_lease_job(struct ctx * ctx
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -495,7 +495,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_job_descriptor(struct ctx 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)job_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.job_descriptor", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -562,7 +562,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_job_descriptor(struct ctx 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -615,7 +615,7 @@ struct picomesh_int64_result git_pipeline_git_pipeline_append_log(struct ctx * c
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_str(&_maw, chunk ? chunk : "", (uint32_t)(chunk ? strlen(chunk) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.append_log", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -674,7 +674,7 @@ struct picomesh_int64_result git_pipeline_git_pipeline_append_log(struct ctx * c
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, chunk, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -682,7 +682,7 @@ struct picomesh_int64_result git_pipeline_git_pipeline_append_log(struct ctx * c
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -728,7 +728,7 @@ struct picomesh_string_result git_pipeline_git_pipeline_read_log(struct ctx * ct
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)job_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.read_log", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -795,7 +795,7 @@ struct picomesh_string_result git_pipeline_git_pipeline_read_log(struct ctx * ct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -847,7 +847,7 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete(struct ctx * ctx, 
             cmp_write_uinteger(&_maw, (uint64_t)job_id);
             cmp_write_integer(&_maw, (int64_t)status);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.complete", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -899,7 +899,7 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete(struct ctx * ctx, 
         if (_off + sizeof(status) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_complete: pack overflow"); return PICOMESH_ERR(picomesh_int, "git_pipeline_git_pipeline_complete: pack overflow"); }
         memcpy(_a + _off, &status, sizeof(status)); _off += sizeof(status);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -907,7 +907,7 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete(struct ctx * ctx, 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -955,7 +955,7 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete_job(struct ctx * c
             cmp_write_integer(&_maw, (int64_t)status);
             cmp_write_str(&_maw, summary ? summary : "", (uint32_t)(summary ? strlen(summary) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.complete_job", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1014,7 +1014,7 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete_job(struct ctx * c
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, summary, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1022,7 +1022,7 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete_job(struct ctx * c
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1067,7 +1067,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_requeue_expired(struct ctx
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.requeue_expired", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1113,7 +1113,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_requeue_expired(struct ctx
                 { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_requeue_expired: pack overflow"); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_requeue_expired: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1121,7 +1121,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_requeue_expired(struct ctx
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1166,7 +1166,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_pending(struct ctx *
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.count_pending", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1212,7 +1212,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_pending(struct ctx *
                 { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_count_pending: pack overflow"); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_pending: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1220,7 +1220,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_pending(struct ctx *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1265,7 +1265,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_running(struct ctx *
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.count_running", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1311,7 +1311,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_running(struct ctx *
                 { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_count_running: pack overflow"); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_running: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1319,7 +1319,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_running(struct ctx *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1364,7 +1364,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_done(struct ctx * ct
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.count_done", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1410,7 +1410,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_done(struct ctx * ct
                 { ytelemetry_span_end(&_tsp, 0, "git_pipeline_git_pipeline_count_done: pack overflow"); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_done: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1418,7 +1418,7 @@ struct picomesh_size_result git_pipeline_git_pipeline_count_done(struct ctx * ct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1465,7 +1465,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_list(struct ctx * ctx, str
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_integer(&_maw, (int64_t)limit);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1535,7 +1535,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_list(struct ctx * ctx, str
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1585,7 +1585,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_list_all(struct ctx * ctx,
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_pipeline.git_pipeline.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1649,7 +1649,7 @@ struct picomesh_json_result git_pipeline_git_pipeline_list_all(struct ctx * ctx,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

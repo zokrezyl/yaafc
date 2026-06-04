@@ -25,6 +25,8 @@
 #include <picomesh/yconfig/yconfig.h>
 #include <picomesh/yargv/yargv.h>
 #include <picomesh/plugin/storage/storage.h>
+#include <picomesh/plugin/registry/registry.h>
+#include <picomesh/plugin/portalloc/portalloc.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -34,9 +36,13 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <time.h>
 
 #define MESH_MAX_SERVICES 64
-#define MESH_MAX_CHILDREN 32
+#define MESH_MAX_CHILDREN 64
 
 struct mesh_service_entry {
     uint32_t service_id;
@@ -538,10 +544,31 @@ static int mesh_write_node_config(struct picomesh_engine *e, const char *name,
 
     if (off >= sizeof(body)) return -1;
 
-    /* Path: alongside the parent's repos tree, under nodes/. */
-    snprintf(out, out_cap, "/tmp/picoforge/nodes/%s.yaml", name);
-    /* mkdir -p /tmp/picoforge/nodes */
-    char dir[256]; snprintf(dir, sizeof(dir), "/tmp/picoforge/nodes");
+    /* The generated per-node files land under `mesh.nodes_dir` — a REQUIRED
+     * input-config key, never a baked-in path. Everything else in this file is
+     * lifted from the input config; the OUTPUT location must be too, or a second
+     * mesh instance (own input config → own state paths/ports) would still
+     * clobber the first's node files here. Overridable like any config key:
+     * `--config mesh.nodes_dir=/path`. No silent default. */
+    struct yconfig_node_ptr_result ndr =
+        yconfig_get(picomesh_engine_config(e), "mesh.nodes_dir");
+    const char *nodes_dir = (PICOMESH_IS_OK(ndr) && ndr.value)
+                                ? yconfig_node_as_string(ndr.value, NULL) : NULL;
+    if (!nodes_dir || !*nodes_dir) {
+        ywarn("mesh.split: mesh.nodes_dir is REQUIRED (the directory the mesh "
+              "writes per-node configs to); refusing to guess a path");
+        return -1;
+    }
+    if (snprintf(out, out_cap, "%s/%s.yaml", nodes_dir, name) >= (int)out_cap) {
+        ywarn("mesh.split: mesh.nodes_dir path too long for node '%s'", name);
+        return -1;
+    }
+    /* mkdir -p <nodes_dir> */
+    char dir[256];
+    if (snprintf(dir, sizeof(dir), "%s", nodes_dir) >= (int)sizeof(dir)) {
+        ywarn("mesh.split: mesh.nodes_dir too long");
+        return -1;
+    }
     char acc[256] = {0};
     for (size_t i = 1; dir[i]; ++i) {
         if (dir[i] == '/') { memcpy(acc, dir, i); acc[i] = 0; mkdir(acc, 0755); }
@@ -634,6 +661,281 @@ static int mesh_internal_spawn(struct object *obj, const char *name)
     return pid;
 }
 
+
+static void mesh_nap_ms(int ms)
+{
+    struct timespec ts = {.tv_sec = ms / 1000, .tv_nsec = (long)(ms % 1000) * 1000000L};
+    nanosleep(&ts, NULL);
+}
+
+static int mesh_tcp_connect(const char *host, int port)
+{
+    if (!host || !*host) host = "127.0.0.1";
+    const char *dial = (strcmp(host, "0.0.0.0") == 0) ? "127.0.0.1" : host;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (inet_pton(AF_INET, dial, &addr.sin_addr) != 1) { close(fd); return -1; }
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) { close(fd); return -1; }
+    return fd;
+}
+
+static int mesh_probe_bind(const char *host, int port)
+{
+    if (!host || !*host) host = "127.0.0.1";
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return 0;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) { close(fd); return 0; }
+    int rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+    close(fd);
+    return rc == 0;
+}
+
+static int mesh_registry_addr(struct picomesh_engine *e, char *host_out, size_t cap, int *port_out)
+{
+    struct yconfig_node_ptr_result hr = yconfig_get(picomesh_engine_config(e), "mesh.services.registry.host");
+    struct yconfig_node_ptr_result pr = yconfig_get(picomesh_engine_config(e), "mesh.services.registry.port");
+    int64_t port = (PICOMESH_IS_OK(pr) && pr.value) ? yconfig_node_as_int(pr.value, -1) : -1;
+    if (port <= 0) return 0;
+    const char *host = (PICOMESH_IS_OK(hr) && hr.value) ? yconfig_node_as_string(hr.value, NULL) : NULL;
+    snprintf(host_out, cap, "%s", (host && *host) ? host : "127.0.0.1");
+    *port_out = (int)port;
+    return 1;
+}
+
+struct mesh_reg_session {
+    struct peer_channel *channel;
+    struct object *obj;
+    struct ctx ctx;
+};
+
+static int mesh_reg_session_open(struct picomesh_engine *e, struct mesh_reg_session *session)
+{
+    char host[64];
+    int port = 0;
+    if (!mesh_registry_addr(e, host, sizeof(host), &port)) return 0;
+    int fd = -1;
+    for (int attempt = 0; attempt < 100 && fd < 0; ++attempt) {
+        fd = mesh_tcp_connect(host, port);
+        if (fd < 0) mesh_nap_ms(100);
+    }
+    if (fd < 0) return 0;
+    session->channel = peer_channel_create(fd);
+    if (!session->channel) { close(fd); return 0; }
+    session->ctx = (struct ctx){.peer = session->channel};
+    struct object_ptr_result obj_r = registry_registry_create(&session->ctx);
+    if (PICOMESH_IS_ERR(obj_r)) {
+        picomesh_error_destroy(obj_r.error);
+        peer_channel_destroy(session->channel);
+        session->channel = NULL;
+        return 0;
+    }
+    session->obj = obj_r.value;
+    return 1;
+}
+
+static void mesh_reg_session_close(struct mesh_reg_session *session)
+{
+    if (!session || !session->channel) return;
+    object_release_in_ctx(&session->ctx, session->obj);
+    peer_channel_destroy(session->channel);
+    session->channel = NULL;
+    session->obj = NULL;
+}
+
+static int mesh_reg_resolve(struct mesh_reg_session *session, const char *service, int wait,
+                            char *host_out, size_t cap, int *port_out)
+{
+    int tries = wait ? 150 : 1;
+    for (int attempt = 0; attempt < tries; ++attempt) {
+        struct picomesh_string_result r = registry_registry_resolve(&session->ctx, session->obj, NULL, service);
+        if (PICOMESH_IS_ERR(r)) {
+            picomesh_error_destroy(r.error);
+        } else if (r.value && *r.value) {
+            const char *colon = strrchr(r.value, ':');
+            int ok = 0;
+            if (colon && colon != r.value) {
+                size_t hlen = (size_t)(colon - r.value);
+                if (hlen < cap) {
+                    memcpy(host_out, r.value, hlen);
+                    host_out[hlen] = 0;
+                    *port_out = atoi(colon + 1);
+                    ok = (*port_out > 0);
+                }
+            }
+            free(r.value);
+            if (ok) return 1;
+        } else {
+            free(r.value);
+        }
+        if (wait) mesh_nap_ms(100);
+    }
+    return 0;
+}
+
+static int mesh_allocate_webapp_port(struct picomesh_engine *e, const char *name, const char *host)
+{
+    struct mesh_reg_session reg = {0};
+    if (!mesh_reg_session_open(e, &reg)) return -1;
+    char ph[64];
+    int pp = 0;
+    int ok = mesh_reg_resolve(&reg, "portalloc", 1, ph, sizeof(ph), &pp);
+    mesh_reg_session_close(&reg);
+    if (!ok) return -1;
+
+    int fd = -1;
+    for (int attempt = 0; attempt < 100 && fd < 0; ++attempt) {
+        fd = mesh_tcp_connect(ph, pp);
+        if (fd < 0) mesh_nap_ms(100);
+    }
+    if (fd < 0) return -1;
+    struct peer_channel *channel = peer_channel_create(fd);
+    if (!channel) { close(fd); return -1; }
+    struct ctx pctx = {.peer = channel};
+    struct object_ptr_result obj_r = portalloc_portalloc_create(&pctx);
+    if (PICOMESH_IS_ERR(obj_r)) {
+        picomesh_error_destroy(obj_r.error);
+        peer_channel_destroy(channel);
+        return -1;
+    }
+    struct object *pobj = obj_r.value;
+    int port = -1;
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        struct picomesh_uint32_result r = portalloc_portalloc_allocate(&pctx, pobj, NULL, name, host);
+        if (PICOMESH_IS_ERR(r)) { picomesh_error_destroy(r.error); break; }
+        uint32_t candidate = r.value;
+        if (mesh_probe_bind(host, (int)candidate)) { port = (int)candidate; break; }
+        struct picomesh_int_result rel = portalloc_portalloc_release(&pctx, pobj, NULL, candidate);
+        if (PICOMESH_IS_ERR(rel)) picomesh_error_destroy(rel.error);
+        mesh_nap_ms(20);
+    }
+    object_release_in_ctx(&pctx, pobj);
+    peer_channel_destroy(channel);
+    return port;
+}
+
+static int mesh_register_webapp(struct picomesh_engine *e, const char *name, const char *host, int port)
+{
+    struct mesh_reg_session reg = {0};
+    if (!mesh_reg_session_open(e, &reg)) return 0;
+    const char *reg_host = (strcmp(host, "0.0.0.0") == 0) ? "127.0.0.1" : host;
+    struct picomesh_int_result r =
+        registry_registry_register_service(&reg.ctx, reg.obj, NULL, name, name, reg_host, (uint32_t)port);
+    int ok = PICOMESH_IS_OK(r);
+    if (!ok) picomesh_error_destroy(r.error);
+    mesh_reg_session_close(&reg);
+    return ok;
+}
+
+static int mesh_sibling_exe(const char *app, char *out, size_t cap)
+{
+    if (!app || !*app) return 0;
+    if (strchr(app, '/')) return snprintf(out, cap, "%s", app) < (int)cap;
+    char self_exe[4096];
+    ssize_t n = readlink("/proc/self/exe", self_exe, sizeof(self_exe) - 1);
+    if (n <= 0) return 0;
+    self_exe[n] = 0;
+    char *slash = strrchr(self_exe, '/');
+    if (!slash) return snprintf(out, cap, "%s", app) < (int)cap;
+    *slash = 0;
+    return snprintf(out, cap, "%s/%s", self_exe, app) < (int)cap;
+}
+
+static int mesh_spawn_webapp(struct object *obj, const char *name)
+{
+    if (!name || !*name) return 0;
+    struct mesh_mesh_data *d = ms(obj);
+    struct picomesh_engine *e = picomesh_active_engine();
+    if (!e) return 0;
+
+    int slot = -1;
+    for (int i = 0; i < MESH_MAX_CHILDREN; ++i) {
+        if (d->children[i].exited || d->children[i].pid == 0) { slot = i; break; }
+    }
+    if (slot < 0) return 0;
+
+    char base[256], path[320];
+    snprintf(base, sizeof(base), "mesh.webapps.%s", name);
+    snprintf(path, sizeof(path), "%s.app", base);
+    struct yconfig_node_ptr_result ar = yconfig_get(picomesh_engine_config(e), path);
+    const char *app = (PICOMESH_IS_OK(ar) && ar.value) ? yconfig_node_as_string(ar.value, NULL) : NULL;
+    if (!app || !*app) app = name;
+
+    snprintf(path, sizeof(path), "%s.host", base);
+    struct yconfig_node_ptr_result hr = yconfig_get(picomesh_engine_config(e), path);
+    const char *host = (PICOMESH_IS_OK(hr) && hr.value) ? yconfig_node_as_string(hr.value, NULL) : NULL;
+    if (!host || !*host) host = "127.0.0.1";
+
+    snprintf(path, sizeof(path), "%s.port", base);
+    struct yconfig_node_ptr_result pr = yconfig_get(picomesh_engine_config(e), path);
+    const struct yconfig_node *port_node = (PICOMESH_IS_OK(pr) && pr.value) ? pr.value : NULL;
+    int port = -1;
+    int port_auto = 0;
+    if (port_node && yconfig_node_kind(port_node) == YCONFIG_STRING) {
+        const char *ps = yconfig_node_as_string(port_node, NULL);
+        port_auto = ps && strcmp(ps, "auto") == 0;
+    } else if (port_node) {
+        port = (int)yconfig_node_as_int(port_node, -1);
+    }
+    if (port_auto) port = mesh_allocate_webapp_port(e, name, host);
+    if (port <= 0) return 0;
+
+    snprintf(path, sizeof(path), "%s.upstream.service", base);
+    struct yconfig_node_ptr_result ur = yconfig_get(picomesh_engine_config(e), path);
+    const char *upstream = (PICOMESH_IS_OK(ur) && ur.value) ? yconfig_node_as_string(ur.value, NULL) : NULL;
+    if (!upstream || !*upstream) return 0;
+
+    struct mesh_reg_session reg = {0};
+    if (!mesh_reg_session_open(e, &reg)) return 0;
+    char up_host[64];
+    int up_port = 0;
+    int resolved = mesh_reg_resolve(&reg, upstream, 1, up_host, sizeof(up_host), &up_port);
+    mesh_reg_session_close(&reg);
+    if (!resolved) return 0;
+
+    char exe[4096];
+    if (!mesh_sibling_exe(app, exe, sizeof(exe))) return 0;
+    char port_str[16], up_port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    snprintf(up_port_str, sizeof(up_port_str), "%d", up_port);
+
+    char *argv[] = {
+        exe,
+        (char *)"--host", (char *)host,
+        (char *)"--port", port_str,
+        (char *)"--upstream-service", (char *)upstream,
+        (char *)"--upstream-host", up_host,
+        (char *)"--upstream-port", up_port_str,
+        NULL,
+    };
+
+    struct mesh_child_cookie *c = calloc(1, sizeof(*c));
+    if (!c) return 0;
+    c->obj = obj;
+    int pid = yloop_spawn(picomesh_engine_loop(e), exe, argv, mesh_child_exit_cb_real, c);
+    if (pid <= 0) { free(c); return 0; }
+    c->pid = pid;
+    d->children[slot].pid = pid;
+    d->children[slot].port = (uint32_t)port;
+    d->children[slot].exited = 0;
+    d->children[slot].exit_status = 0;
+    d->child_count++;
+    mesh_reap_install();
+    struct picomesh_void_result tr = mesh_child_track(slot, pid, name);
+    if (PICOMESH_IS_ERR(tr)) { picomesh_error_destroy(tr.error); }
+    if (!mesh_register_webapp(e, name, host, port)) {
+        ywarn("mesh.webapps: spawned '%s' pid=%d but registry registration failed", name, pid);
+    }
+    yinfo("mesh.webapps: spawned '%s' pid=%d listen=%s:%d upstream=%s:%s:%d",
+          name, pid, host, port, upstream, up_host, up_port);
+    return pid;
+}
+
 /* Walk callback for the services map. Each iteration sees one
  * (service_name, service_node) pair — we always spawn a child for
  * each service (the child looks up its own port/host/remotes by name
@@ -663,6 +965,21 @@ static int reconcile_walk_cb(const char *service_name,
         yinfo("mesh.reconcile: '%s' → pid=%d", service_name, pid);
     } else {
         ywarn("mesh.reconcile: failed to spawn '%s'", service_name);
+    }
+    return 0;
+}
+
+static int reconcile_webapp_walk_cb(const char *webapp_name,
+                                    const struct yconfig_node *val, void *ud)
+{
+    struct reconcile_ctx *rc = ud;
+    if (yconfig_node_kind(val) != YCONFIG_MAP) return 0;
+    int pid = mesh_spawn_webapp(rc->obj, webapp_name);
+    if (pid > 0) {
+        rc->spawned++;
+        yinfo("mesh.reconcile: webapp '%s' -> pid=%d", webapp_name, pid);
+    } else {
+        ywarn("mesh.reconcile: failed to spawn webapp '%s'", webapp_name);
     }
     return 0;
 }
@@ -725,7 +1042,15 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config_impl(struct ctx *ctx,
     reconcile_spawn_named(&rc, e, "registry");
     reconcile_spawn_named(&rc, e, "portalloc");
     yconfig_node_for_each(r.value, reconcile_walk_cb, &rc);
-    yinfo("mesh.reconcile_from_config: spawned %d services", rc.spawned);
+
+    struct yconfig_node_ptr_result wr = yconfig_get(picomesh_engine_config(e), "mesh.webapps");
+    if (PICOMESH_IS_OK(wr) && wr.value) {
+        if (yconfig_node_kind(wr.value) != YCONFIG_MAP) {
+            return PICOMESH_ERR(picomesh_int, "reconcile_from_config: mesh.webapps not a map");
+        }
+        yconfig_node_for_each(wr.value, reconcile_webapp_walk_cb, &rc);
+    }
+    yinfo("mesh.reconcile_from_config: spawned %d children", rc.spawned);
     return PICOMESH_OK(picomesh_int, rc.spawned);
 }
 

@@ -1389,12 +1389,43 @@ static void send_json(struct yloop_stream *s, int status,
     send_json_ex(s, status, body, body_len, keep_alive, NULL);
 }
 
+
+static void write_error_detail(struct yjson_writer *w, const char *message)
+{
+    const char *msg = message ? message : "";
+    size_t first_len = strcspn(msg, "\n");
+    char first[512];
+    size_t copy = first_len < sizeof(first) - 1 ? first_len : sizeof(first) - 1;
+    memcpy(first, msg, copy);
+    first[copy] = 0;
+    yjson_writer_key(w, "message"); yjson_writer_string(w, first[0] ? first : msg);
+    yjson_writer_key(w, "detail");  yjson_writer_string(w, msg);
+    yjson_writer_key(w, "trace");   yjson_writer_begin_array(w);
+    const char *p = msg;
+    while (*p) {
+        const char *nl = strchr(p, '\n');
+        size_t n = nl ? (size_t)(nl - p) : strlen(p);
+        char line[1024];
+        size_t lc = n < sizeof(line) - 1 ? n : sizeof(line) - 1;
+        memcpy(line, p, lc);
+        line[lc] = 0;
+        yjson_writer_string(w, line);
+        if (!nl) break;
+        p = nl + 1;
+    }
+    yjson_writer_end_array(w);
+}
+
 static void send_json_error(struct yloop_stream *s, int status,
                             const char *message, int keep_alive)
 {
+    if (status >= 500) yerror("yhttp gateway request failed: %s", message ? message : "");
     struct yjson_writer *w = yjson_writer_new();
     yjson_writer_begin_object(w);
-    yjson_writer_key(w, "error"); yjson_writer_string(w, message);
+    yjson_writer_key(w, "error");
+    yjson_writer_begin_object(w);
+    write_error_detail(w, message);
+    yjson_writer_end_object(w);
     yjson_writer_end_object(w);
     size_t len;
     const char *data = yjson_writer_data(w, &len);
@@ -1726,7 +1757,7 @@ static void route_json_rpc(struct yloop_stream *s,
     struct yjson_writer *w = yjson_writer_new();
     yjson_writer_begin_object(w);
     yjson_writer_key(w, "result");
-    char err[256] = {0};
+    char err[8192] = {0};
     int rc = fn(&call.ctx, call.obj, hdrs, args, w, err, sizeof(err));
     if (hdrs) ytelemetry_span_end(&sp, rc == 0, rc != 0 ? err : NULL);
     yheaders_free(hdrs);

@@ -101,17 +101,18 @@ static void portalloc_range(uint32_t *lo, uint32_t *hi)
     }
 }
 
-/* True iff (host, port) can be bound right now. SO_REUSEADDR mirrors the
- * listener's own option so the probe reflects real availability; the bind
- * still fails if any process (including a SO_REUSEPORT listener from another
- * mesh instance) already holds the port. The probe socket is closed at once. */
+/* True iff (host, port) can be bound right now. A PLAIN bind — deliberately no
+ * SO_REUSEADDR/SO_REUSEPORT: the real listeners bind with SO_REUSEPORT so a
+ * service's N workers can share one port, but a probe that set SO_REUSEPORT (or
+ * even SO_REUSEADDR) would be allowed to JOIN another instance's reuseport
+ * group and wrongly report the port "free". A bare socket can't join, so its
+ * bind fails on any port a foreign listener holds — which is exactly what keeps
+ * a second mesh instance off the first's ports. The socket is closed at once. */
 static int portalloc_port_free(const char *host, uint32_t port)
 {
     if (!host || !*host) host = "127.0.0.1";
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return 0;
-    int one = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);

@@ -78,10 +78,12 @@ static size_t registry_registry_register_service_skel(const void *_body, size_t 
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] registry_registry_register_service", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -151,10 +153,12 @@ static size_t registry_registry_deregister_service_skel(const void *_body, size_
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] registry_registry_deregister_service", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -214,10 +218,12 @@ static size_t registry_registry_resolve_skel(const void *_body, size_t _body_len
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] registry_registry_resolve", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -283,10 +289,12 @@ static size_t registry_registry_discover_service_skel(const void *_body, size_t 
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] registry_registry_discover_service", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -342,10 +350,12 @@ static size_t registry_registry_list_services_skel(const void *_body, size_t _bo
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] registry_registry_list_services", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -401,10 +411,12 @@ static size_t registry_registry_count_skel(const void *_body, size_t _body_len,
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] registry_registry_count", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -438,8 +450,10 @@ static int registry_registry_register_service_jinvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = registry_registry_register_service(call_ctx, obj, hdrs, arg0, arg1, arg2, arg3);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "registry_registry_register_service",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -457,8 +471,10 @@ static int registry_registry_deregister_service_jinvoke(struct ctx *ctx, struct 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = registry_registry_deregister_service(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "registry_registry_deregister_service",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -475,8 +491,10 @@ static int registry_registry_resolve_jinvoke(struct ctx *ctx, struct object *obj
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = registry_registry_resolve(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "registry_registry_resolve",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -494,8 +512,10 @@ static int registry_registry_discover_service_jinvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = registry_registry_discover_service(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "registry_registry_discover_service",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -512,8 +532,10 @@ static int registry_registry_list_services_jinvoke(struct ctx *ctx, struct objec
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = registry_registry_list_services(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "registry_registry_list_services",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -530,8 +552,10 @@ static int registry_registry_count_jinvoke(struct ctx *ctx, struct object *obj, 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = registry_registry_count(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "registry_registry_count",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -583,8 +607,10 @@ static int registry_registry_register_service_minvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = registry_registry_register_service(call_ctx, obj, hdrs, _v0, _v1, _v2, _v3);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "registry_registry_register_service",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -621,8 +647,10 @@ static int registry_registry_deregister_service_minvoke(struct ctx *ctx, struct 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = registry_registry_deregister_service(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "registry_registry_deregister_service",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -651,8 +679,10 @@ static int registry_registry_resolve_minvoke(struct ctx *ctx, struct object *obj
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = registry_registry_resolve(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "registry_registry_resolve",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -685,8 +715,10 @@ static int registry_registry_discover_service_minvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = registry_registry_discover_service(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "registry_registry_discover_service",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -711,8 +743,10 @@ static int registry_registry_list_services_minvoke(struct ctx *ctx, struct objec
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = registry_registry_list_services(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "registry_registry_list_services",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -737,8 +771,10 @@ static int registry_registry_count_minvoke(struct ctx *ctx, struct object *obj, 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = registry_registry_count(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "registry_registry_count",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }

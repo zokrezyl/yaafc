@@ -169,7 +169,7 @@ int picomesh_cli_dispatch(struct picomesh_engine *e)
     }
 
     struct yjson_writer *w = yjson_writer_new();
-    char err[256] = {0};
+    char err[8192] = {0};
     /* Local dispatch: the cli owns the object in-process — NULL ctx and
      * NULL headers. */
     int rc = fn(NULL, obj, NULL, yjson_doc_root(adoc), w, err, sizeof(err));

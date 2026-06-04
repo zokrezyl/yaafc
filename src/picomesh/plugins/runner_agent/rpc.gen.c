@@ -64,10 +64,12 @@ static size_t runner_agent_runner_agent_create_token_skel(const void *_body, siz
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_create_token", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -133,10 +135,12 @@ static size_t runner_agent_runner_agent_lookup_token_skel(const void *_body, siz
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_lookup_token", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -196,10 +200,12 @@ static size_t runner_agent_runner_agent_exchange_skel(const void *_body, size_t 
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_exchange", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -259,10 +265,12 @@ static size_t runner_agent_runner_agent_revoke_token_skel(const void *_body, siz
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_revoke_token", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -356,10 +364,12 @@ static size_t runner_agent_runner_agent_register_skel(const void *_body, size_t 
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_register", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -423,10 +433,12 @@ static size_t runner_agent_runner_agent_heartbeat_skel(const void *_body, size_t
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_heartbeat", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -480,10 +492,12 @@ static size_t runner_agent_runner_agent_get_skel(const void *_body, size_t _body
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_get", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -547,10 +561,12 @@ static size_t runner_agent_runner_agent_list_skel(const void *_body, size_t _bod
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_list", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -606,10 +622,12 @@ static size_t runner_agent_runner_agent_list_all_skel(const void *_body, size_t 
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_list_all", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -665,10 +683,12 @@ static size_t runner_agent_runner_agent_count_active_skel(const void *_body, siz
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] runner_agent_runner_agent_count_active", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -700,8 +720,10 @@ static int runner_agent_runner_agent_create_token_jinvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_create_token(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_create_token",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -719,8 +741,10 @@ static int runner_agent_runner_agent_lookup_token_jinvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = runner_agent_runner_agent_lookup_token(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_lookup_token",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -737,8 +761,10 @@ static int runner_agent_runner_agent_exchange_jinvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = runner_agent_runner_agent_exchange(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_exchange",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -756,8 +782,10 @@ static int runner_agent_runner_agent_revoke_token_jinvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = runner_agent_runner_agent_revoke_token(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_revoke_token",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -778,8 +806,10 @@ static int runner_agent_runner_agent_register_jinvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = runner_agent_runner_agent_register(call_ctx, obj, hdrs, arg0, arg1, arg2, arg3, arg4);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_register",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -797,8 +827,10 @@ static int runner_agent_runner_agent_heartbeat_jinvoke(struct ctx *ctx, struct o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = runner_agent_runner_agent_heartbeat(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_heartbeat",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -815,8 +847,10 @@ static int runner_agent_runner_agent_get_jinvoke(struct ctx *ctx, struct object 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_get(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_get",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -835,8 +869,10 @@ static int runner_agent_runner_agent_list_jinvoke(struct ctx *ctx, struct object
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_list(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_list",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -853,8 +889,10 @@ static int runner_agent_runner_agent_list_all_jinvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_list_all(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_list_all",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -871,8 +909,10 @@ static int runner_agent_runner_agent_count_active_jinvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = runner_agent_runner_agent_count_active(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "runner_agent_runner_agent_count_active",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -909,8 +949,10 @@ static int runner_agent_runner_agent_create_token_minvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_create_token(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_create_token",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -943,8 +985,10 @@ static int runner_agent_runner_agent_lookup_token_minvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = runner_agent_runner_agent_lookup_token(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_lookup_token",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -973,8 +1017,10 @@ static int runner_agent_runner_agent_exchange_minvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = runner_agent_runner_agent_exchange(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_exchange",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1006,8 +1052,10 @@ static int runner_agent_runner_agent_revoke_token_minvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = runner_agent_runner_agent_revoke_token(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_revoke_token",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1067,8 +1115,10 @@ static int runner_agent_runner_agent_register_minvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = runner_agent_runner_agent_register(call_ctx, obj, hdrs, _v0, _v1, _v2, _v3, _v4);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_register",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1104,8 +1154,10 @@ static int runner_agent_runner_agent_heartbeat_minvoke(struct ctx *ctx, struct o
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = runner_agent_runner_agent_heartbeat(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_heartbeat",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1133,8 +1185,10 @@ static int runner_agent_runner_agent_get_minvoke(struct ctx *ctx, struct object 
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_get(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_get",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1163,8 +1217,10 @@ static int runner_agent_runner_agent_list_minvoke(struct ctx *ctx, struct object
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_list(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_list",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1189,8 +1245,10 @@ static int runner_agent_runner_agent_list_all_minvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = runner_agent_runner_agent_list_all(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_list_all",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -1215,8 +1273,10 @@ static int runner_agent_runner_agent_count_active_minvoke(struct ctx *ctx, struc
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = runner_agent_runner_agent_count_active(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "runner_agent_runner_agent_count_active",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }

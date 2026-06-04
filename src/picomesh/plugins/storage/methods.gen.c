@@ -42,7 +42,7 @@ struct picomesh_int_result storage_set(struct ctx * ctx, struct object * obj, st
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             cmp_write_str(&_maw, value ? value : "", (uint32_t)(value ? strlen(value) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "storage.db.set", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -109,7 +109,7 @@ struct picomesh_int_result storage_set(struct ctx * ctx, struct object * obj, st
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, value, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -117,7 +117,7 @@ struct picomesh_int_result storage_set(struct ctx * ctx, struct object * obj, st
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -164,7 +164,7 @@ struct picomesh_string_result storage_get(struct ctx * ctx, struct object * obj,
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "storage.db.get", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -242,7 +242,7 @@ struct picomesh_string_result storage_get(struct ctx * ctx, struct object * obj,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -294,7 +294,7 @@ struct picomesh_int_result storage_exists(struct ctx * ctx, struct object * obj,
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "storage.db.exists", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -354,7 +354,7 @@ struct picomesh_int_result storage_exists(struct ctx * ctx, struct object * obj,
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, key, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -362,7 +362,7 @@ struct picomesh_int_result storage_exists(struct ctx * ctx, struct object * obj,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -409,7 +409,7 @@ struct picomesh_int_result storage_del(struct ctx * ctx, struct object * obj, st
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             cmp_write_str(&_maw, key ? key : "", (uint32_t)(key ? strlen(key) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "storage.db.del", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -469,7 +469,7 @@ struct picomesh_int_result storage_del(struct ctx * ctx, struct object * obj, st
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, key, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -477,7 +477,7 @@ struct picomesh_int_result storage_del(struct ctx * ctx, struct object * obj, st
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -523,7 +523,7 @@ struct picomesh_size_result storage_count(struct ctx * ctx, struct object * obj,
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, context ? context : "", (uint32_t)(context ? strlen(context) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "storage.db.count", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -576,7 +576,7 @@ struct picomesh_size_result storage_count(struct ctx * ctx, struct object * obj,
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, context, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -584,7 +584,7 @@ struct picomesh_size_result storage_count(struct ctx * ctx, struct object * obj,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

@@ -40,7 +40,7 @@ struct picomesh_void_result trace_collector_trace_collector_ingest(struct ctx * 
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, span_json ? span_json : "", (uint32_t)(span_json ? strlen(span_json) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.ingest", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -91,7 +91,7 @@ struct picomesh_void_result trace_collector_trace_collector_ingest(struct ctx * 
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, span_json, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -99,7 +99,7 @@ struct picomesh_void_result trace_collector_trace_collector_ingest(struct ctx * 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -142,7 +142,7 @@ struct picomesh_string_result trace_collector_trace_collector_get_trace(struct c
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, trace_id ? trace_id : "", (uint32_t)(trace_id ? strlen(trace_id) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.get_trace", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -213,7 +213,7 @@ struct picomesh_string_result trace_collector_trace_collector_get_trace(struct c
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -266,7 +266,7 @@ struct picomesh_string_result trace_collector_trace_collector_traces(struct ctx 
             cmp_write_str(&_maw, status ? status : "", (uint32_t)(status ? strlen(status) : 0));
             cmp_write_uinteger(&_maw, (uint64_t)since_secs);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.traces", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -347,7 +347,7 @@ struct picomesh_string_result trace_collector_trace_collector_traces(struct ctx 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -397,7 +397,7 @@ struct picomesh_string_result trace_collector_trace_collector_services(struct ct
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.services", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -461,7 +461,7 @@ struct picomesh_string_result trace_collector_trace_collector_services(struct ct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -512,7 +512,7 @@ struct picomesh_string_result trace_collector_trace_collector_operations(struct 
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, service ? service : "", (uint32_t)(service ? strlen(service) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.operations", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -583,7 +583,7 @@ struct picomesh_string_result trace_collector_trace_collector_operations(struct 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -636,7 +636,7 @@ struct picomesh_string_result trace_collector_trace_collector_latency(struct ctx
             cmp_write_str(&_maw, operation ? operation : "", (uint32_t)(operation ? strlen(operation) : 0));
             cmp_write_uinteger(&_maw, (uint64_t)window_secs);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.latency", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -717,7 +717,7 @@ struct picomesh_string_result trace_collector_trace_collector_latency(struct ctx
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -767,7 +767,7 @@ struct picomesh_string_result trace_collector_trace_collector_stats(struct ctx *
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.stats", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -831,7 +831,7 @@ struct picomesh_string_result trace_collector_trace_collector_stats(struct ctx *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -882,7 +882,7 @@ struct picomesh_string_result trace_collector_trace_collector_errors(struct ctx 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)since_secs);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.errors", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -949,7 +949,7 @@ struct picomesh_string_result trace_collector_trace_collector_errors(struct ctx 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

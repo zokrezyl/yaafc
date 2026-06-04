@@ -8,8 +8,10 @@
 # consumes through the registry too. To run a SECOND instance on this host,
 # override just `control.port` and `mesh.services.registry.port`; every other
 # port is allocated dynamically and bind-probed, so nothing else collides.
-# The public-facing gateway (8090) and the inspection consoles (8230/8231)
-# keep fixed ports because external clients address them directly.
+# The public-facing gateway (8090) and loopback-only operator bridges
+# (internal bridge 8230, service console 8231) keep fixed ports because
+# clients address them directly. Core webapps such as picotrace are mesh
+# managed and may use `port: auto`.
 #
 # To bring it up:
 #
@@ -61,6 +63,24 @@ control:
 
 mesh:
   auto_reconcile: true
+  # Where the mesh writes the per-node config files it splits out of this
+  # config (one <name>.yaml per service). REQUIRED — no baked-in path. A
+  # second instance on this host points this (and its state paths) elsewhere;
+  # override at launch with `--config mesh.nodes_dir=/tmp/picoforge2/nodes`.
+  nodes_dir: /tmp/picoforge/nodes
+
+  # Core webapps are generic operator applications started by the mesh parent,
+  # not public Picoforge routes and not plugin nodes. They bind loopback by
+  # default, get dynamic ports through portalloc, and receive resolved upstream
+  # backend addresses from mesh reconciliation.
+  webapps:
+    picotrace:
+      app: picotrace
+      port: auto
+      host: 127.0.0.1
+      upstream:
+        service: trace_collector
+
   services:
 
     # registry — service discovery for the mesh. One of only TWO fixed-address
@@ -80,8 +100,8 @@ mesh:
 
     # The trace collector (issue #11): an ordinary yrpc backend plugin that
     # RECEIVES spans on its exposed `trace_collector_ingest` method and answers
-    # the query methods used by picotrace and operators: _traces /
-    # _get_trace / _services / _operations / _latency / _errors / _stats.
+    # query methods used by the internal picotrace core app and operators:
+    # _traces / _get_trace / _services / _operations / _latency / _errors / _stats.
     # Every other service lists it as a remote
     # and ships finished spans to it over its OWN per-worker connection,
     # fire-and-forget (see ytelemetry). State is an in-memory bounded store —
@@ -434,9 +454,10 @@ mesh:
     # FRONTEND DIRECTION (resolved): the browser-facing HTML is the
     # standalone `picoforge-webapp` sidecar (src/picoforge/webapp/), NOT a
     # combined gateway. The sidecar links no plugins and reaches every
-    # backend only through this gateway's /_rpc — including picotrace at
-    # /traces — see mesh-up.sh, which launches it on :8080. The HTML routes
-    # still compiled into the
+    # backend only through this gateway's /_rpc — see mesh-up.sh, which
+    # launches it on :8080. Internal operator apps such as picotrace live
+    # under src/picomesh/core-apps and are not exposed by this sidecar.
+    # The HTML routes still compiled into the
     # gateway (src/picomesh/frontends/yhttp/frontend.c) are LEGACY, kept
     # only until the sidecar renders the full page set.
     #

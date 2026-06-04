@@ -41,7 +41,7 @@ struct picomesh_int_result github_authn_github_authn_set_credentials(struct ctx 
             cmp_write_uinteger(&_maw, (uint64_t)client_id);
             cmp_write_uinteger(&_maw, (uint64_t)secret_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "github_authn.github_authn.set_credentials", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -93,7 +93,7 @@ struct picomesh_int_result github_authn_github_authn_set_credentials(struct ctx 
         if (_off + sizeof(secret_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "github_authn_github_authn_set_credentials: pack overflow"); return PICOMESH_ERR(picomesh_int, "github_authn_github_authn_set_credentials: pack overflow"); }
         memcpy(_a + _off, &secret_id, sizeof(secret_id)); _off += sizeof(secret_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -101,7 +101,7 @@ struct picomesh_int_result github_authn_github_authn_set_credentials(struct ctx 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -148,7 +148,7 @@ struct picomesh_int_result github_authn_github_authn_register_code(struct ctx * 
             cmp_write_uinteger(&_maw, (uint64_t)code);
             cmp_write_uinteger(&_maw, (uint64_t)user_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "github_authn.github_authn.register_code", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -200,7 +200,7 @@ struct picomesh_int_result github_authn_github_authn_register_code(struct ctx * 
         if (_off + sizeof(user_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "github_authn_github_authn_register_code: pack overflow"); return PICOMESH_ERR(picomesh_int, "github_authn_github_authn_register_code: pack overflow"); }
         memcpy(_a + _off, &user_id, sizeof(user_id)); _off += sizeof(user_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -208,7 +208,7 @@ struct picomesh_int_result github_authn_github_authn_register_code(struct ctx * 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -254,7 +254,7 @@ struct picomesh_uint32_result github_authn_github_authn_resolve(struct ctx * ctx
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)code);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "github_authn.github_authn.resolve", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -303,7 +303,7 @@ struct picomesh_uint32_result github_authn_github_authn_resolve(struct ctx * ctx
         if (_off + sizeof(code) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "github_authn_github_authn_resolve: pack overflow"); return PICOMESH_ERR(picomesh_uint32, "github_authn_github_authn_resolve: pack overflow"); }
         memcpy(_a + _off, &code, sizeof(code)); _off += sizeof(code);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -311,7 +311,7 @@ struct picomesh_uint32_result github_authn_github_authn_resolve(struct ctx * ctx
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -356,7 +356,7 @@ struct picomesh_size_result github_authn_github_authn_count_codes(struct ctx * c
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "github_authn.github_authn.count_codes", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -402,7 +402,7 @@ struct picomesh_size_result github_authn_github_authn_count_codes(struct ctx * c
                 { ytelemetry_span_end(&_tsp, 0, "github_authn_github_authn_count_codes: pack overflow"); return PICOMESH_ERR(picomesh_size, "github_authn_github_authn_count_codes: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -410,7 +410,7 @@ struct picomesh_size_result github_authn_github_authn_count_codes(struct ctx * c
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -457,7 +457,7 @@ struct picomesh_json_result github_authn_github_authn_list(struct ctx * ctx, str
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_integer(&_maw, (int64_t)limit);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "github_authn.github_authn.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -527,7 +527,7 @@ struct picomesh_json_result github_authn_github_authn_list(struct ctx * ctx, str
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -577,7 +577,7 @@ struct picomesh_json_result github_authn_github_authn_list_all(struct ctx * ctx,
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "github_authn.github_authn.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -641,7 +641,7 @@ struct picomesh_json_result github_authn_github_authn_list_all(struct ctx * ctx,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

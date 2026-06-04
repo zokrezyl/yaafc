@@ -134,10 +134,17 @@ function(picomesh_add_plugin NAME)
     # those all live under <repo>/include/picomesh/plugin/*, which is
     # part of PICOMESH_ROOT/include — so we don't need to enumerate
     # sibling plugin include dirs here anymore.
-    set(_EXTRA_INCLUDE_PATH "${PICOMESH_ROOT}/include")
+    # An EXTRA_INCLUDES entry may be a generator expression that expands to a
+    # MULTI-DIR list at GENERATE time (e.g. libgit2's INTERFACE_INCLUDE_DIRECTORIES,
+    # which also pulls in zlib-ng). A plain configure-time ':'-concat would leave
+    # the genex's ';' separators in the path, so collect into a CMake list and
+    # JOIN with ':' via a genex — that flattens any expanded sublist into the
+    # single ':'-separated string codegen.py splits.
+    set(_EXTRA_INCLUDE_DIRS "${PICOMESH_ROOT}/include")
     foreach(_d ${PLUG_EXTRA_INCLUDES})
-        set(_EXTRA_INCLUDE_PATH "${_EXTRA_INCLUDE_PATH}:${_d}")
+        list(APPEND _EXTRA_INCLUDE_DIRS "${_d}")
     endforeach()
+    set(_EXTRA_INCLUDE_PATH "$<JOIN:${_EXTRA_INCLUDE_DIRS},:>")
 
     # Outputs that codegen.py writes for this plugin:
     #   include/picomesh/plugin/<name>/<name>.h       — combined public API
@@ -311,6 +318,23 @@ add_executable(picoforge-webapp
 target_link_libraries(picoforge-webapp PRIVATE picomesh_runtime)
 target_include_directories(picoforge-webapp PRIVATE
     src/picoforge/webapp
+    include/picohttpparser
+)
+
+# ---- picotrace (internal trace browser) ------------------------------
+#
+# Generic Picomesh core app for browsing the trace collector. It binds
+# loopback by default and talks directly to trace_collector over yrpc; it is
+# deliberately separate from the public Picoforge webapp sidecar.
+add_executable(picotrace
+    src/picomesh/core-apps/picotrace/main.c
+    $<TARGET_OBJECTS:picomesh_plugin_trace_collector>
+    src/picomesh/yplatform/longjmp_chk_stub.c
+)
+target_link_libraries(picotrace PRIVATE picomesh_runtime)
+add_dependencies(picotrace picomesh_plugin_trace_collector_codegen)
+target_include_directories(picotrace PRIVATE
+    src/picomesh/core-apps/picotrace
     include/picohttpparser
 )
 

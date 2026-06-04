@@ -41,7 +41,7 @@ struct picomesh_uint32_result issues_issues_open(struct ctx * ctx, struct object
             cmp_write_uinteger(&_maw, (uint64_t)repo_id);
             cmp_write_uinteger(&_maw, (uint64_t)author_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "issues.issues.open", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -93,7 +93,7 @@ struct picomesh_uint32_result issues_issues_open(struct ctx * ctx, struct object
         if (_off + sizeof(author_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "issues_issues_open: pack overflow"); return PICOMESH_ERR(picomesh_uint32, "issues_issues_open: pack overflow"); }
         memcpy(_a + _off, &author_id, sizeof(author_id)); _off += sizeof(author_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -101,7 +101,7 @@ struct picomesh_uint32_result issues_issues_open(struct ctx * ctx, struct object
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -147,7 +147,7 @@ struct picomesh_int_result issues_issues_close(struct ctx * ctx, struct object *
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)issue_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "issues.issues.close", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -196,7 +196,7 @@ struct picomesh_int_result issues_issues_close(struct ctx * ctx, struct object *
         if (_off + sizeof(issue_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "issues_issues_close: pack overflow"); return PICOMESH_ERR(picomesh_int, "issues_issues_close: pack overflow"); }
         memcpy(_a + _off, &issue_id, sizeof(issue_id)); _off += sizeof(issue_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -204,7 +204,7 @@ struct picomesh_int_result issues_issues_close(struct ctx * ctx, struct object *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -250,7 +250,7 @@ struct picomesh_int_result issues_issues_status(struct ctx * ctx, struct object 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)issue_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "issues.issues.status", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -299,7 +299,7 @@ struct picomesh_int_result issues_issues_status(struct ctx * ctx, struct object 
         if (_off + sizeof(issue_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "issues_issues_status: pack overflow"); return PICOMESH_ERR(picomesh_int, "issues_issues_status: pack overflow"); }
         memcpy(_a + _off, &issue_id, sizeof(issue_id)); _off += sizeof(issue_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -307,7 +307,7 @@ struct picomesh_int_result issues_issues_status(struct ctx * ctx, struct object 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -353,7 +353,7 @@ struct picomesh_size_result issues_issues_count_open_in_repo(struct ctx * ctx, s
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)repo_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "issues.issues.count_open_in_repo", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -402,7 +402,7 @@ struct picomesh_size_result issues_issues_count_open_in_repo(struct ctx * ctx, s
         if (_off + sizeof(repo_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "issues_issues_count_open_in_repo: pack overflow"); return PICOMESH_ERR(picomesh_size, "issues_issues_count_open_in_repo: pack overflow"); }
         memcpy(_a + _off, &repo_id, sizeof(repo_id)); _off += sizeof(repo_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -410,7 +410,7 @@ struct picomesh_size_result issues_issues_count_open_in_repo(struct ctx * ctx, s
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -455,7 +455,7 @@ struct picomesh_size_result issues_issues_count_total(struct ctx * ctx, struct o
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "issues.issues.count_total", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -501,7 +501,7 @@ struct picomesh_size_result issues_issues_count_total(struct ctx * ctx, struct o
                 { ytelemetry_span_end(&_tsp, 0, "issues_issues_count_total: pack overflow"); return PICOMESH_ERR(picomesh_size, "issues_issues_count_total: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -509,7 +509,7 @@ struct picomesh_size_result issues_issues_count_total(struct ctx * ctx, struct o
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -556,7 +556,7 @@ struct picomesh_json_result issues_issues_list(struct ctx * ctx, struct object *
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_integer(&_maw, (int64_t)limit);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "issues.issues.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -626,7 +626,7 @@ struct picomesh_json_result issues_issues_list(struct ctx * ctx, struct object *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -676,7 +676,7 @@ struct picomesh_json_result issues_issues_list_all(struct ctx * ctx, struct obje
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "issues.issues.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -740,7 +740,7 @@ struct picomesh_json_result issues_issues_list_all(struct ctx * ctx, struct obje
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

@@ -41,7 +41,7 @@ struct picomesh_int_result accounts_accounts_claim_username(struct ctx * ctx, st
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             cmp_write_str(&_maw, username ? username : "", (uint32_t)(username ? strlen(username) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.claim_username", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -97,7 +97,7 @@ struct picomesh_int_result accounts_accounts_claim_username(struct ctx * ctx, st
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, username, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -105,7 +105,7 @@ struct picomesh_int_result accounts_accounts_claim_username(struct ctx * ctx, st
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -152,7 +152,7 @@ struct picomesh_int_result accounts_accounts_release_username(struct ctx * ctx, 
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             cmp_write_str(&_maw, username ? username : "", (uint32_t)(username ? strlen(username) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.release_username", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -208,7 +208,7 @@ struct picomesh_int_result accounts_accounts_release_username(struct ctx * ctx, 
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, username, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -216,7 +216,7 @@ struct picomesh_int_result accounts_accounts_release_username(struct ctx * ctx, 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -263,7 +263,7 @@ struct picomesh_int_result accounts_accounts_register(struct ctx * ctx, struct o
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             cmp_write_str(&_maw, username ? username : "", (uint32_t)(username ? strlen(username) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.register", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -319,7 +319,7 @@ struct picomesh_int_result accounts_accounts_register(struct ctx * ctx, struct o
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, username, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -327,7 +327,7 @@ struct picomesh_int_result accounts_accounts_register(struct ctx * ctx, struct o
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -373,7 +373,7 @@ struct picomesh_int_result accounts_accounts_exists(struct ctx * ctx, struct obj
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.exists", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -422,7 +422,7 @@ struct picomesh_int_result accounts_accounts_exists(struct ctx * ctx, struct obj
         if (_off + sizeof(uid) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "accounts_accounts_exists: pack overflow"); return PICOMESH_ERR(picomesh_int, "accounts_accounts_exists: pack overflow"); }
         memcpy(_a + _off, &uid, sizeof(uid)); _off += sizeof(uid);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -430,7 +430,7 @@ struct picomesh_int_result accounts_accounts_exists(struct ctx * ctx, struct obj
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -477,7 +477,7 @@ struct picomesh_int_result accounts_accounts_set_balance(struct ctx * ctx, struc
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             cmp_write_integer(&_maw, (int64_t)n);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.set_balance", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -529,7 +529,7 @@ struct picomesh_int_result accounts_accounts_set_balance(struct ctx * ctx, struc
         if (_off + sizeof(n) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "accounts_accounts_set_balance: pack overflow"); return PICOMESH_ERR(picomesh_int, "accounts_accounts_set_balance: pack overflow"); }
         memcpy(_a + _off, &n, sizeof(n)); _off += sizeof(n);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -537,7 +537,7 @@ struct picomesh_int_result accounts_accounts_set_balance(struct ctx * ctx, struc
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -583,7 +583,7 @@ struct picomesh_int64_result accounts_accounts_balance(struct ctx * ctx, struct 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.balance", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -632,7 +632,7 @@ struct picomesh_int64_result accounts_accounts_balance(struct ctx * ctx, struct 
         if (_off + sizeof(uid) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "accounts_accounts_balance: pack overflow"); return PICOMESH_ERR(picomesh_int64, "accounts_accounts_balance: pack overflow"); }
         memcpy(_a + _off, &uid, sizeof(uid)); _off += sizeof(uid);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -640,7 +640,7 @@ struct picomesh_int64_result accounts_accounts_balance(struct ctx * ctx, struct 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -685,7 +685,7 @@ struct picomesh_size_result accounts_accounts_count(struct ctx * ctx, struct obj
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.count", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -731,7 +731,7 @@ struct picomesh_size_result accounts_accounts_count(struct ctx * ctx, struct obj
                 { ytelemetry_span_end(&_tsp, 0, "accounts_accounts_count: pack overflow"); return PICOMESH_ERR(picomesh_size, "accounts_accounts_count: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -739,7 +739,7 @@ struct picomesh_size_result accounts_accounts_count(struct ctx * ctx, struct obj
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -786,7 +786,7 @@ struct picomesh_int_result accounts_accounts_set_groups(struct ctx * ctx, struct
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             cmp_write_str(&_maw, groups_csv ? groups_csv : "", (uint32_t)(groups_csv ? strlen(groups_csv) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.set_groups", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -842,7 +842,7 @@ struct picomesh_int_result accounts_accounts_set_groups(struct ctx * ctx, struct
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, groups_csv, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -850,7 +850,7 @@ struct picomesh_int_result accounts_accounts_set_groups(struct ctx * ctx, struct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -896,7 +896,7 @@ struct picomesh_string_result accounts_accounts_groups(struct ctx * ctx, struct 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)uid);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.groups", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -963,7 +963,7 @@ struct picomesh_string_result accounts_accounts_groups(struct ctx * ctx, struct 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1015,7 +1015,7 @@ struct picomesh_json_result accounts_accounts_list(struct ctx * ctx, struct obje
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_integer(&_maw, (int64_t)limit);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1085,7 +1085,7 @@ struct picomesh_json_result accounts_accounts_list(struct ctx * ctx, struct obje
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1135,7 +1135,7 @@ struct picomesh_json_result accounts_accounts_list_all(struct ctx * ctx, struct 
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "accounts.accounts.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1199,7 +1199,7 @@ struct picomesh_json_result accounts_accounts_list_all(struct ctx * ctx, struct 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

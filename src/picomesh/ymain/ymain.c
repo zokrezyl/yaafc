@@ -240,15 +240,23 @@ static void activate_plugins(struct picomesh_engine *e)
     }
 }
 
-static void usage(const char *argv0)
+/* Single source of CLI docs: the synopsis + subcommands here, the per-flag
+ * lines generated straight from PICOMESH_OPTIONS so they can never drift. Goes
+ * to stdout when --help is asked for, stderr when shown on a usage error. */
+static void usage(FILE *out, const char *argv0)
 {
-    fprintf(stderr,
-            "usage:\n"
-            "  %s [--config-file PATH] [--config K=V]... [--env K=V]...\n"
-            "      [--host H] [--port P] [--frontend yrpc|yttp|yhttp|alpine|msgpack]\n"
-            "      [--verbose] [--app-name N]\n"
-            "      (serve | client | config-dump | invoke <method> [arg...])\n",
+    fprintf(out,
+            "usage: %s [options] <subcommand> [args...]\n"
+            "\n"
+            "subcommands:\n"
+            "  serve                          run the engine's frontend listener\n"
+            "  client                         one-shot RPC smoke client\n"
+            "  config-dump                    print the resolved config and exit\n"
+            "  invoke <method> [arg...]       call one method from the CLI\n"
+            "\n"
+            "options:\n",
             argv0);
+    yargv_print_options(PICOMESH_OPTIONS, PICOMESH_OPTION_COUNT, out);
 }
 
 /* Port / host resolution. Precedence, highest first:
@@ -546,13 +554,13 @@ int main(int argc, char **argv)
     if (PICOMESH_IS_ERR(pr)) return die_err("yargv_parse", pr.error);
     struct yargv_chain *cli = pr.value;
 
-    if (yargv_get_bool(cli, "help", 0)) { usage(argv[0]); yargv_chain_destroy(cli); return 0; }
+    if (yargv_get_bool(cli, "help", 0)) { usage(stdout, argv[0]); yargv_chain_destroy(cli); return 0; }
     if (yargv_get_bool(cli, "verbose", 0)) {
         ytrace_set_all_enabled(1);
     }
 
     const char *sub = yargv_subcommand(cli);
-    if (!sub) { usage(argv[0]); yargv_chain_destroy(cli); return 2; }
+    if (!sub) { usage(stderr, argv[0]); yargv_chain_destroy(cli); return 2; }
 
     struct picomesh_engine_args ea = {
         .cli = cli,                    /* engine takes ownership */
@@ -579,7 +587,7 @@ int main(int argc, char **argv)
     } else if (strcmp(sub, "invoke") == 0) {
         rc = picomesh_cli_dispatch(e);
     } else {
-        usage(argv[0]);
+        usage(stderr, argv[0]);
         rc = 2;
     }
 

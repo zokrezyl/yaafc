@@ -189,12 +189,14 @@ static size_t handle_invoke(struct picomesh_engine *engine, const char *path, co
     struct picomesh_msgpack_buffer vb;
     picomesh_msgpack_writer_init(&vw, &vb, value_buf, MSGPACK_FRAME_MAX);
 
-    char err[256] = {0};
+    char err[8192] = {0};
     int rc = fn(&call.ctx, call.obj, hdrs, &ar, argc, &vw, err, sizeof(err));
     picomesh_service_call_release(&call);
 
-    if (rc != 0)
+    if (rc != 0) {
+        yerror("msgpack request failed path=%s: %s", path ? path : "", err[0] ? err : "call failed");
         return pack_error(resp, resp_cap, "call_error", err[0] ? err : "call failed");
+    }
     size_t n = pack_success(resp, resp_cap, value_buf, vb.offset);
     if (n == 0)
         return pack_error(resp, resp_cap, "response_too_large", "result exceeds frame cap");

@@ -423,6 +423,7 @@ WIRE_STRING_MAX = 4096
 # Kept separate from WIRE_STRING_MAX (the per-arg unpack buffer) so raising
 # the response size does not bloat every string-arg stack slot.
 WIRE_STRING_RESP_MAX = 65531  # 1 (status) + 4 (len) + this == 65536 frame max
+ERROR_TEXT_MAX = 8192
 
 
 def wire_type(t: str) -> str:
@@ -741,7 +742,7 @@ def emit_msgpack_remote_branch(m: dict) -> str:
             cmp_write_array(&_maw, {n}u);
 {writes}\
             size_t _mrlen = 0;
-            char _merr[256] = {{0}};
+            char _merr[{ERROR_TEXT_MAX}] = {{0}};
             if (!peer_channel_msgpack_call(_s->peer, "{path}", {hdrs_name},
                                            _margs, _mab.offset, _mresp, {resp_sz},
                                            &_mrlen, _merr, sizeof(_merr))) {{
@@ -784,7 +785,7 @@ def emit_dispatch_body(m: dict) -> str:
     # String returns can be long, so the response buffer must hold
     # u8 status + u32 len + up to WIRE_STRING_MAX value bytes. Scalar /
     # error responses fit comfortably in the small buffer.
-    wbuf_sz = (1 + 4 + WIRE_STRING_RESP_MAX) if is_string_ret(vt) else (1 + 4 + 256)
+    wbuf_sz = (1 + 4 + WIRE_STRING_RESP_MAX) if is_string_ret(vt) else (1 + 4 + ERROR_TEXT_MAX)
     timed_rpc = f"""\
         uint8_t _wbuf[{wbuf_sz}];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
@@ -796,7 +797,7 @@ def emit_dispatch_body(m: dict) -> str:
         if (_wbuf[0] != 0) {{
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[{ERROR_TEXT_MAX + 1}];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1105,10 +1106,12 @@ def emit_skel(m: dict) -> str:
     # client can rebuild a picomesh_error with a real message instead of a
     # generic "remote impl returned error".
     err_pack = """\
-        picomesh_error_print(stderr, "[skel] """ + slot + """", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[""" + str(ERROR_TEXT_MAX) + """] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -1404,8 +1407,10 @@ static int {slot}_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     {rt} call_result = {slot}({call});
     if (PICOMESH_IS_ERR(call_result)) {{
+        char chain[{ERROR_TEXT_MAX}] = {{0}};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "{slot}",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }}
@@ -1645,8 +1650,10 @@ static int {slot}_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     {rt} call_result = {slot}({call});
     if (PICOMESH_IS_ERR(call_result)) {{
+        char chain[{ERROR_TEXT_MAX}] = {{0}};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "{slot}",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }}

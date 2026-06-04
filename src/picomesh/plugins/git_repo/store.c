@@ -1019,8 +1019,14 @@ struct picomesh_string_result git_repo_git_repo_put_file_impl(struct ctx *ctx, s
     picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
     int site_admin = caller.authenticated &&
         picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer");
-    if (caller.uid == 0 || (caller.uid != rec.owner_id && !site_admin))
+    if (caller.uid == 0 || (caller.uid != rec.owner_id && !site_admin)) {
+        const char *jwt_hdr = hdrs ? yheaders_get(hdrs, "jwt") : NULL;
+        uint32_t pfx_uid = hdrs ? yheaders_get_u32(hdrs, "uid", 0) : 0;
+        ywarn("DBG put_file forbidden: repo=%u owner=%u caller.uid=%u authed=%d pfx_uid=%u jwt=%s",
+              repo_id, rec.owner_id, caller.uid, caller.authenticated, pfx_uid,
+              jwt_hdr ? (jwt_hdr[0] ? "present" : "empty") : "absent");
         return PICOMESH_ERR(picomesh_string, "git_repo_put_file: forbidden (not repo owner)");
+    }
     if (!ensure_libgit2()) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: libgit2 init failed");
 
     struct git_put_work w;

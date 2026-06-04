@@ -100,9 +100,37 @@ static int write_frame(struct yloop_stream *s, const char *body, size_t len)
 
 /* ---------- JSON-RPC response builders ------------------------- */
 
+
+static void write_error_detail(struct yjson_writer *w, const char *message)
+{
+    const char *msg = message ? message : "";
+    size_t first_len = strcspn(msg, "\n");
+    char first[512];
+    size_t copy = first_len < sizeof(first) - 1 ? first_len : sizeof(first) - 1;
+    memcpy(first, msg, copy);
+    first[copy] = 0;
+    yjson_writer_key(w, "message"); yjson_writer_string(w, first[0] ? first : msg);
+    yjson_writer_key(w, "detail");  yjson_writer_string(w, msg);
+    yjson_writer_key(w, "trace");   yjson_writer_begin_array(w);
+    const char *p = msg;
+    while (*p) {
+        const char *nl = strchr(p, '\n');
+        size_t n = nl ? (size_t)(nl - p) : strlen(p);
+        char line[1024];
+        size_t lc = n < sizeof(line) - 1 ? n : sizeof(line) - 1;
+        memcpy(line, p, lc);
+        line[lc] = 0;
+        yjson_writer_string(w, line);
+        if (!nl) break;
+        p = nl + 1;
+    }
+    yjson_writer_end_array(w);
+}
+
 static void write_jsonrpc_error(struct yloop_stream *s, const struct yjson_value *id,
                                 int code, const char *message)
 {
+    if (code <= -32000) yerror("yttp request failed: %s", message ? message : "");
     struct yjson_writer *w = yjson_writer_new();
     yjson_writer_begin_object(w);
     yjson_writer_key(w, "jsonrpc"); yjson_writer_string(w, "2.0");
@@ -112,8 +140,8 @@ static void write_jsonrpc_error(struct yloop_stream *s, const struct yjson_value
     else                          yjson_writer_null(w);
     yjson_writer_key(w, "error");
     yjson_writer_begin_object(w);
-    yjson_writer_key(w, "code");    yjson_writer_int(w, code);
-    yjson_writer_key(w, "message"); yjson_writer_string(w, message);
+    yjson_writer_key(w, "code"); yjson_writer_int(w, code);
+    write_error_detail(w, message);
     yjson_writer_end_object(w);
     yjson_writer_end_object(w);
 
@@ -204,7 +232,7 @@ static void handle_invoke(struct yloop_stream *s, const struct yjson_value *id,
     else                          yjson_writer_null(w);
     yjson_writer_key(w, "result");
 
-    char err[256] = {0};
+    char err[8192] = {0};
     /* Local dispatch: yttp owns the object in-process — NULL ctx (call
      * the impl directly) and NULL headers (no request metadata here). */
     int rc = fn(NULL, (struct object *)obj, NULL, args, w, err, sizeof(err));

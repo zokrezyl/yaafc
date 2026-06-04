@@ -52,10 +52,12 @@ static size_t github_authn_github_authn_set_credentials_skel(const void *_body, 
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] github_authn_github_authn_set_credentials", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -113,10 +115,12 @@ static size_t github_authn_github_authn_register_code_skel(const void *_body, si
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] github_authn_github_authn_register_code", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -170,10 +174,12 @@ static size_t github_authn_github_authn_resolve_skel(const void *_body, size_t _
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] github_authn_github_authn_resolve", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -223,10 +229,12 @@ static size_t github_authn_github_authn_count_codes_skel(const void *_body, size
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] github_authn_github_authn_count_codes", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -284,10 +292,12 @@ static size_t github_authn_github_authn_list_skel(const void *_body, size_t _bod
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] github_authn_github_authn_list", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -343,10 +353,12 @@ static size_t github_authn_github_authn_list_all_skel(const void *_body, size_t 
     yheaders_free(_hdrs); _hdrs = NULL;
     if (_resp_max < 1) return 0;
     if (PICOMESH_IS_ERR(_r)) {
-        picomesh_error_print(stderr, "[skel] github_authn_github_authn_list_all", _r.error);
-        const char *_msg = _r.error.msg ? _r.error.msg : "(no msg)";
+        char _errbuf[8192] = {0};
+        picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
+        const char *_msg = _errbuf[0] ? _errbuf : (_r.error.msg ? _r.error.msg : "(no msg)");
         uint32_t _ml = (uint32_t)strlen(_msg);
-        if (_ml > 256) _ml = 256;
+        if (_resp_max <= 5) _ml = 0;
+        else if (_ml > _resp_max - 5) _ml = (uint32_t)(_resp_max - 5);
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
@@ -384,8 +396,10 @@ static int github_authn_github_authn_set_credentials_jinvoke(struct ctx *ctx, st
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = github_authn_github_authn_set_credentials(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "github_authn_github_authn_set_credentials",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -403,8 +417,10 @@ static int github_authn_github_authn_register_code_jinvoke(struct ctx *ctx, stru
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = github_authn_github_authn_register_code(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "github_authn_github_authn_register_code",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -421,8 +437,10 @@ static int github_authn_github_authn_resolve_jinvoke(struct ctx *ctx, struct obj
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = github_authn_github_authn_resolve(call_ctx, obj, hdrs, arg0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "github_authn_github_authn_resolve",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -438,8 +456,10 @@ static int github_authn_github_authn_count_codes_jinvoke(struct ctx *ctx, struct
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = github_authn_github_authn_count_codes(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "github_authn_github_authn_count_codes",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -457,8 +477,10 @@ static int github_authn_github_authn_list_jinvoke(struct ctx *ctx, struct object
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = github_authn_github_authn_list(call_ctx, obj, hdrs, arg0, arg1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "github_authn_github_authn_list",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -475,8 +497,10 @@ static int github_authn_github_authn_list_all_jinvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = github_authn_github_authn_list_all(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "github_authn_github_authn_list_all",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -512,8 +536,10 @@ static int github_authn_github_authn_set_credentials_minvoke(struct ctx *ctx, st
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = github_authn_github_authn_set_credentials(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "github_authn_github_authn_set_credentials",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -548,8 +574,10 @@ static int github_authn_github_authn_register_code_minvoke(struct ctx *ctx, stru
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = github_authn_github_authn_register_code(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "github_authn_github_authn_register_code",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -577,8 +605,10 @@ static int github_authn_github_authn_resolve_minvoke(struct ctx *ctx, struct obj
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = github_authn_github_authn_resolve(call_ctx, obj, hdrs, _v0);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "github_authn_github_authn_resolve",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -599,8 +629,10 @@ static int github_authn_github_authn_count_codes_minvoke(struct ctx *ctx, struct
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = github_authn_github_authn_count_codes(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "github_authn_github_authn_count_codes",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -625,8 +657,10 @@ static int github_authn_github_authn_list_minvoke(struct ctx *ctx, struct object
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = github_authn_github_authn_list(call_ctx, obj, hdrs, _v0, _v1);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "github_authn_github_authn_list",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }
@@ -651,8 +685,10 @@ static int github_authn_github_authn_list_all_minvoke(struct ctx *ctx, struct ob
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = github_authn_github_authn_list_all(call_ctx, obj, hdrs);
     if (PICOMESH_IS_ERR(call_result)) {
+        char chain[8192] = {0};
+        picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "github_authn_github_authn_list_all",
-                 call_result.error.msg ? call_result.error.msg : "<no message>");
+                 chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
         picomesh_error_destroy(call_result.error);
         return -1;
     }

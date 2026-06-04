@@ -39,7 +39,7 @@ struct picomesh_int64_result time_clock_now_ms(struct ctx * ctx, struct object *
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "time.clock.now_ms", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -85,7 +85,7 @@ struct picomesh_int64_result time_clock_now_ms(struct ctx * ctx, struct object *
                 { ytelemetry_span_end(&_tsp, 0, "time_clock_now_ms: pack overflow"); return PICOMESH_ERR(picomesh_int64, "time_clock_now_ms: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -93,7 +93,7 @@ struct picomesh_int64_result time_clock_now_ms(struct ctx * ctx, struct object *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -139,7 +139,7 @@ struct picomesh_int64_result time_clock_sleep_ms(struct ctx * ctx, struct object
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)ms);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "time.clock.sleep_ms", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -188,7 +188,7 @@ struct picomesh_int64_result time_clock_sleep_ms(struct ctx * ctx, struct object
         if (_off + sizeof(ms) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "time_clock_sleep_ms: pack overflow"); return PICOMESH_ERR(picomesh_int64, "time_clock_sleep_ms: pack overflow"); }
         memcpy(_a + _off, &ms, sizeof(ms)); _off += sizeof(ms);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -196,7 +196,7 @@ struct picomesh_int64_result time_clock_sleep_ms(struct ctx * ctx, struct object
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

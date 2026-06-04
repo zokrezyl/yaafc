@@ -42,7 +42,7 @@ struct picomesh_uint32_result git_repo_git_repo_make(struct ctx * ctx, struct ob
             cmp_write_str(&_maw, owner_name ? owner_name : "", (uint32_t)(owner_name ? strlen(owner_name) : 0));
             cmp_write_str(&_maw, repo_name ? repo_name : "", (uint32_t)(repo_name ? strlen(repo_name) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.make", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -105,7 +105,7 @@ struct picomesh_uint32_result git_repo_git_repo_make(struct ctx * ctx, struct ob
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, repo_name, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -113,7 +113,7 @@ struct picomesh_uint32_result git_repo_git_repo_make(struct ctx * ctx, struct ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -159,7 +159,7 @@ struct picomesh_int_result git_repo_git_repo_delete(struct ctx * ctx, struct obj
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)repo_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.delete", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -208,7 +208,7 @@ struct picomesh_int_result git_repo_git_repo_delete(struct ctx * ctx, struct obj
         if (_off + sizeof(repo_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_repo_git_repo_delete: pack overflow"); return PICOMESH_ERR(picomesh_int, "git_repo_git_repo_delete: pack overflow"); }
         memcpy(_a + _off, &repo_id, sizeof(repo_id)); _off += sizeof(repo_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -216,7 +216,7 @@ struct picomesh_int_result git_repo_git_repo_delete(struct ctx * ctx, struct obj
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -262,7 +262,7 @@ struct picomesh_uint32_result git_repo_git_repo_owner_of(struct ctx * ctx, struc
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)repo_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.owner_of", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -311,7 +311,7 @@ struct picomesh_uint32_result git_repo_git_repo_owner_of(struct ctx * ctx, struc
         if (_off + sizeof(repo_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_repo_git_repo_owner_of: pack overflow"); return PICOMESH_ERR(picomesh_uint32, "git_repo_git_repo_owner_of: pack overflow"); }
         memcpy(_a + _off, &repo_id, sizeof(repo_id)); _off += sizeof(repo_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -319,7 +319,7 @@ struct picomesh_uint32_result git_repo_git_repo_owner_of(struct ctx * ctx, struc
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -365,7 +365,7 @@ struct picomesh_size_result git_repo_git_repo_count_for_owner(struct ctx * ctx, 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)owner_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.count_for_owner", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -414,7 +414,7 @@ struct picomesh_size_result git_repo_git_repo_count_for_owner(struct ctx * ctx, 
         if (_off + sizeof(owner_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_repo_git_repo_count_for_owner: pack overflow"); return PICOMESH_ERR(picomesh_size, "git_repo_git_repo_count_for_owner: pack overflow"); }
         memcpy(_a + _off, &owner_id, sizeof(owner_id)); _off += sizeof(owner_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -422,7 +422,7 @@ struct picomesh_size_result git_repo_git_repo_count_for_owner(struct ctx * ctx, 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -467,7 +467,7 @@ struct picomesh_size_result git_repo_git_repo_count_total(struct ctx * ctx, stru
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.count_total", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -513,7 +513,7 @@ struct picomesh_size_result git_repo_git_repo_count_total(struct ctx * ctx, stru
                 { ytelemetry_span_end(&_tsp, 0, "git_repo_git_repo_count_total: pack overflow"); return PICOMESH_ERR(picomesh_size, "git_repo_git_repo_count_total: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -521,7 +521,7 @@ struct picomesh_size_result git_repo_git_repo_count_total(struct ctx * ctx, stru
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -567,7 +567,7 @@ struct picomesh_string_result git_repo_git_repo_list_for_owner(struct ctx * ctx,
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)owner_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.list_for_owner", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -634,7 +634,7 @@ struct picomesh_string_result git_repo_git_repo_list_for_owner(struct ctx * ctx,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -687,7 +687,7 @@ struct picomesh_string_result git_repo_git_repo_read_tree(struct ctx * ctx, stru
             cmp_write_str(&_maw, ref ? ref : "", (uint32_t)(ref ? strlen(ref) : 0));
             cmp_write_str(&_maw, path ? path : "", (uint32_t)(path ? strlen(path) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.read_tree", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -768,7 +768,7 @@ struct picomesh_string_result git_repo_git_repo_read_tree(struct ctx * ctx, stru
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -821,7 +821,7 @@ struct picomesh_string_result git_repo_git_repo_read_file(struct ctx * ctx, stru
             cmp_write_str(&_maw, ref ? ref : "", (uint32_t)(ref ? strlen(ref) : 0));
             cmp_write_str(&_maw, path ? path : "", (uint32_t)(path ? strlen(path) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.read_file", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -902,7 +902,7 @@ struct picomesh_string_result git_repo_git_repo_read_file(struct ctx * ctx, stru
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -958,7 +958,7 @@ struct picomesh_string_result git_repo_git_repo_put_file(struct ctx * ctx, struc
             cmp_write_str(&_maw, author_name ? author_name : "", (uint32_t)(author_name ? strlen(author_name) : 0));
             cmp_write_str(&_maw, author_email ? author_email : "", (uint32_t)(author_email ? strlen(author_email) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.put_file", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1060,7 +1060,7 @@ struct picomesh_string_result git_repo_git_repo_put_file(struct ctx * ctx, struc
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1111,7 +1111,7 @@ struct picomesh_int_result git_repo_git_repo_is_public(struct ctx * ctx, struct 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)repo_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.is_public", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1160,7 +1160,7 @@ struct picomesh_int_result git_repo_git_repo_is_public(struct ctx * ctx, struct 
         if (_off + sizeof(repo_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_repo_git_repo_is_public: pack overflow"); return PICOMESH_ERR(picomesh_int, "git_repo_git_repo_is_public: pack overflow"); }
         memcpy(_a + _off, &repo_id, sizeof(repo_id)); _off += sizeof(repo_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1168,7 +1168,7 @@ struct picomesh_int_result git_repo_git_repo_is_public(struct ctx * ctx, struct 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1215,7 +1215,7 @@ struct picomesh_int_result git_repo_git_repo_set_public(struct ctx * ctx, struct
             cmp_write_uinteger(&_maw, (uint64_t)repo_id);
             cmp_write_integer(&_maw, (int64_t)is_public);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.set_public", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1267,7 +1267,7 @@ struct picomesh_int_result git_repo_git_repo_set_public(struct ctx * ctx, struct
         if (_off + sizeof(is_public) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "git_repo_git_repo_set_public: pack overflow"); return PICOMESH_ERR(picomesh_int, "git_repo_git_repo_set_public: pack overflow"); }
         memcpy(_a + _off, &is_public, sizeof(is_public)); _off += sizeof(is_public);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -1275,7 +1275,7 @@ struct picomesh_int_result git_repo_git_repo_set_public(struct ctx * ctx, struct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1322,7 +1322,7 @@ struct picomesh_json_result git_repo_git_repo_list(struct ctx * ctx, struct obje
             cmp_write_integer(&_maw, (int64_t)offset);
             cmp_write_integer(&_maw, (int64_t)limit);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1392,7 +1392,7 @@ struct picomesh_json_result git_repo_git_repo_list(struct ctx * ctx, struct obje
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -1442,7 +1442,7 @@ struct picomesh_json_result git_repo_git_repo_list_all(struct ctx * ctx, struct 
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "git_repo.git_repo.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -1506,7 +1506,7 @@ struct picomesh_json_result git_repo_git_repo_list_all(struct ctx * ctx, struct 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

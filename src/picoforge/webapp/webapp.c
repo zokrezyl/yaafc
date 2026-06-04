@@ -754,7 +754,6 @@ static void render_sidebar(struct buf *b, const char *active)
         {"Projects",  "/repos",            "projects"},
         {"Issues",    "/dashboard/issues", "issues"},
         {"Pipelines", "/dashboard/runs",   "runs"},
-        {"Traces",    "/traces",           "traces"},
     };
     static const struct nav ADMIN[] = {
         {"Overview",     "/admin",          "admin-overview"},
@@ -1601,7 +1600,7 @@ static int service_active(const struct serve_ud *sud, const char *name)
 static int is_reserved_top(const char *seg)
 {
     static const char *const RESERVED[] = {
-        "login", "logout", "register", "repos", "admin", "static", "traces",
+        "login", "logout", "register", "repos", "admin", "static",
         "search", "dashboard", "favicon.ico", "robots.txt", NULL,
     };
     for (size_t i = 0; RESERVED[i]; ++i)
@@ -2167,219 +2166,6 @@ static void page_dashboard_issues(struct yloop *loop, struct yloop_stream *s,
 }
 
 
-static void fmt_duration(char *out, size_t cap, uint64_t ns)
-{
-    if (ns >= 1000000000ull)
-        snprintf(out, cap, "%.2fs", (double)ns / 1000000000.0);
-    else if (ns >= 1000000ull)
-        snprintf(out, cap, "%.2fms", (double)ns / 1000000.0);
-    else if (ns >= 1000ull)
-        snprintf(out, cap, "%.2fus", (double)ns / 1000.0);
-    else
-        snprintf(out, cap, "%lluns", (unsigned long long)ns);
-}
-
-static int trace_span_depth(const struct yjson_value *spans, const char *span_id, int guard)
-{
-    if (!span_id || !*span_id || guard > 32) return 0;
-    size_t n = yjson_array_size(spans);
-    for (size_t i = 0; i < n; ++i) {
-        const struct yjson_value *sp = yjson_array_at(spans, i);
-        const char *id = yjson_as_string(yjson_object_get(sp, "span_id"), "");
-        if (strcmp(id, span_id) != 0) continue;
-        const char *parent = yjson_as_string(yjson_object_get(sp, "parent_span_id"), "");
-        return parent && *parent ? 1 + trace_span_depth(spans, parent, guard + 1) : 0;
-    }
-    return 0;
-}
-
-static void render_trace_detail(struct buf *b, struct yloop *loop, const struct serve_ud *sud,
-                                const char *sid, const char *trace_id)
-{
-    if (!trace_id || !*trace_id) return;
-    char tid_json[96];
-    if (!json_escape(tid_json, sizeof(tid_json), trace_id)) return;
-    char args[128];
-    snprintf(args, sizeof(args), "[\"%s\"]", tid_json);
-    int err = 0;
-    char *trace_json = rpc_result_str(loop, sud, sid, "trace_collector.trace_collector.get_trace", args, &err);
-    if (err || !trace_json) {
-        panel_open(b, "Trace detail", NULL);
-        buf_puts(b, "<p class=\"error\">Cannot load this trace.</p>");
-        panel_close(b);
-        free(trace_json);
-        return;
-    }
-
-    struct yjson_doc *doc = yjson_parse(trace_json, strlen(trace_json));
-    free(trace_json);
-    if (!doc) return;
-    const struct yjson_value *root = yjson_doc_root(doc);
-    const struct yjson_value *spans = yjson_object_get(root, "spans");
-    size_t nspans = spans ? yjson_array_size(spans) : 0;
-    uint64_t duration = (uint64_t)yjson_as_int(yjson_object_get(root, "duration_ns"), 0);
-    char dur[32]; fmt_duration(dur, sizeof(dur), duration);
-
-    panel_open(b, "Trace detail", dur);
-    buf_puts(b, "<div class=\"trace-id\"><code>");
-    buf_esc(b, trace_id);
-    buf_puts(b, "</code></div>");
-    if (!nspans) {
-        buf_puts(b, "<p class=\"muted\">No spans found for this trace.</p>");
-        panel_close(b);
-        yjson_doc_free(doc);
-        return;
-    }
-
-    uint64_t min_start = 0;
-    for (size_t i = 0; i < nspans; ++i) {
-        const struct yjson_value *sp = yjson_array_at(spans, i);
-        uint64_t st = (uint64_t)yjson_as_int(yjson_object_get(sp, "start_time_ns"), 0);
-        if (i == 0 || st < min_start) min_start = st;
-    }
-
-    buf_puts(b, "<table class=\"trace-table\"><thead><tr><th>Span</th><th>Service</th><th>Duration</th><th>Timeline</th></tr></thead><tbody>");
-    for (size_t i = 0; i < nspans; ++i) {
-        const struct yjson_value *sp = yjson_array_at(spans, i);
-        const char *id = yjson_as_string(yjson_object_get(sp, "span_id"), "");
-        const char *name = yjson_as_string(yjson_object_get(sp, "name"), "");
-        const char *svc = yjson_as_string(yjson_object_get(sp, "service_name"), "");
-        const char *status = yjson_as_string(yjson_object_get(sp, "status"), "ok");
-        uint64_t st = (uint64_t)yjson_as_int(yjson_object_get(sp, "start_time_ns"), 0);
-        uint64_t d = (uint64_t)yjson_as_int(yjson_object_get(sp, "duration_ns"), 0);
-        double left = duration ? ((double)(st - min_start) * 100.0 / (double)duration) : 0.0;
-        double width = duration ? ((double)d * 100.0 / (double)duration) : 0.0;
-        if (width < 0.8) width = 0.8;
-        if (left > 99.0) left = 99.0;
-        if (left + width > 100.0) width = 100.0 - left;
-        int depth = trace_span_depth(spans, id, 0);
-        char sd[32]; fmt_duration(sd, sizeof(sd), d);
-        buf_puts(b, "<tr><td><div class=\"span-name\" style=\"padding-left:");
-        buf_printf(b, "%dem", depth);
-        buf_puts(b, "\">");
-        if (status && strcmp(status, "error") == 0) buf_puts(b, "<span class=\"badge failed\">error</span> ");
-        buf_esc(b, name);
-        buf_puts(b, "<div class=\"span-id\">"); buf_esc(b, id); buf_puts(b, "</div></div></td><td>");
-        buf_esc(b, svc);
-        buf_puts(b, "</td><td>"); buf_esc(b, sd); buf_puts(b, "</td><td><div class=\"trace-lane\"><span class=\"trace-bar");
-        if (status && strcmp(status, "error") == 0) buf_puts(b, " error");
-        buf_printf(b, "\" style=\"left:%.3f%%;width:%.3f%%\"></span></div></td></tr>", left, width);
-    }
-    buf_puts(b, "</tbody></table>");
-    panel_close(b);
-    yjson_doc_free(doc);
-}
-
-static void page_traces(struct yloop *loop, struct yloop_stream *s,
-                        const struct serve_ud *sud, const char *sid,
-                        const char *uname, const char *full_path, int is_admin,
-                        int keep_alive)
-{
-    char *service = query_get(full_path, "service");
-    char *status = query_get(full_path, "status");
-    char *since_s = query_get(full_path, "since");
-    char *trace = query_get(full_path, "trace");
-    long since = since_s && *since_s ? atol(since_s) : 3600;
-    if (since < 0) since = 0;
-    if (status && strcmp(status, "error") != 0 && strcmp(status, "ok") != 0) status[0] = 0;
-
-    struct buf b; buf_init(&b);
-    render_shell_open(&b, "picotrace", uname, "traces", is_admin);
-    render_page_header(&b, "picotrace", "Recent distributed traces from the Picomesh collector.", NULL);
-
-    int err = 0;
-    char *services_json = rpc_result_str(loop, sud, sid, "trace_collector.trace_collector.services", "[]", &err);
-    char svc_arg[160], status_arg[32];
-    if (!json_escape(svc_arg, sizeof(svc_arg), service ? service : "")) svc_arg[0] = 0;
-    if (!json_escape(status_arg, sizeof(status_arg), status ? status : "")) status_arg[0] = 0;
-    char trace_args[256];
-    snprintf(trace_args, sizeof(trace_args), "[\"%s\",\"%s\",%ld]", svc_arg, status_arg, since);
-    char *traces_json = rpc_result_str(loop, sud, sid, "trace_collector.trace_collector.traces", trace_args, &err);
-    char *stats_json = rpc_result_str(loop, sud, sid, "trace_collector.trace_collector.stats", "[]", NULL);
-
-    panel_open(&b, "Search", NULL);
-    buf_puts(&b, "<form class=\"trace-filters\" method=\"get\" action=\"/traces\">");
-    buf_puts(&b, "<label>Service <select name=\"service\"><option value=\"\">All services</option>");
-    struct yjson_doc *svc_doc = services_json ? yjson_parse(services_json, strlen(services_json)) : NULL;
-    const struct yjson_value *svc_arr = svc_doc ? yjson_object_get(yjson_doc_root(svc_doc), "services") : NULL;
-    size_t svc_n = svc_arr ? yjson_array_size(svc_arr) : 0;
-    for (size_t i = 0; i < svc_n; ++i) {
-        const struct yjson_value *e = yjson_array_at(svc_arr, i);
-        const char *name = yjson_as_string(yjson_object_get(e, "service_name"), "");
-        buf_puts(&b, "<option value=\""); buf_esc(&b, name); buf_puts(&b, "\"");
-        if (service && strcmp(service, name) == 0) buf_puts(&b, " selected");
-        buf_puts(&b, ">"); buf_esc(&b, name); buf_puts(&b, "</option>");
-    }
-    buf_puts(&b, "</select></label><label>Status <select name=\"status\">");
-    buf_printf(&b, "<option value=\"\"%s>Any</option>", (!status || !*status) ? " selected" : "");
-    buf_printf(&b, "<option value=\"ok\"%s>OK</option>", (status && strcmp(status, "ok") == 0) ? " selected" : "");
-    buf_printf(&b, "<option value=\"error\"%s>Error</option>", (status && strcmp(status, "error") == 0) ? " selected" : "");
-    buf_puts(&b, "</select></label><label>Lookback <select name=\"since\">");
-    const long windows[] = {300, 3600, 21600, 86400, 0};
-    const char *labels[] = {"5 minutes", "1 hour", "6 hours", "24 hours", "All"};
-    for (size_t i = 0; i < sizeof(windows) / sizeof(windows[0]); ++i)
-        buf_printf(&b, "<option value=\"%ld\"%s>%s</option>", windows[i], since == windows[i] ? " selected" : "", labels[i]);
-    buf_puts(&b, "</select></label><label>Trace ID <input name=\"trace\" value=\"");
-    buf_esc(&b, trace ? trace : "");
-    buf_puts(&b, "\"></label><button type=\"submit\" class=\"primary\">Search</button></form>");
-    panel_close(&b);
-
-    if (stats_json) {
-        struct yjson_doc *stats_doc = yjson_parse(stats_json, strlen(stats_json));
-        if (stats_doc) {
-            const struct yjson_value *root = yjson_doc_root(stats_doc);
-            buf_puts(&b, "<div class=\"stats-grid trace-stats\">");
-            stat_tile(&b, (long)yjson_as_int(yjson_object_get(root, "stored"), 0), "stored spans");
-            stat_tile(&b, (long)yjson_as_int(yjson_object_get(root, "ingested"), 0), "ingested");
-            stat_tile(&b, (long)yjson_as_int(yjson_object_get(root, "evicted"), 0), "evicted");
-            stat_tile(&b, (long)yjson_as_int(yjson_object_get(root, "malformed"), 0), "malformed");
-            buf_puts(&b, "</div>");
-            yjson_doc_free(stats_doc);
-        }
-        free(stats_json);
-    }
-
-    panel_open(&b, "Recent traces", NULL);
-    if (err || !traces_json) {
-        buf_puts(&b, "<p class=\"error\">Cannot query trace collector.</p>");
-    } else {
-        struct yjson_doc *tdoc = yjson_parse(traces_json, strlen(traces_json));
-        const struct yjson_value *arr = tdoc ? yjson_object_get(yjson_doc_root(tdoc), "traces") : NULL;
-        size_t n = arr ? yjson_array_size(arr) : 0;
-        if (!n) {
-            buf_puts(&b, "<p class=\"muted\">No traces match the current filters.</p>");
-        } else {
-            buf_puts(&b, "<table class=\"trace-list\"><thead><tr><th>Trace</th><th>Root</th><th>Service</th><th>Duration</th><th>Spans</th><th>Status</th></tr></thead><tbody>");
-            for (size_t i = 0; i < n; ++i) {
-                const struct yjson_value *tr = yjson_array_at(arr, i);
-                const char *tid = yjson_as_string(yjson_object_get(tr, "trace_id"), "");
-                const char *root = yjson_as_string(yjson_object_get(tr, "root_name"), "");
-                const char *svc = yjson_as_string(yjson_object_get(tr, "service_name"), "");
-                const char *st = yjson_as_string(yjson_object_get(tr, "status"), "ok");
-                uint64_t dur_ns = (uint64_t)yjson_as_int(yjson_object_get(tr, "duration_ns"), 0);
-                char dur[32]; fmt_duration(dur, sizeof(dur), dur_ns);
-                buf_puts(&b, "<tr><td><a class=\"trace-link\" href=\"/traces?trace=");
-                buf_esc(&b, tid); buf_puts(&b, "\">"); buf_esc(&b, tid); buf_puts(&b, "</a></td><td>");
-                buf_esc(&b, root); buf_puts(&b, "</td><td>"); buf_esc(&b, svc); buf_puts(&b, "</td><td>");
-                buf_esc(&b, dur); buf_puts(&b, "</td><td>");
-                buf_printf(&b, "%lld", (long long)yjson_as_int(yjson_object_get(tr, "span_count"), 0));
-                buf_puts(&b, "</td><td><span class=\"badge ");
-                buf_puts(&b, strcmp(st, "error") == 0 ? "failed" : "succeeded");
-                buf_puts(&b, "\">"); buf_esc(&b, st); buf_puts(&b, "</span></td></tr>");
-            }
-            buf_puts(&b, "</tbody></table>");
-        }
-        if (tdoc) yjson_doc_free(tdoc);
-    }
-    panel_close(&b);
-
-    if (trace && *trace) render_trace_detail(&b, loop, sud, sid, trace);
-
-    if (svc_doc) yjson_doc_free(svc_doc);
-    free(services_json); free(traces_json); free(service); free(status); free(since_s); free(trace);
-    render_shell_close(s, &b, keep_alive);
-}
-
 /* ---- action POSTs forwarded to the gateway /_rpc -------------------- *
  * Each fires one backend call then 303s back to the page. The gateway
  * resolves the sid → uid for auth context; methods that need the actor's
@@ -2693,11 +2479,6 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
             } else if (path_equals(path, path_len, "/dashboard/runs")) {
                 if (service_active(sud, "git_pipeline")) page_dashboard_runs(l, s, sud, sid, who, cl.is_admin, keep_alive);
                 else send_text(s, 404, "no such page (git_pipeline not active)\n", keep_alive);
-            } else if (path_equals(path, path_len, "/traces") ||
-                       starts_with(path, path_len, "/traces?")) {
-                if (!cl.uid) send_redirect(s, "/login", NULL, keep_alive);
-                else if (service_active(sud, "trace_collector")) page_traces(l, s, sud, sid, who, fp, cl.is_admin, keep_alive);
-                else send_text(s, 404, "no such page (trace_collector not active)\n", keep_alive);
             } else if (parse_repo_path(path, path_len, acct, sizeof(acct),
                                        repo, sizeof(repo), verb, sizeof(verb))) {
                 /* /<account>/<repo>[/<verb>] — looked up in the route table,

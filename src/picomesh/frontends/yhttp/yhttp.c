@@ -97,15 +97,43 @@ static void send_response(struct yloop_stream *s, int status,
     if (body_len) yloop_write(s, body, body_len);
 }
 
+
+static void write_error_detail(struct yjson_writer *w, const char *message)
+{
+    const char *msg = message ? message : "";
+    size_t first_len = strcspn(msg, "\n");
+    char first[512];
+    size_t copy = first_len < sizeof(first) - 1 ? first_len : sizeof(first) - 1;
+    memcpy(first, msg, copy);
+    first[copy] = 0;
+    yjson_writer_key(w, "message"); yjson_writer_string(w, first[0] ? first : msg);
+    yjson_writer_key(w, "detail");  yjson_writer_string(w, msg);
+    yjson_writer_key(w, "trace");   yjson_writer_begin_array(w);
+    const char *p = msg;
+    while (*p) {
+        const char *nl = strchr(p, '\n');
+        size_t n = nl ? (size_t)(nl - p) : strlen(p);
+        char line[1024];
+        size_t lc = n < sizeof(line) - 1 ? n : sizeof(line) - 1;
+        memcpy(line, p, lc);
+        line[lc] = 0;
+        yjson_writer_string(w, line);
+        if (!nl) break;
+        p = nl + 1;
+    }
+    yjson_writer_end_array(w);
+}
+
 static void send_json_error(struct yloop_stream *s, int status,
                             int code, const char *message, int keep_alive)
 {
+    if (status >= 500) yerror("yhttp request failed: %s", message ? message : "");
     struct yjson_writer *w = yjson_writer_new();
     yjson_writer_begin_object(w);
     yjson_writer_key(w, "error");
     yjson_writer_begin_object(w);
-    yjson_writer_key(w, "code");    yjson_writer_int(w, code);
-    yjson_writer_key(w, "message"); yjson_writer_string(w, message);
+    yjson_writer_key(w, "code"); yjson_writer_int(w, code);
+    write_error_detail(w, message);
     yjson_writer_end_object(w);
     yjson_writer_end_object(w);
     size_t len;
@@ -195,7 +223,7 @@ static void route_invoke(struct yloop_stream *s, const char *body, size_t blen,
     struct yjson_writer *w = yjson_writer_new();
     yjson_writer_begin_object(w);
     yjson_writer_key(w, "result");
-    char err[256] = {0};
+    char err[8192] = {0};
     /* Legacy /invoke is the bootstrap control plane (mesh parent):
      * the object is local to this process — NULL ctx, NULL headers. */
     int rc = fn(NULL, (struct object *)obj, NULL, args, w, err, sizeof(err));

@@ -256,43 +256,6 @@ button.primary:hover, .btn.primary:hover { background: #0860c8; border-color: #0
 .badge.closed, .badge.succeeded { background: #dafbe1; color: var(--success); border-color: #b5e6c6; }
 .badge.failed, .badge.timeout, .badge.cancelled { background: #ffebe9; color: var(--danger); border-color: #ffcecb; }
 
-
-/* ---- traces -------------------------------------------------------- */
-.trace-filters {
-  display: flex; gap: 0.8em; align-items: flex-end; flex-wrap: wrap;
-}
-.trace-filters label { margin: 0; min-width: 150px; }
-.trace-filters input { min-width: 260px; }
-.trace-stats { margin-top: 0; }
-.trace-list, .trace-table {
-  width: 100%; border-collapse: collapse; font-size: 0.9em; table-layout: fixed;
-}
-.trace-list th, .trace-table th,
-.trace-list td, .trace-table td {
-  padding: 0.48em 0.7em; border-bottom: 1px solid var(--border);
-  text-align: left; vertical-align: middle;
-}
-.trace-list thead th, .trace-table thead th {
-  background: var(--bg-subtle); color: var(--muted); font-size: 0.82em;
-  text-transform: uppercase; letter-spacing: 0.03em;
-}
-.trace-list tr:last-child td, .trace-table tr:last-child td { border-bottom: none; }
-.trace-link, .trace-id code, .span-id {
-  font-family: ui-monospace, SFMono-Regular, monospace; overflow-wrap: anywhere;
-}
-.trace-id { margin: 0 0 0.8em; }
-.span-name { min-width: 0; }
-.span-id { color: var(--muted); font-size: 0.78em; margin-top: 0.15em; }
-.trace-lane {
-  position: relative; height: 18px; background: var(--bg-subtle);
-  border: 1px solid var(--border); border-radius: 3px; overflow: hidden;
-}
-.trace-bar {
-  position: absolute; top: 3px; bottom: 3px; min-width: 2px;
-  background: var(--accent); border-radius: 2px;
-}
-.trace-bar.error { background: var(--danger); }
-
 /* ---- misc ---------------------------------------------------------- */
 .muted { color: var(--muted); }
 .small { font-size: 0.85em; }

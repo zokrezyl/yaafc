@@ -43,7 +43,7 @@ struct picomesh_int_result registry_registry_register_service(struct ctx * ctx, 
             cmp_write_str(&_maw, host ? host : "", (uint32_t)(host ? strlen(host) : 0));
             cmp_write_uinteger(&_maw, (uint64_t)port);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "registry.registry.register_service", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -113,7 +113,7 @@ struct picomesh_int_result registry_registry_register_service(struct ctx * ctx, 
         if (_off + sizeof(port) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "registry_registry_register_service: pack overflow"); return PICOMESH_ERR(picomesh_int, "registry_registry_register_service: pack overflow"); }
         memcpy(_a + _off, &port, sizeof(port)); _off += sizeof(port);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -121,7 +121,7 @@ struct picomesh_int_result registry_registry_register_service(struct ctx * ctx, 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -168,7 +168,7 @@ struct picomesh_int_result registry_registry_deregister_service(struct ctx * ctx
             cmp_write_str(&_maw, name ? name : "", (uint32_t)(name ? strlen(name) : 0));
             cmp_write_str(&_maw, instance_id ? instance_id : "", (uint32_t)(instance_id ? strlen(instance_id) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "registry.registry.deregister_service", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -228,7 +228,7 @@ struct picomesh_int_result registry_registry_deregister_service(struct ctx * ctx
             memcpy(_a + _off, &_slen, 4); _off += 4;
             if (_slen) { memcpy(_a + _off, instance_id, _slen); _off += _slen; }
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -236,7 +236,7 @@ struct picomesh_int_result registry_registry_deregister_service(struct ctx * ctx
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -282,7 +282,7 @@ struct picomesh_string_result registry_registry_resolve(struct ctx * ctx, struct
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, name ? name : "", (uint32_t)(name ? strlen(name) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "registry.registry.resolve", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -353,7 +353,7 @@ struct picomesh_string_result registry_registry_resolve(struct ctx * ctx, struct
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -404,7 +404,7 @@ struct picomesh_json_result registry_registry_discover_service(struct ctx * ctx,
             cmp_write_array(&_maw, 1u);
             cmp_write_str(&_maw, name ? name : "", (uint32_t)(name ? strlen(name) : 0));
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "registry.registry.discover_service", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -475,7 +475,7 @@ struct picomesh_json_result registry_registry_discover_service(struct ctx * ctx,
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -525,7 +525,7 @@ struct picomesh_json_result registry_registry_list_services(struct ctx * ctx, st
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "registry.registry.list_services", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -589,7 +589,7 @@ struct picomesh_json_result registry_registry_list_services(struct ctx * ctx, st
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -639,7 +639,7 @@ struct picomesh_size_result registry_registry_count(struct ctx * ctx, struct obj
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "registry.registry.count", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -685,7 +685,7 @@ struct picomesh_size_result registry_registry_count(struct ctx * ctx, struct obj
                 { ytelemetry_span_end(&_tsp, 0, "registry_registry_count: pack overflow"); return PICOMESH_ERR(picomesh_size, "registry_registry_count: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -693,7 +693,7 @@ struct picomesh_size_result registry_registry_count(struct ctx * ctx, struct obj
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

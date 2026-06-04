@@ -586,7 +586,7 @@ int peer_channel_msgpack_call(struct peer_channel *s, const char *path,
     }
     int ok = 0, have_result = 0;
     size_t result_off = 0, result_len = 0;
-    char emsg[256] = "remote error";
+    char emsg[8192] = "remote error";
     for (uint32_t i = 0; i < top; ++i) {
         char key[32];
         uint32_t klen = (uint32_t)sizeof(key);

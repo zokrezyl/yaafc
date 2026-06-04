@@ -53,16 +53,16 @@ static int autoport_connect(const char *host, int port)
     return fd;
 }
 
-/* True iff (host, port) can be bound right now. SO_REUSEADDR (NOT
- * SO_REUSEPORT) makes this a strict check: it fails if any process holds the
- * port, including a SO_REUSEPORT listener that did not invite us to share. */
+/* True iff (host, port) can be bound right now. A PLAIN bind — no
+ * SO_REUSEADDR/SO_REUSEPORT — so it cannot join a foreign SO_REUSEPORT
+ * listener's group and fails on any port already held (see the matching note
+ * in portalloc's portalloc_port_free). This is the consumer's own check before
+ * it commits to the port portalloc handed it. */
 static int autoport_probe_bind(const char *host, int port)
 {
     if (!host || !*host) host = "127.0.0.1";
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return 0;
-    int one = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);

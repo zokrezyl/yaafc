@@ -41,7 +41,7 @@ struct picomesh_int_result mesh_mesh_register_service(struct ctx * ctx, struct o
             cmp_write_uinteger(&_maw, (uint64_t)service_id);
             cmp_write_uinteger(&_maw, (uint64_t)port);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.register_service", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -93,7 +93,7 @@ struct picomesh_int_result mesh_mesh_register_service(struct ctx * ctx, struct o
         if (_off + sizeof(port) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_register_service: pack overflow"); return PICOMESH_ERR(picomesh_int, "mesh_mesh_register_service: pack overflow"); }
         memcpy(_a + _off, &port, sizeof(port)); _off += sizeof(port);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -101,7 +101,7 @@ struct picomesh_int_result mesh_mesh_register_service(struct ctx * ctx, struct o
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -147,7 +147,7 @@ struct picomesh_uint32_result mesh_mesh_resolve(struct ctx * ctx, struct object 
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)service_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.resolve", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -196,7 +196,7 @@ struct picomesh_uint32_result mesh_mesh_resolve(struct ctx * ctx, struct object 
         if (_off + sizeof(service_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_resolve: pack overflow"); return PICOMESH_ERR(picomesh_uint32, "mesh_mesh_resolve: pack overflow"); }
         memcpy(_a + _off, &service_id, sizeof(service_id)); _off += sizeof(service_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -204,7 +204,7 @@ struct picomesh_uint32_result mesh_mesh_resolve(struct ctx * ctx, struct object 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -250,7 +250,7 @@ struct picomesh_int_result mesh_mesh_forget(struct ctx * ctx, struct object * ob
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)service_id);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.forget", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -299,7 +299,7 @@ struct picomesh_int_result mesh_mesh_forget(struct ctx * ctx, struct object * ob
         if (_off + sizeof(service_id) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_forget: pack overflow"); return PICOMESH_ERR(picomesh_int, "mesh_mesh_forget: pack overflow"); }
         memcpy(_a + _off, &service_id, sizeof(service_id)); _off += sizeof(service_id);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -307,7 +307,7 @@ struct picomesh_int_result mesh_mesh_forget(struct ctx * ctx, struct object * ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -352,7 +352,7 @@ struct picomesh_size_result mesh_mesh_count_services(struct ctx * ctx, struct ob
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.count_services", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -398,7 +398,7 @@ struct picomesh_size_result mesh_mesh_count_services(struct ctx * ctx, struct ob
                 { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_count_services: pack overflow"); return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -406,7 +406,7 @@ struct picomesh_size_result mesh_mesh_count_services(struct ctx * ctx, struct ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -452,7 +452,7 @@ struct picomesh_int_result mesh_mesh_spawn_picomesh(struct ctx * ctx, struct obj
             cmp_write_array(&_maw, 1u);
             cmp_write_uinteger(&_maw, (uint64_t)port);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.spawn_picomesh", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -501,7 +501,7 @@ struct picomesh_int_result mesh_mesh_spawn_picomesh(struct ctx * ctx, struct obj
         if (_off + sizeof(port) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_spawn_picomesh: pack overflow"); return PICOMESH_ERR(picomesh_int, "mesh_mesh_spawn_picomesh: pack overflow"); }
         memcpy(_a + _off, &port, sizeof(port)); _off += sizeof(port);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -509,7 +509,7 @@ struct picomesh_int_result mesh_mesh_spawn_picomesh(struct ctx * ctx, struct obj
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -555,7 +555,7 @@ struct picomesh_int_result mesh_mesh_kill_pid(struct ctx * ctx, struct object * 
             cmp_write_array(&_maw, 1u);
             cmp_write_integer(&_maw, (int64_t)pid);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.kill_pid", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -604,7 +604,7 @@ struct picomesh_int_result mesh_mesh_kill_pid(struct ctx * ctx, struct object * 
         if (_off + sizeof(pid) > sizeof(_a))
             { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_kill_pid: pack overflow"); return PICOMESH_ERR(picomesh_int, "mesh_mesh_kill_pid: pack overflow"); }
         memcpy(_a + _off, &pid, sizeof(pid)); _off += sizeof(pid);
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -612,7 +612,7 @@ struct picomesh_int_result mesh_mesh_kill_pid(struct ctx * ctx, struct object * 
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -657,7 +657,7 @@ struct picomesh_size_result mesh_mesh_count_children(struct ctx * ctx, struct ob
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.count_children", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -703,7 +703,7 @@ struct picomesh_size_result mesh_mesh_count_children(struct ctx * ctx, struct ob
                 { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_count_children: pack overflow"); return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -711,7 +711,7 @@ struct picomesh_size_result mesh_mesh_count_children(struct ctx * ctx, struct ob
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -756,7 +756,7 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config(struct ctx * ctx, str
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.reconcile_from_config", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -802,7 +802,7 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config(struct ctx * ctx, str
                 { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_reconcile_from_config: pack overflow"); return PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile_from_config: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -810,7 +810,7 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config(struct ctx * ctx, str
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
@@ -855,7 +855,7 @@ struct picomesh_int_result mesh_mesh_reconcile(struct ctx * ctx, struct object *
             picomesh_msgpack_writer_init(&_maw, &_mab, _margs, 16384);
             cmp_write_array(&_maw, 0u);
             size_t _mrlen = 0;
-            char _merr[256] = {0};
+            char _merr[8192] = {0};
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.reconcile", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
@@ -901,7 +901,7 @@ struct picomesh_int_result mesh_mesh_reconcile(struct ctx * ctx, struct object *
                 { ytelemetry_span_end(&_tsp, 0, "mesh_mesh_reconcile: pack overflow"); return PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile: pack overflow"); }
             memcpy(_a + _off, &_h, 8); _off += 8;
         }
-        uint8_t _wbuf[261];
+        uint8_t _wbuf[8197];
         size_t _wn = rpc_call(_s->peer, RPC_OP_CALL, _rid, _a, _off,
                               _wbuf, sizeof(_wbuf));
         ytelemetry_span_end(&_tsp, _wn >= 1 && _wbuf[0] == 0, NULL);
@@ -909,7 +909,7 @@ struct picomesh_int_result mesh_mesh_reconcile(struct ctx * ctx, struct object *
         if (_wbuf[0] != 0) {
             uint32_t _msg_len = 0;
             if (_wn >= 5) memcpy(&_msg_len, _wbuf + 1, 4);
-            char _msg[260];
+            char _msg[8193];
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;

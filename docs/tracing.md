@@ -119,6 +119,18 @@ curl -s -XPOST :8090/_rpc -d '{"path":"trace_collector.trace_collector.stats","a
 String responses are bounded by the yrpc frame (64 KiB ≈ a few hundred spans);
 a paged API for pathologically large traces is a future refinement.
 
+## Picotrace
+
+`picotrace` is the internal trace browser in
+`src/picomesh/core-apps/picotrace`. It is not part of the public Picoforge
+webapp and does not add gateway HTTP trace routes. By default it binds
+`127.0.0.1:8232` and talks to the internal yhttp bridge at
+`http://127.0.0.1:8230`:
+
+```sh
+build-desktop-release/picotrace --upstream-url http://127.0.0.1:8230
+```
+
 ## Configuration (`assets/picoforge/config/picoforge.yaml`)
 
 - The `trace_collector` service: a yrpc backend with `plugins: [trace_collector]`,

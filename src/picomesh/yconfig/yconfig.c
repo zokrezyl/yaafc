@@ -598,6 +598,45 @@ static void subst_env(struct yconfig_node *n)
 /* Parse a `dotted.key=raw_value` into a one-entry nested map and merge
  * it into `root`. `raw_value` is treated as a scalar — env-subst will
  * run later. The split point is the first `=`. */
+/* Type a CLI-override value the way an unquoted YAML scalar would be typed, so
+ * `--config a.b=8091` yields an INT (matching `b: 8091` in the file) instead of
+ * the string "8091" that numeric consumers (port checks, etc.) reject. Mirrors
+ * node_from_scalar's promotion rules for plain scalars. */
+static struct yconfig_node *node_from_cli_value(const char *val)
+{
+    if (!val || !*val) return node_new(YCONFIG_NULL);
+    if (strcmp(val, "~") == 0 || strcmp(val, "null") == 0 ||
+        strcmp(val, "Null") == 0 || strcmp(val, "NULL") == 0)
+        return node_new(YCONFIG_NULL);
+    if (strcmp(val, "true") == 0 || strcmp(val, "True") == 0 ||
+        strcmp(val, "yes") == 0 || strcmp(val, "Yes") == 0 ||
+        strcmp(val, "on") == 0 || strcmp(val, "On") == 0) {
+        struct yconfig_node *n = node_new(YCONFIG_BOOL);
+        if (n) n->u.b = 1;
+        return n;
+    }
+    if (strcmp(val, "false") == 0 || strcmp(val, "False") == 0 ||
+        strcmp(val, "no") == 0 || strcmp(val, "No") == 0 ||
+        strcmp(val, "off") == 0 || strcmp(val, "Off") == 0) {
+        struct yconfig_node *n = node_new(YCONFIG_BOOL);
+        if (n) n->u.b = 0;
+        return n;
+    }
+    int64_t iv;
+    double fv;
+    if (parse_int64(val, &iv) == 0) {
+        struct yconfig_node *n = node_new(YCONFIG_INT);
+        if (n) n->u.i = iv;
+        return n;
+    }
+    if (parse_float(val, &fv) == 0) {
+        struct yconfig_node *n = node_new(YCONFIG_FLOAT);
+        if (n) n->u.f = fv;
+        return n;
+    }
+    return node_new_string(val);
+}
+
 static int apply_cli_override(struct yconfig_node *root, const char *kv)
 {
     const char *eq = strchr(kv, '=');
@@ -620,7 +659,7 @@ static int apply_cli_override(struct yconfig_node *root, const char *kv)
 
     /* Build {part1: {part2: ... : value}}. */
     const char *rest = path;
-    struct yconfig_node *leaf = node_new_string(eq + 1);
+    struct yconfig_node *leaf = node_from_cli_value(eq + 1);
     if (!leaf) return -1;
     struct yconfig_node *cur = leaf;
 
@@ -704,19 +743,14 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
         return PICOMESH_ERR(yconfig_ptr, "yconfig_create: root alloc failed");
     }
 
-    /* 1. CLI overrides as the lowest-priority layer (yaapp's
-     *    `defaults=config_overrides`). */
-    if (args && args->cli_overrides) {
-        for (size_t i = 0; i < args->cli_override_count; ++i) {
-            if (apply_cli_override(c->root, args->cli_overrides[i]) < 0) {
-                yconfig_destroy(c);
-                return PICOMESH_ERR(yconfig_ptr, "yconfig_create: cli override merge failed");
-            }
-        }
-    }
-
+    /* Precedence, low → high: filesystem search (XDG, git-root, cwd), then the
+     * explicit --config-file, then --config CLI overrides applied LAST (below).
+     * A `--config key=value` therefore truly OVERRIDES the file — what its name
+     * ("config override") promises, and what per-instance overrides need (e.g.
+     * a second mesh started with `--config mesh.nodes_dir=/tmp/picoforge2/nodes`).
+     * yaapp applied these as defaults instead, which cannot override a file. */
     if (!args || !args->no_filesystem_search) {
-        /* 2. XDG. */
+        /* 1. XDG. */
         char *xdg = xdg_path(app);
         if (xdg && file_exists(xdg)) {
             ydebug("yconfig: loading XDG %s", xdg);
@@ -725,7 +759,7 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
         }
         free(xdg);
 
-        /* 3. Git repo root. */
+        /* 2. Git repo root. */
         char *gr = git_root_path(app);
         if (gr && file_exists(gr)) {
             ydebug("yconfig: loading git-root %s", gr);
@@ -734,7 +768,7 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
         }
         free(gr);
 
-        /* 4. cwd. */
+        /* 3. cwd. */
         char cwd_path[64];
         snprintf(cwd_path, sizeof(cwd_path), "%s.yaml", app);
         if (file_exists(cwd_path)) {
@@ -744,11 +778,23 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
         }
     }
 
-    /* 5. Explicit --config-file (highest precedence). */
+    /* 4. Explicit --config-file (overrides the filesystem search). */
     if (args && args->config_file && file_exists(args->config_file)) {
         ydebug("yconfig: loading explicit %s", args->config_file);
         struct yconfig_node *file = parse_yaml_file(args->config_file);
         if (file) { merge_into(c->root, file); node_free(file); }
+    }
+
+    /* 5. --config CLI overrides — applied LAST, so they win over every file.
+     *    This is what makes one base config + per-instance `--config a.b=c`
+     *    overrides work. */
+    if (args && args->cli_overrides) {
+        for (size_t i = 0; i < args->cli_override_count; ++i) {
+            if (apply_cli_override(c->root, args->cli_overrides[i]) < 0) {
+                yconfig_destroy(c);
+                return PICOMESH_ERR(yconfig_ptr, "yconfig_create: cli override merge failed");
+            }
+        }
     }
 
     /* Env-var substitution happens last so every layer's strings get
