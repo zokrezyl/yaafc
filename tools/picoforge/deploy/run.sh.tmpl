@@ -47,26 +47,25 @@ if [ "$$" = "1" ]; then
     ip link set eth0 up                2>&1 || say "  eth0 up failed"
     ip addr add 10.0.2.15/24 dev eth0  2>&1 || say "  ip addr add failed"
     ip route add default via 10.0.2.2  2>&1 || say "  ip route add failed"
+
+    # ALL runtime state goes in RAM (tmpfs on /tmp). Two reasons:
+    #  1) The deployed rootfs is shrunk to ~minimum (resize2fs -M) to keep the
+    #     Pages download small, so it has essentially NO free space — writing
+    #     the sqlite dbs / repos / KV there fails with "No space left on
+    #     device". tmpfs decouples runtime writes from the read-only rootfs.
+    #  2) The rootfs is an emulated ext4 block device; every metadata op runs
+    #     the full ext4 + virtio-block path on the emulated CPU (brutally slow).
+    #     tmpfs hits the page cache directly — near-native speed, no journal.
+    # size= is a lazily-allocated ceiling drawn from guest RAM; the demo's
+    # working set is a few MB so it never approaches it. PID 1 ⇒ in-VM only;
+    # on a host invocation /tmp is already a fast real filesystem.
+    mount -t tmpfs -o size=512m tmpfs /tmp 2>&1 \
+        && say "tmpfs mounted at /tmp (runtime state in RAM, off the shrunk rootfs)" \
+        || say "  tmpfs mount on /tmp failed — runtime writes will hit the rootfs"
 fi
 
-# Where the parent picomesh writes per-service state.
+# Where the app writes per-service state — now on the in-RAM /tmp under the VM.
 mkdir -p /tmp/picoforge /tmp/picoforge/repos
-# Inside the VM the rootfs is an emulated ext4 block device: every tiny
-# metadata op (a bare git_repository_init builds a dir tree plus several
-# small files) runs the full ext4 + virtio-block code path on the
-# emulated CPU, which is brutally slow. Back the repo tree with tmpfs so
-# those ops hit the page cache directly: no journal, no block layer,
-# near-native file speed. The size= is only a ceiling (pages are
-# allocated lazily, drawn from guest RAM) — sized to fit the 1 GiB guest
-# with room for the kernel + picomesh; the demo's repos are a few hundred
-# KB so it never approaches the cap. PID 1 ⇒ we're the VM init, so this
-# is in-VM only; on the host /tmp is already fast. The KV store (mdbx,
-# under /tmp/picoforge/sharded) stays on the rootfs.
-if [ "$$" = "1" ]; then
-    mount -t tmpfs -o size=250m tmpfs /tmp/picoforge/repos 2>&1 \
-        && say "tmpfs mounted at /tmp/picoforge/repos (fast git init)" \
-        || say "  tmpfs mount on /tmp/picoforge/repos failed — git init will use the slow rootfs"
-fi
 
 PICOMESH="${HERE}/picomesh"
 CFG="${HERE}/picoforge.yaml"
@@ -185,10 +184,17 @@ smoke_run() {
     command -v nc >/dev/null 2>&1 || { say "[smoke] no nc in guest — skipping boot smoke"; return; }
     s=0
     while [ $s -lt 90 ]; do
-        smoke_http GET /login '' | head -1 | grep -q ' 200' && break
+        # Readiness: the gateway is API-only and 404s GET /login, so probe an
+        # endpoint it actually serves (GET /_describe → 200 once it's up).
+        smoke_http GET /_describe '' | head -1 | grep -q ' 200' && break
         sleep 1; s=$((s + 1))
     done
-    say "[smoke] gateway answered after ${s}s — creating demo account"
+    say "[smoke] gateway answered after ${s}s — seeding accounts"
+
+    # Site-owner: the FIRST account ever registered becomes the deployment
+    # admin. Inject root/rootpw FIRST so the demo lands with a working admin.
+    smoke_http POST /register 'username=root&password=rootpw' >/dev/null 2>&1
+    say "[smoke] injected site-owner root/rootpw"
 
     resp=$(smoke_http POST /register 'username=demo&password=demo')
     sid=$(printf '%s' "$resp" | smoke_sid)
