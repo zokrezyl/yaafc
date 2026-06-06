@@ -1,0 +1,85 @@
+name: Build 3rdparty — libcurl
+
+# Per-platform prebuilt STATIC libcurl (libcurl.a, OpenSSL TLS, HTTP/HTTPS
+# only), published as release assets attached to the `lib-libcurl-<version>`
+# tag and consumed at configure time by build-tools/picomesh/3rdparty-fetch.cmake
+# (download the prebuilt tarball, fall back to a from-source build only when
+# missing). Version source of truth: build-tools/3rdparty/libcurl/version.
+#
+# libcurl links the sibling OpenSSL recipe: _build.sh prefers the published
+# `lib-openssl-<ver>` prebuilt and builds it from source on a miss, so this
+# job is self-contained even before an openssl release is cut.
+
+on:
+  push:
+    tags:
+      - 'lib-libcurl-*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      tag:     ${{ steps.read.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          set -euo pipefail
+          V="$(tr -d '[:space:]' < build-tools/3rdparty/libcurl/version)"
+          [ -n "$V" ] || { echo "version file is empty" >&2; exit 1; }
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            REF="${GITHUB_REF#refs/tags/}"
+            EXPECT="lib-libcurl-$V"
+            if [ "$REF" != "$EXPECT" ]; then
+              echo "tag $REF does not match version file ($EXPECT)" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$V"           >> "$GITHUB_OUTPUT"
+          echo "tag=lib-libcurl-$V"   >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - linux-x86_64
+          - linux-aarch64
+          - linux-riscv64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install build deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          # perl is needed in case libcurl has to build openssl from the sibling
+          # recipe (no prebuilt openssl release for this version/platform yet).
+          pkgs="build-essential perl cmake ninja-build pkg-config curl tar xz-utils ca-certificates git"
+          case "${{ matrix.target }}" in
+            linux-aarch64) pkgs="$pkgs gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu" ;;
+            linux-riscv64) pkgs="$pkgs gcc-riscv64-linux-gnu g++-riscv64-linux-gnu binutils-riscv64-linux-gnu" ;;
+          esac
+          sudo apt-get install -y --no-install-recommends $pkgs
+
+      - name: build libcurl for ${{ matrix.target }}
+        run: |
+          mkdir -p out
+          TARGET_PLATFORM="${{ matrix.target }}" \
+          OUTPUT_DIR="$PWD/out" \
+          CACHE_DIR="$PWD/.cache" \
+          WORK_DIR="$PWD/.work" \
+            bash build-tools/3rdparty/libcurl/_build.sh
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          files: out/libcurl-${{ matrix.target }}-*.tar.gz
+          fail_on_unmatched_files: true

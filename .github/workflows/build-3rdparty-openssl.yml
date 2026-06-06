@@ -1,0 +1,79 @@
+name: Build 3rdparty — openssl
+
+# Per-platform prebuilt STATIC OpenSSL (libssl.a + libcrypto.a), published as
+# release assets attached to the `lib-openssl-<version>` tag and consumed at
+# configure time by build-tools/picomesh/3rdparty-fetch.cmake (download the
+# prebuilt tarball, fall back to a from-source build only when missing). Version
+# source of truth: build-tools/3rdparty/openssl/version.
+
+on:
+  push:
+    tags:
+      - 'lib-openssl-*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      tag:     ${{ steps.read.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          set -euo pipefail
+          V="$(tr -d '[:space:]' < build-tools/3rdparty/openssl/version)"
+          [ -n "$V" ] || { echo "version file is empty" >&2; exit 1; }
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            REF="${GITHUB_REF#refs/tags/}"
+            EXPECT="lib-openssl-$V"
+            if [ "$REF" != "$EXPECT" ]; then
+              echo "tag $REF does not match version file ($EXPECT)" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$V"           >> "$GITHUB_OUTPUT"
+          echo "tag=lib-openssl-$V"   >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - linux-x86_64
+          - linux-aarch64
+          - linux-riscv64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install build deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          pkgs="build-essential perl cmake ninja-build pkg-config curl tar xz-utils ca-certificates git"
+          case "${{ matrix.target }}" in
+            linux-aarch64) pkgs="$pkgs gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu" ;;
+            linux-riscv64) pkgs="$pkgs gcc-riscv64-linux-gnu g++-riscv64-linux-gnu binutils-riscv64-linux-gnu" ;;
+          esac
+          sudo apt-get install -y --no-install-recommends $pkgs
+
+      - name: build openssl for ${{ matrix.target }}
+        run: |
+          mkdir -p out
+          TARGET_PLATFORM="${{ matrix.target }}" \
+          OUTPUT_DIR="$PWD/out" \
+          CACHE_DIR="$PWD/.cache" \
+          WORK_DIR="$PWD/.work" \
+            bash build-tools/3rdparty/openssl/_build.sh
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          files: out/openssl-${{ matrix.target }}-*.tar.gz
+          fail_on_unmatched_files: true
