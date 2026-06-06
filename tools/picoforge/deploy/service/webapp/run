@@ -19,7 +19,7 @@ if [ ! -x "${WEBAPP}" ]; then
 fi
 
 say webapp "waiting for mesh gateway :${MESH_PORT}…"
-# The gateway is API-only and 404s GET /login, so probe /_describe (200 once
+# The gateway is API-only and 404s GET /-/login, so probe /_describe (200 once
 # the node is up). Start anyway after the timeout — the webapp tolerates a
 # briefly-absent gateway and runit will keep us alive.
 wait_http "http://127.0.0.1:${MESH_PORT}/_describe" 120 \

@@ -3366,6 +3366,14 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
                 case RP_EDIT:     route_repo_edit_get(l, s, sud, sid, who, acct, repo, verb, fp, cl.is_admin, keep_alive); break;
                 case RP_SETTINGS: page_repo_settings(l, s, sud, sid, who, acct, repo, cl.is_admin, keep_alive); break;
                 }
+            } else if (!cl.uid) {
+                /* Any other path (no "/-/") is a NAMESPACE landing — member-gated
+                 * data, not a public page. An anonymous caller must authenticate
+                 * first, exactly like every other data route. Without this gate a
+                 * bare path such as /login renders a 200 namespace page to a
+                 * signed-out visitor (and hammers git_repo.*_for_namespace, which
+                 * the backend rightly rejects as "insufficient namespace role"). */
+                send_redirect(s, "/-/login", NULL, keep_alive);
             } else {
                 /* Any other path (no "/-/") is a NAMESPACE path: /<group>[/<subgroup>…].
                  * Render the namespace landing — its repos (each linking to the

@@ -62,7 +62,10 @@ while :; do
         say probe "summary: ${up} up, ${down} missing"
     fi
 
-    if wget -q -O /dev/null -T 2 "http://127.0.0.1:${WEBAPP_HTTP_PORT}/login" 2>/dev/null; then
+    # Probe the real login page (/-/login — a command path, served without auth
+    # and with NO backend calls). A bare path like /login is a NAMESPACE lookup
+    # that would drive git_repo.*_for_namespace on every poll.
+    if wget -q -O /dev/null -T 2 "http://127.0.0.1:${WEBAPP_HTTP_PORT}/-/login" 2>/dev/null; then
         say probe "available: webapp page tier :${WEBAPP_HTTP_PORT}"
     else
         say probe "MISSING:   webapp page tier :${WEBAPP_HTTP_PORT}"
