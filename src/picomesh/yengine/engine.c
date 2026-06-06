@@ -847,7 +847,7 @@ static void telemetry_flush_loop(void *arg)
 {
     struct yloop *loop = arg;
     for (;;) {
-        yloop_sleep_ms(loop, 50);
+        yloop_sleep_ms(loop, 1000);
         ytelemetry_store_flush_local();                               /* collector arena (no yield) */
         if (ytelemetry_pending_local() > 0) ytelemetry_flush_local(); /* sender batch (yields) */
     }

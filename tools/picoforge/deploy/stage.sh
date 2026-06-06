@@ -28,6 +28,10 @@ REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 DEPLOY="$REPO_ROOT/build-deploy"
 
 PICOMESH_HOST="$REPO_ROOT/build-desktop-release/picomesh"
+# The browser-facing HTML page tier. Runs alongside the collocated gateway in
+# the VM (gateway :8080, webapp :8081) and serves every GET page + static asset,
+# sourcing data from the gateway over /_rpc.
+WEBAPP_HOST="$REPO_ROOT/build-desktop-release/picoforge-webapp"
 # The deploy (qemu / wasm) runs the COLLOCATED all-in-one config: one
 # process hosts the gateway + every service + storage, calling each other
 # in-process. Inside the RISC-V emulator that beats the 12-process mesh,
@@ -37,11 +41,13 @@ YAML_SRC="$REPO_ROOT/assets/picoforge/config/picoforge-webasm.yaml"
 STATIC_SRC="$REPO_ROOT/assets/picoforge/static"
 RUNSH_SRC="$REPO_ROOT/tools/picoforge/deploy/run.sh.tmpl"
 
-if [ ! -x "$PICOMESH_HOST" ]; then
-    echo "FAIL: host picomesh binary missing: $PICOMESH_HOST" >&2
-    echo "  run: make build-desktop-release" >&2
-    exit 1
-fi
+for b in "$PICOMESH_HOST" "$WEBAPP_HOST"; do
+    if [ ! -x "$b" ]; then
+        echo "FAIL: host binary missing: $b" >&2
+        echo "  run: make build-desktop-release" >&2
+        exit 1
+    fi
+done
 for f in "$YAML_SRC" "$STATIC_SRC" "$RUNSH_SRC"; do
     [ -e "$f" ] || { echo "FAIL: missing $f" >&2; exit 1; }
 done
@@ -50,6 +56,7 @@ rm -rf "$DEPLOY.new"
 mkdir -p "$DEPLOY.new/frontend"
 
 cp -a "$PICOMESH_HOST"  "$DEPLOY.new/picomesh"
+cp -a "$WEBAPP_HOST"    "$DEPLOY.new/picoforge-webapp"
 cp -a "$YAML_SRC"    "$DEPLOY.new/picoforge.yaml"
 cp -a "$STATIC_SRC"  "$DEPLOY.new/frontend/static"
 cp -a "$RUNSH_SRC"   "$DEPLOY.new/run.sh"

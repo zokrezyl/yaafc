@@ -39,11 +39,14 @@ THIRD_PARTY_CACHE="$BUILD/3rdparty-cache"
 USER_CACHE="${PICOMESH_3RDPARTY_CACHE_DIR:-$HOME/.cache/picomesh-3rdparty}"
 
 PICOMESH_BIN="$REPO_ROOT/build-linux-riscv64-release/picomesh"
-if [ ! -x "$PICOMESH_BIN" ]; then
-    echo "FAILED: $PICOMESH_BIN missing. Build it first with:" >&2
-    echo "    make -C $REPO_ROOT build-linux-riscv64-release" >&2
-    exit 1
-fi
+WEBAPP_BIN="$REPO_ROOT/build-linux-riscv64-release/picoforge-webapp"
+for b in "$PICOMESH_BIN" "$WEBAPP_BIN"; do
+    if [ ! -x "$b" ]; then
+        echo "FAILED: $b missing. Build it first with:" >&2
+        echo "    make -C $REPO_ROOT build-linux-riscv64-release" >&2
+        exit 1
+    fi
+done
 
 DEPLOY="$REPO_ROOT/build-deploy"
 if [ ! -d "$DEPLOY" ]; then
@@ -202,6 +205,8 @@ sudo chmod 755 "$MNT/opt/picoforge/run.sh"
 
 echo "==> swapping in riscv64 picomesh binary → /opt/picoforge/picomesh"
 sudo install -m 755 "$PICOMESH_BIN" "$MNT/opt/picoforge/picomesh"
+echo "==> swapping in riscv64 picoforge-webapp → /opt/picoforge/picoforge-webapp"
+sudo install -m 755 "$WEBAPP_BIN" "$MNT/opt/picoforge/picoforge-webapp"
 
 # Symlink so PATH-based `picomesh ...` invocations still work for users
 # inside the VM (e.g. after typing `picomesh serve` at a shell prompt).

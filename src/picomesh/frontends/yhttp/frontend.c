@@ -578,7 +578,7 @@ static void render_foot(struct buf *b)
 /* ---------- HTTP response helpers (mirror of yhttp.c::send_response) -- */
 extern size_t yloop_write(struct yloop_stream *s, const void *buf, size_t n);
 
-static void send_html(struct yloop_stream *s, int status,
+static struct picomesh_void_result send_html(struct yloop_stream *s, int status,
                       const char *body, size_t body_len, int keep_alive,
                       const char *extra_headers)
 {
@@ -600,12 +600,15 @@ static void send_html(struct yloop_stream *s, int status,
         status, reason, body_len,
         keep_alive ? "keep-alive" : "close",
         extra_headers ? extra_headers : "");
-    if (n <= 0) return;
-    yloop_write(s, hdr, (size_t)n);
-    if (body_len) yloop_write(s, body, body_len);
+    if (n <= 0) return PICOMESH_ERR(picomesh_void, "send_html: header format failed");
+    if (yloop_write(s, hdr, (size_t)n) != (size_t)n)
+        return PICOMESH_ERR(picomesh_void, "send_html: header write failed");
+    if (body_len && yloop_write(s, body, body_len) != body_len)
+        return PICOMESH_ERR(picomesh_void, "send_html: body write failed");
+    return PICOMESH_OK_VOID();
 }
 
-static void send_redirect(struct yloop_stream *s, const char *where,
+static struct picomesh_void_result send_redirect(struct yloop_stream *s, const char *where,
                           int keep_alive, const char *extra_set_cookie)
 {
     char hdr[1024];
@@ -618,7 +621,10 @@ static void send_redirect(struct yloop_stream *s, const char *where,
         "\r\n",
         where, keep_alive ? "keep-alive" : "close",
         extra_set_cookie ? extra_set_cookie : "");
-    if (n > 0) yloop_write(s, hdr, (size_t)n);
+    if (n <= 0) return PICOMESH_ERR(picomesh_void, "send_redirect: header format failed");
+    if (yloop_write(s, hdr, (size_t)n) != (size_t)n)
+        return PICOMESH_ERR(picomesh_void, "send_redirect: header write failed");
+    return PICOMESH_OK_VOID();
 }
 
 /* ---------- url-decode / form parsing ---------- */
@@ -785,7 +791,7 @@ static int username_ok(char *s)
 
 /* Shared form renderer for /login and /register. `is_register` flips
  * heading, button copy, alt-link target. */
-static void render_auth_form(struct yloop_stream *s, int is_register,
+static struct picomesh_void_result render_auth_form(struct yloop_stream *s, int is_register,
                              const char *error, int keep_alive)
 {
     struct buf b; buf_init(&b);
@@ -819,30 +825,33 @@ static void render_auth_form(struct yloop_stream *s, int is_register,
     }
     buf_puts(&b, "</p></div>");
     render_foot(&b);
-    send_html(s, 200, b.data, b.len, keep_alive, NULL);
+    struct picomesh_void_result r = send_html(s, 200, b.data, b.len, keep_alive, NULL);
     buf_free(&b);
+    return r;
 }
 
-static void render_login(struct yloop_stream *s, const char *error, int keep_alive)
+static struct picomesh_void_result render_login(struct yloop_stream *s, const char *error, int keep_alive)
 {
-    render_auth_form(s, /*is_register=*/0, error, keep_alive);
+    return render_auth_form(s, /*is_register=*/0, error, keep_alive);
 }
-static void render_register(struct yloop_stream *s, const char *error, int keep_alive)
+static struct picomesh_void_result render_register(struct yloop_stream *s, const char *error, int keep_alive)
 {
-    render_auth_form(s, /*is_register=*/1, error, keep_alive);
+    return render_auth_form(s, /*is_register=*/1, error, keep_alive);
 }
 
 /* Build the Set-Cookie header(s) after a successful auth. Returns
  * non-zero on success; caller has already validated `uname` via
  * username_ok() so it's safe to splice into the cookie value. */
-static int build_session_cookies(char *out, size_t cap,
+static struct picomesh_void_result build_session_cookies(char *out, size_t cap,
                                  const char *token, const char *uname)
 {
     int n = snprintf(out, cap,
         "Set-Cookie: picomesh-sid=%s; Path=/; HttpOnly; SameSite=Lax\r\n"
         "Set-Cookie: picomesh-uname=%s; Path=/; SameSite=Lax\r\n",
         token, uname);
-    return n > 0 && (size_t)n < cap;
+    if (n <= 0 || (size_t)n >= cap)
+        return PICOMESH_ERR(picomesh_void, "build_session_cookies: cookie header overflow");
+    return PICOMESH_OK_VOID();
 }
 
 /* Authenticate + mint a session. Used by both /login and /register
@@ -913,47 +922,45 @@ static int auth_and_start_session(uint32_t uid, const char *username, int64_t pw
  * the OAuth/registration handlers above their definitions. */
 static void register_release_claim(uint32_t uid, const char *uname);
 static struct yheaders *internal_caps(uint32_t uid);
-static void send_json_error(struct yloop_stream *s, int status, const char *message, int keep_alive);
-static int header_value(const char *raw, size_t raw_len, const char *name, char *out, size_t out_cap);
+static struct picomesh_void_result send_json_error(struct yloop_stream *s, int status, const char *message, int keep_alive);
+static struct picomesh_int_result header_value(const char *raw, size_t raw_len, const char *name, char *out, size_t out_cap);
 
-static int oauth_start_session(uint32_t uid, const char *username,
-                               char *tok_out, size_t tok_cap,
-                               const char **err)
+static struct picomesh_void_result oauth_start_session(uint32_t uid, const char *username,
+                               char *tok_out, size_t tok_cap)
 {
     struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) { *err = "no engine"; return 0; }
-    struct picomesh_string_result groups = {0};
+    if (!e) return PICOMESH_ERR(picomesh_void, "oauth_start_session: no active engine");
     SVC_OPEN(acc, "accounts", accounts_accounts_create);
-    if (!acc.ok) { *err = "accounts service unreachable"; return 0; }
-    groups = accounts_accounts_groups(&acc.c, acc.obj, NULL, uid);
+    if (!acc.ok) return PICOMESH_ERR(picomesh_void, "oauth_start_session: accounts service unreachable");
+    struct picomesh_string_result groups = accounts_accounts_groups(&acc.c, acc.obj, NULL, uid);
     SVC_CLOSE(acc);
-    if (PICOMESH_IS_ERR(groups)) { picomesh_error_destroy(groups.error); *err = "could not load account groups"; return 0; }
+    PICOMESH_RETURN_IF_ERR(picomesh_void, groups, "oauth_start_session: load account groups");
 
     struct yheaders *sys_caps = internal_caps(uid);
-    if (!sys_caps) { free(groups.value); *err = "internal capability unavailable"; return 0; }
+    if (!sys_caps) { free(groups.value); return PICOMESH_ERR(picomesh_void, "oauth_start_session: internal capability unavailable"); }
     SVC_OPEN(ti, "token_issuer", token_issuer_token_issuer_create);
-    if (!ti.ok) { yheaders_free(sys_caps); free(groups.value); *err = "token_issuer unreachable"; return 0; }
+    if (!ti.ok) { yheaders_free(sys_caps); free(groups.value); return PICOMESH_ERR(picomesh_void, "oauth_start_session: token_issuer unreachable"); }
     struct picomesh_string_result access =
         token_issuer_token_issuer_mint(&ti.c, ti.obj, sys_caps, uid, username ? username : "", groups.value ? groups.value : "", 0);
     SVC_CLOSE(ti);
     yheaders_free(sys_caps);
     free(groups.value);
-    if (PICOMESH_IS_ERR(access)) { picomesh_error_destroy(access.error); *err = "token mint failed"; return 0; }
+    if (PICOMESH_IS_ERR(access)) return PICOMESH_ERR(picomesh_void, "oauth_start_session: token mint failed", access);
 
     SVC_OPEN(ses, "session", session_session_create);
-    if (!ses.ok) { free(access.value); *err = "session unreachable"; return 0; }
+    if (!ses.ok) { free(access.value); return PICOMESH_ERR(picomesh_void, "oauth_start_session: session unreachable"); }
     struct picomesh_string_result tok_r =
         session_session_start(&ses.c, ses.obj, NULL, uid, access.value ? access.value : "", "");
     SVC_CLOSE(ses);
     free(access.value);
-    if (PICOMESH_IS_ERR(tok_r)) { picomesh_error_destroy(tok_r.error); *err = "session create failed"; return 0; }
+    if (PICOMESH_IS_ERR(tok_r)) return PICOMESH_ERR(picomesh_void, "oauth_start_session: session create failed", tok_r);
     snprintf(tok_out, tok_cap, "%s", tok_r.value ? tok_r.value : "");
     free(tok_r.value);
-    if (!tok_out[0]) { *err = "session create failed"; return 0; }
-    return 1;
+    if (!tok_out[0]) return PICOMESH_ERR(picomesh_void, "oauth_start_session: session create produced no token");
+    return PICOMESH_OK_VOID();
 }
 
-static int ensure_oauth_account(uint32_t uid, const char *uname, const char **err)
+static struct picomesh_void_result ensure_oauth_account(uint32_t uid, const char *uname)
 {
     /* Trusting bare uid existence here is safe ONLY because this runs after
      * github_authn.exchange_code, which binds the GitHub identity to `uid` 1:1
@@ -962,28 +969,28 @@ static int ensure_oauth_account(uint32_t uid, const char *uname, const char **er
      * existing account at this point is, by that upstream guarantee, this very
      * GitHub identity returning. */
     SVC_OPEN(acc_chk, "accounts", accounts_accounts_create);
-    if (!acc_chk.ok) { *err = "accounts service unreachable"; return 0; }
+    if (!acc_chk.ok) return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: accounts service unreachable");
     struct picomesh_int_result exists_r = accounts_accounts_exists(&acc_chk.c, acc_chk.obj, NULL, uid);
     SVC_CLOSE(acc_chk);
-    if (PICOMESH_IS_ERR(exists_r)) { picomesh_error_destroy(exists_r.error); *err = "account lookup failed"; return 0; }
-    if (exists_r.value) return 1;
+    if (PICOMESH_IS_ERR(exists_r)) return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: account lookup failed", exists_r);
+    if (exists_r.value) return PICOMESH_OK_VOID();
 
     SVC_OPEN(acc_claim, "accounts", accounts_accounts_create);
-    if (!acc_claim.ok) { *err = "accounts service unreachable"; return 0; }
+    if (!acc_claim.ok) return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: accounts service unreachable");
     struct picomesh_int_result claim_r = accounts_accounts_claim_username(&acc_claim.c, acc_claim.obj, NULL, uid, uname);
     SVC_CLOSE(acc_claim);
-    if (PICOMESH_IS_ERR(claim_r)) { picomesh_error_destroy(claim_r.error); *err = "username claim failed"; return 0; }
-    if (claim_r.value != 1) { *err = "GitHub login name is already taken"; return 0; }
+    if (PICOMESH_IS_ERR(claim_r)) return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: username claim failed", claim_r);
+    if (claim_r.value != 1) return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: GitHub login name is already taken");
 
     struct yheaders *sys_caps = internal_caps(uid);
-    if (!sys_caps) { register_release_claim(uid, uname); *err = "registration temporarily unavailable"; return 0; }
+    if (!sys_caps) { register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: registration temporarily unavailable"); }
     SVC_OPEN(acc_ns, "accounts", accounts_accounts_create);
-    if (!acc_ns.ok) { yheaders_free(sys_caps); register_release_claim(uid, uname); *err = "accounts service unreachable"; return 0; }
+    if (!acc_ns.ok) { yheaders_free(sys_caps); register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: accounts service unreachable"); }
     struct picomesh_string_result personal_ns =
         accounts_accounts_ns_create(&acc_ns.c, acc_ns.obj, sys_caps, uid, "user", uname, "");
     SVC_CLOSE(acc_ns);
     yheaders_free(sys_caps);
-    if (PICOMESH_IS_ERR(personal_ns)) { picomesh_error_destroy(personal_ns.error); register_release_claim(uid, uname); *err = "username unavailable"; return 0; }
+    if (PICOMESH_IS_ERR(personal_ns)) { register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: personal namespace create failed", personal_ns); }
     free(personal_ns.value);
 
     /* First-user `site` bootstrap, BEFORE the account-completion marker — same
@@ -993,12 +1000,12 @@ static int ensure_oauth_account(uint32_t uid, const char *uname, const char **er
      * THIS call created it, so a later register failure can roll it back. */
     int first_user = 0, created_site = 0;
     SVC_OPEN(acc_boot, "accounts", accounts_accounts_create);
-    if (!acc_boot.ok) { register_release_claim(uid, uname); *err = "accounts service unreachable"; return 0; }
+    if (!acc_boot.ok) { register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: accounts service unreachable"); }
     struct picomesh_size_result cr = accounts_accounts_count(&acc_boot.c, acc_boot.obj, NULL);
     if (PICOMESH_IS_OK(cr)) first_user = (cr.value == 0); else picomesh_error_destroy(cr.error);
     if (first_user) {
         struct yheaders *site_caps = internal_caps(uid);
-        if (!site_caps) { SVC_CLOSE(acc_boot); register_release_claim(uid, uname); *err = "registration temporarily unavailable"; return 0; }
+        if (!site_caps) { SVC_CLOSE(acc_boot); register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: registration temporarily unavailable"); }
         struct picomesh_string_result site =
             accounts_accounts_ns_create(&acc_boot.c, acc_boot.obj, site_caps, uid, "group", "site", "");
         yheaders_free(site_caps);
@@ -1017,8 +1024,7 @@ static int ensure_oauth_account(uint32_t uid, const char *uname, const char **er
             if (!site_present) {
                 SVC_CLOSE(acc_boot);
                 register_release_claim(uid, uname);
-                *err = "registration temporarily unavailable";
-                return 0;
+                return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: registration temporarily unavailable (site bootstrap)");
             }
         }
     }
@@ -1029,7 +1035,7 @@ static int ensure_oauth_account(uint32_t uid, const char *uname, const char **er
      * is HELD (not released) so no third party can take the name and the same
      * user retrying re-owns and completes — fail closed, never strand `site`. */
     SVC_OPEN(acc_reg, "accounts", accounts_accounts_create);
-    if (!acc_reg.ok) { register_release_claim(uid, uname); *err = "accounts service unreachable"; return 0; }
+    if (!acc_reg.ok) { register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: accounts service unreachable"); }
     struct picomesh_int_result reg = accounts_accounts_register(&acc_reg.c, acc_reg.obj, NULL, uid, uname);
     SVC_CLOSE(acc_reg);
     int ok = PICOMESH_IS_OK(reg) && reg.value == 1;
@@ -1050,18 +1056,16 @@ static int ensure_oauth_account(uint32_t uid, const char *uname, const char **er
             }
             if (!rollback_ok) {
                 ywarn("authz: site bootstrap rollback FAILED for uid=%u (oauth) — username claim held; operator repair may be needed", uid);
-                *err = "registration failed and could not be cleaned up — please retry";
-                return 0;
+                return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: registration failed and could not be cleaned up — please retry");
             }
         }
         register_release_claim(uid, uname);
-        *err = "account create failed";
-        return 0;
+        return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: account create failed");
     }
-    return 1;
+    return PICOMESH_OK_VOID();
 }
 
-static void route_github_callback_post(struct yloop_stream *s,
+static struct picomesh_void_result route_github_callback_post(struct yloop_stream *s,
                                        const char *headers_raw, size_t headers_raw_len,
                                        const char *body, size_t body_len, int keep_alive)
 {
@@ -1075,36 +1079,29 @@ static void route_github_callback_post(struct yloop_stream *s,
      * it is not the trusted webapp relay — refuse it. (Keep the literal in sync
      * with the webapp: src/picoforge/webapp/webapp.c route_github_callback.) */
     char content_type[96] = {0};
-    if (!header_value(headers_raw, headers_raw_len, "content-type", content_type, sizeof(content_type)) ||
-        strcmp(content_type, "application/x-picoforge-oauth-relay") != 0) {
-        send_json_error(s, 403, "github callback: not an authorized relay", keep_alive);
-        return;
-    }
+    if (!header_value(headers_raw, headers_raw_len, "content-type", content_type, sizeof(content_type)).value ||
+        strcmp(content_type, "application/x-picoforge-oauth-relay") != 0)
+        return send_json_error(s, 403, "github callback: not an authorized relay", keep_alive);
 
     char code[512] = {0}, redirect_uri[1024] = {0}, state[256] = {0};
     if (!form_get(body, body_len, "code", code, sizeof(code)) ||
         !form_get(body, body_len, "redirect_uri", redirect_uri, sizeof(redirect_uri)) ||
-        !code[0] || !redirect_uri[0]) {
-        send_json_error(s, 400, "github callback: missing code or redirect_uri", keep_alive);
-        return;
-    }
+        !code[0] || !redirect_uri[0])
+        return send_json_error(s, 400, "github callback: missing code or redirect_uri", keep_alive);
     /* The relay always forwards the state it validated; its absence marks a
      * caller that did not go through the webapp's state check. */
-    if (!form_get(body, body_len, "state", state, sizeof(state)) || !state[0]) {
-        send_json_error(s, 403, "github callback: missing OAuth state", keep_alive);
-        return;
-    }
+    if (!form_get(body, body_len, "state", state, sizeof(state)) || !state[0])
+        return send_json_error(s, 403, "github callback: missing OAuth state", keep_alive);
 
     SVC_OPEN(gh, "github_authn", github_authn_github_authn_create);
-    if (!gh.ok) { send_json_error(s, 502, "github_authn unreachable", keep_alive); return; }
+    if (!gh.ok) return send_json_error(s, 502, "github_authn unreachable", keep_alive);
     struct picomesh_json_result ex =
         github_authn_github_authn_exchange_code(&gh.c, gh.obj, NULL, code, redirect_uri);
     SVC_CLOSE(gh);
     if (PICOMESH_IS_ERR(ex)) {
         char msg[512]; snprintf(msg, sizeof(msg), "github callback: %s", ex.error.msg ? ex.error.msg : "exchange failed");
         picomesh_error_destroy(ex.error);
-        send_json_error(s, 401, msg, keep_alive);
-        return;
+        return send_json_error(s, 401, msg, keep_alive);
     }
 
     uint32_t uid = 0;
@@ -1118,24 +1115,30 @@ static void route_github_callback_post(struct yloop_stream *s,
         yjson_doc_free(doc);
     }
     free(ex.value);
-    if (!uid || !username_ok(uname)) { send_json_error(s, 401, "github callback: invalid GitHub user", keep_alive); return; }
+    if (!uid || !username_ok(uname)) return send_json_error(s, 401, "github callback: invalid GitHub user", keep_alive);
 
-    const char *err = NULL;
-    if (!ensure_oauth_account(uid, uname, &err)) {
-        send_json_error(s, 403, err ? err : "github account link failed", keep_alive);
-        return;
+    /* The account-link / session-mint helpers return a chained error; surface
+     * its message to the client as an HTTP error, then propagate the send. */
+    struct picomesh_void_result acct = ensure_oauth_account(uid, uname);
+    if (PICOMESH_IS_ERR(acct)) {
+        char msg[256]; snprintf(msg, sizeof(msg), "%s", acct.error.msg ? acct.error.msg : "github account link failed");
+        picomesh_error_destroy(acct.error);
+        return send_json_error(s, 403, msg, keep_alive);
     }
     char tok[64];
-    if (!oauth_start_session(uid, uname, tok, sizeof(tok), &err)) {
-        send_json_error(s, 500, err ? err : "github session failed", keep_alive);
-        return;
+    struct picomesh_void_result sess = oauth_start_session(uid, uname, tok, sizeof(tok));
+    if (PICOMESH_IS_ERR(sess)) {
+        char msg[256]; snprintf(msg, sizeof(msg), "%s", sess.error.msg ? sess.error.msg : "github session failed");
+        picomesh_error_destroy(sess.error);
+        return send_json_error(s, 500, msg, keep_alive);
     }
     char cookie_hdr[256];
-    if (!build_session_cookies(cookie_hdr, sizeof(cookie_hdr), tok, uname)) {
-        send_json_error(s, 500, "cookie build failed", keep_alive);
-        return;
+    struct picomesh_void_result ck = build_session_cookies(cookie_hdr, sizeof(cookie_hdr), tok, uname);
+    if (PICOMESH_IS_ERR(ck)) {
+        picomesh_error_destroy(ck.error);
+        return send_json_error(s, 500, "cookie build failed", keep_alive);
     }
-    send_redirect(s, "/repos", keep_alive, cookie_hdr);
+    return send_redirect(s, "/repos", keep_alive, cookie_hdr);
 }
 
 /* POST /login — yaapp shape: authenticate an EXISTING account; do NOT
@@ -1161,13 +1164,7 @@ static void route_login_post(struct yloop_stream *s, const char *body,
     struct picomesh_int_result ex = accounts_accounts_exists(&acc.c, acc.obj, NULL, uid);
     SVC_CLOSE(acc);
     int exists = PICOMESH_IS_OK(ex) && ex.value;
-    if (PICOMESH_IS_ERR(ex)) {
-        yerror("LOGIN-DBG: exists(uid=%u) ERROR: %s", uid,
-               ex.error.msg ? ex.error.msg : "(no msg)");
-        picomesh_error_destroy(ex.error);
-    } else if (!ex.value) {
-        yerror("LOGIN-DBG: exists(uid=%u) returned 0 (clean, no row found)", uid);
-    }
+    if (PICOMESH_IS_ERR(ex)) picomesh_error_destroy(ex.error);
     if (!exists) {
         render_login(s, "no such user — register first", keep_alive);
         return;
@@ -1181,7 +1178,9 @@ static void route_login_post(struct yloop_stream *s, const char *body,
     }
 
     char cookie_hdr[256];
-    if (!build_session_cookies(cookie_hdr, sizeof(cookie_hdr), tok, uname)) {
+    struct picomesh_void_result ck = build_session_cookies(cookie_hdr, sizeof(cookie_hdr), tok, uname);
+    if (PICOMESH_IS_ERR(ck)) {
+        picomesh_error_destroy(ck.error);
         render_login(s, "cookie build failed", keep_alive);
         return;
     }
@@ -1454,7 +1453,9 @@ static void route_register_post(struct yloop_stream *s, const char *body,
     }
 
     char cookie_hdr[256];
-    if (!build_session_cookies(cookie_hdr, sizeof(cookie_hdr), tok, uname)) {
+    struct picomesh_void_result ck = build_session_cookies(cookie_hdr, sizeof(cookie_hdr), tok, uname);
+    if (PICOMESH_IS_ERR(ck)) {
+        picomesh_error_destroy(ck.error);
         render_register(s, "cookie build failed", keep_alive);
         return;
     }
@@ -1711,7 +1712,7 @@ static int path_eq(const char *p, const char *target)
 
 /* ---------- yaapp-compatible gateway API (/_rpc, /_describe) ---------- */
 
-static void send_json_ex(struct yloop_stream *s, int status,
+static struct picomesh_void_result send_json_ex(struct yloop_stream *s, int status,
                          const char *body, size_t body_len, int keep_alive,
                          const char *extra_headers)
 {
@@ -1736,15 +1737,18 @@ static void send_json_ex(struct yloop_stream *s, int status,
         status, reason, body_len,
         keep_alive ? "keep-alive" : "close",
         extra_headers ? extra_headers : "");
-    if (n <= 0) return;
-    yloop_write(s, hdr, (size_t)n);
-    if (body_len) yloop_write(s, body, body_len);
+    if (n <= 0) return PICOMESH_ERR(picomesh_void, "send_json_ex: header format failed");
+    if (yloop_write(s, hdr, (size_t)n) != (size_t)n)
+        return PICOMESH_ERR(picomesh_void, "send_json_ex: header write failed");
+    if (body_len && yloop_write(s, body, body_len) != body_len)
+        return PICOMESH_ERR(picomesh_void, "send_json_ex: body write failed");
+    return PICOMESH_OK_VOID();
 }
 
-static void send_json(struct yloop_stream *s, int status,
+static struct picomesh_void_result send_json(struct yloop_stream *s, int status,
                       const char *body, size_t body_len, int keep_alive)
 {
-    send_json_ex(s, status, body, body_len, keep_alive, NULL);
+    return send_json_ex(s, status, body, body_len, keep_alive, NULL);
 }
 
 
@@ -1774,11 +1778,12 @@ static void write_error_detail(struct yjson_writer *w, const char *message)
     yjson_writer_end_array(w);
 }
 
-static void send_json_error(struct yloop_stream *s, int status,
+static struct picomesh_void_result send_json_error(struct yloop_stream *s, int status,
                             const char *message, int keep_alive)
 {
     if (status >= 500) yerror("yhttp gateway request failed: %s", message ? message : "");
     struct yjson_writer *w = yjson_writer_new();
+    if (!w) return PICOMESH_ERR(picomesh_void, "send_json_error: writer alloc failed");
     yjson_writer_begin_object(w);
     yjson_writer_key(w, "error");
     yjson_writer_begin_object(w);
@@ -1787,14 +1792,15 @@ static void send_json_error(struct yloop_stream *s, int status,
     yjson_writer_end_object(w);
     size_t len;
     const char *data = yjson_writer_data(w, &len);
-    send_json(s, status, data, len, keep_alive);
+    struct picomesh_void_result r = send_json(s, status, data, len, keep_alive);
     yjson_writer_free(w);
+    return r;
 }
 
 /* Pull one HTTP header value (case-insensitive name) out of the raw
  * header block into `out`. Mirrors yhttp.c::header_get. Returns 1 on
  * hit. The block holds the request line + headers up to CRLFCRLF. */
-static int header_value(const char *raw, size_t raw_len, const char *name,
+static struct picomesh_int_result header_value(const char *raw, size_t raw_len, const char *name,
                         char *out, size_t out_cap)
 {
     size_t nlen = strlen(name);
@@ -1813,11 +1819,11 @@ static int header_value(const char *raw, size_t raw_len, const char *name,
             if (vl >= out_cap) vl = out_cap - 1;
             memcpy(out, v, vl);
             out[vl] = 0;
-            return 1;
+            return PICOMESH_OK(picomesh_int, 1);  /* found */
         }
         p = eol + 1;
     }
-    return 0;
+    return PICOMESH_OK(picomesh_int, 0);          /* not found (not an error) */
 }
 
 /* The opaque session token a programmatic client presents: the
@@ -1830,10 +1836,10 @@ static int extract_session_token(const char *headers_raw, size_t headers_raw_len
 {
     if (cookie_get(headers_raw, headers_raw_len, "picomesh-sid", out, cap) && out[0])
         return 1;
-    if (header_value(headers_raw, headers_raw_len, "picomesh-sid", out, cap) && out[0])
+    if (header_value(headers_raw, headers_raw_len, "picomesh-sid", out, cap).value && out[0])
         return 1;
     char auth[128];
-    if (header_value(headers_raw, headers_raw_len, "authorization", auth, sizeof(auth))) {
+    if (header_value(headers_raw, headers_raw_len, "authorization", auth, sizeof(auth)).value) {
         /* Only the Bearer scheme carries an opaque session token. A non-Bearer
          * Authorization (Basic, Digest, …) is NOT a session token: reject it
          * rather than treating the raw header value as one. */
@@ -2606,7 +2612,11 @@ int yhttp_frontend_try(struct yloop_stream *s,
      * static fallthrough have been removed (the frontend app renders every
      * page, sourcing data from this gateway over /_rpc + /_describe). ---- */
     if (is_post && path_eq(path, "/login"))    { route_login_post(s, body, body_len, keep_alive); return 1; }
-    if (is_post && path_eq(path, "/auth/github/callback")) { route_github_callback_post(s, headers_raw, headers_raw_len, body, body_len, keep_alive); return 1; }
+    if (is_post && path_eq(path, "/auth/github/callback")) {
+        struct picomesh_void_result rr = route_github_callback_post(s, headers_raw, headers_raw_len, body, body_len, keep_alive);
+        if (PICOMESH_IS_ERR(rr)) { yerror("yhttp: %s", rr.error.msg ? rr.error.msg : "route failed"); picomesh_error_destroy(rr.error); }
+        return 1;
+    }
     if (is_post && path_eq(path, "/register")) { route_register_post(s, body, body_len, keep_alive); return 1; }
     if (is_post && path_eq(path, "/logout"))   { route_logout(s, headers_raw, headers_raw_len, keep_alive); return 1; }
 

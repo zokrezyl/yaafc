@@ -82,6 +82,12 @@ if [ ! -f "${CFG}" ]; then
     exit 1
 fi
 
+# The gateway mints HS256 JWTs (system capability tokens, session access tokens)
+# signed with this secret; without it, register/login fail with "registration
+# temporarily unavailable" / no access token. The split mesh inherits it from
+# the operator's env; the all-in-one demo has no such env, so default it here
+# (a public demo — overridable by exporting PICOMESH_JWT_SECRET before boot).
+export PICOMESH_JWT_SECRET="${PICOMESH_JWT_SECRET:-picoforge-demo-jwt-secret}"
 say "launching collocated all-in-one app (gateway + every service + storage, in-process)"
 # ONE process — no mesh bootstrap, no per-service children, no inter-service
 # TCP. `--name app` projects `mesh.services.app.config` as this process's
@@ -115,6 +121,27 @@ while [ $i -lt 60 ]; do
     i=$((i + 1))
 done
 say "gateway up after ${i}s"
+
+# HTML page tier. The collocated app on :8080 is the gateway — API (/_rpc,
+# /_describe) + auth POSTs only; it serves NO GET pages. picoforge-webapp is the
+# browser-facing tier: it serves every GET page + static asset on :8081 (the
+# `HTML frontend` port run-vm.sh forwards to the browser as :18081), sourcing
+# all data from the gateway over /_rpc. Same output-sink rule as the gateway.
+WEBAPP="${HERE}/picoforge-webapp"
+if [ -x "${WEBAPP}" ]; then
+    if [ "$$" = "1" ]; then
+        "${WEBAPP}" --gateway-url http://127.0.0.1:8080 --host 0.0.0.0 --port 8081 \
+            --static "${HERE}/frontend/static" --public-url http://127.0.0.1:8081 \
+            </dev/null >/dev/console 2>&1 &
+    else
+        "${WEBAPP}" --gateway-url http://127.0.0.1:8080 --host 0.0.0.0 --port 8081 \
+            --static "${HERE}/frontend/static" --public-url http://127.0.0.1:8081 \
+            </dev/null &
+    fi
+    say "picoforge-webapp pid=$! on :8081 (HTML page tier → gateway :8080)"
+else
+    say "WARN: ${WEBAPP} missing — no HTML page tier on :8081"
+fi
 
 say "post-launch sockets:"
 netstat -ltn 2>&1 || ss -ltn 2>&1 || say "  no netstat/ss"

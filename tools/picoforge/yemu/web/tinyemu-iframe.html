@@ -143,8 +143,8 @@
         <header>
           <h2>in-VM service</h2>
           <form id="svc-form" autocomplete="off">
-            <label>port <input id="svc-port" type="number" value="8080" min="1" max="65535" style="width:6em"></label>
-            <label>path <input id="svc-path" value="/login"></label>
+            <label>port <input id="svc-port" type="number" value="8081" min="1" max="65535" style="width:6em"></label>
+            <label>path <input id="svc-path" value="/-/login"></label>
             <button type="submit">GET</button>
             <span id="svc-status"></span>
           </form>
@@ -316,8 +316,9 @@
                 tog.textContent = '+';
             }
             /* Auto-submit the default GET so the user lands on the
-             * picomesh login page without having to click "GET". The
-             * form already defaults to port=8080 path=/login. */
+             * picoforge login page without having to click "GET". The
+             * form defaults to port=8081 path=/-/login (the webapp HTML
+             * tier; the gateway on :8080 serves no GET pages). */
             var form = document.getElementById('svc-form');
             if (form) {
                 form.dispatchEvent(new Event('submit', { cancelable: true }));
@@ -331,13 +332,13 @@
             body.appendChild(d);
             body.scrollTop = body.scrollHeight;
 
-            /* Watch for the run.sh "ready" marker emitted once the gateway
-             * is listening on :8080. Matches BOTH topologies:
-             *   - collocated all-in-one: "app up — ... gateway ... :8080"
-             *   - legacy split mesh:     "mesh up — ... gateway on :8080"
-             * Before this point the service form would hit a closed port
-             * and just show "no response", so we don't expose it. */
-            if (!svcRevealed && /(app|mesh) up\b.*:8080/i.test(text)) {
+            /* Reveal the service form only once the HTML page tier is up:
+             * the form targets the webapp on :8081, which run.sh starts AFTER
+             * the gateway (:8080) and a few seconds later under emulation.
+             * Revealing on the gateway marker would point the form at a
+             * not-yet-listening :8081 and show "no response". Match the
+             * webapp marker run.sh emits ("picoforge-webapp pid=… on :8081"). */
+            if (!svcRevealed && /picoforge-webapp\b.*:8081/i.test(text)) {
                 revealService();
             }
         };
