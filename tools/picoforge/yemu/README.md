@@ -68,9 +68,11 @@ with the riscv64 picomesh binary swapped in.
 ```
 
 PID 1 inside the image is `/opt/picoforge/init`: it mounts /proc /sys
-/dev, brings up slirp net + a tmpfs `/tmp`, then hands the stack to
-**runit** (`runsvdir /etc/service`). runit supervises three services
-(each `/etc/service/<svc>` is a symlink into `/opt/picoforge/service/`):
+/dev, brings up slirp net + a tmpfs `/tmp`, builds the runit service
+tree on that tmpfs (`/tmp/service/<svc>/run` → the scripts under
+`/opt/picoforge/service/`, so runsv's `supervise/` dirs land on a
+writable fs even when the rootfs is read-only), then hands the stack to
+**runit** (`runsvdir /tmp/service`). runit supervises three services:
 
 | runit service | What it runs | Guest port | Host fwd |
 |---------------|--------------|------------|----------|
@@ -79,7 +81,7 @@ PID 1 inside the image is `/opt/picoforge/init`: it mounts /proc /sys
 | `probe`  | availability checker — a 1-second loop that polls the gateway `/_describe` + the webapp and prints each service's up/missing status to the console | — | — |
 
 If any of `mesh`/`webapp` exits, runit restarts it. Drive runit from a
-guest shell with `sv status mesh`, `sv restart webapp`, etc.
+guest shell with `sv status /tmp/service/mesh`, `sv restart /tmp/service/webapp`, etc.
 
 Open `http://127.0.0.1:18080/login` in a browser to hit the C
 gateway (API only), or `http://127.0.0.1:18081/login` for the webapp

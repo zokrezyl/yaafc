@@ -7,11 +7,10 @@
 # a local object). This is the node that backs the whole mesh; runit keeps it
 # supervised and restarts it if it ever exits.
 #
-# runsv chdir's into the service dir and execs ./run, so $0 is "./run". In the
-# VM /etc/service/mesh is a symlink into /opt/picoforge/service/mesh, so resolve
-# $0 to its physical path (readlink -f) before walking two levels up to PF_ROOT
-# — a logical `../..` would escape through the symlink to /etc.
-PF_ROOT=$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)
+# PF_ROOT is normally exported by /opt/picoforge/init (and by the host run.sh).
+# Fall back to resolving it from $0's physical path (readlink -f follows the
+# tmpfs run-symlink back into /opt/picoforge/service/mesh) for a manual launch.
+PF_ROOT="${PF_ROOT:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
 export PF_ROOT
 . "${PF_ROOT}/service/common.sh"
 cd "${PF_ROOT}"

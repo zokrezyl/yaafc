@@ -238,16 +238,14 @@ sudo chmod 755 "$MNT/opt/picoforge/run.sh" "$MNT/opt/picoforge/init" \
     "$MNT/opt/picoforge/service/webapp/run" \
     "$MNT/opt/picoforge/service/probe/run"
 
-# Wire the runit service directory: /etc/service/<svc> → the payload's
-# service/<svc>. runsvdir (spawned by /opt/picoforge/init) supervises each:
+# NOTE: runit's service directory is NOT wired here on the rootfs. /init builds
+# the runsvdir tree on the tmpfs at boot (/tmp/service/<svc>/run -> the payload
+# scripts), because runsv must create a writable supervise/ dir inside each
+# service dir and the rootfs is not reliably writable (read-only under
+# tinyemu/wasm, shrunk for the web demo). The supervised services are:
 #   mesh    — the picomesh node (gateway + every backend, collocated)
 #   webapp  — the picoforge web app (HTML page tier)
 #   probe   — availability checker (1s loop, prints to the console)
-echo "==> wiring /etc/service → /opt/picoforge/service (runit)"
-sudo install -d -m 755 "$MNT/etc/service"
-for svc in mesh webapp probe; do
-    sudo ln -sfn "/opt/picoforge/service/$svc" "$MNT/etc/service/$svc"
-done
 
 echo "==> swapping in riscv64 picomesh binary → /opt/picoforge/picomesh"
 sudo install -m 755 "$PICOMESH_BIN" "$MNT/opt/picoforge/picomesh"

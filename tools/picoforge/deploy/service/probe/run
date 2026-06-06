@@ -6,9 +6,9 @@
 # the gateway's /_describe surface (which enumerates every active service) and
 # the webapp page tier, and prints a one-line-per-service report to stdout
 # (runsvdir → /init → /dev/console under the VM). runit keeps it supervised.
-# Resolve $0 physically: /etc/service/probe is a symlink into the payload, so
-# a logical `../..` would escape through the symlink to /etc.
-PF_ROOT=$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)
+# PF_ROOT is normally exported by /opt/picoforge/init (and by the host run.sh);
+# fall back to resolving it from $0's physical path for a manual launch.
+PF_ROOT="${PF_ROOT:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
 export PF_ROOT
 . "${PF_ROOT}/service/common.sh"
 cd "${PF_ROOT}"

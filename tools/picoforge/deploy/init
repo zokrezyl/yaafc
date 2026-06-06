@@ -52,8 +52,25 @@ mkdir -p /tmp/picoforge /tmp/picoforge/repos
 # PICOMESH_JWT_SECRET into the environment before boot.
 export PICOMESH_JWT_SECRET="${PICOMESH_JWT_SECRET:-picoforge-demo-jwt-secret}"
 
-echo "[init] handing off to runit (runsvdir /etc/service)"
-# runsvdir becomes the long-lived PID 1: it supervises everything under
-# /etc/service and never exits, so the kernel never sees init die. Absolute
-# path so it resolves regardless of how the kernel seeded PATH.
-exec /usr/bin/runsvdir /etc/service
+# The payload root is fixed in the image. Export it so every supervised service
+# resolves its binaries/config without depending on where its run-script lives.
+export PF_ROOT=/opt/picoforge
+
+# runit writes a per-service `supervise/` control dir INTO each service dir, so
+# those dirs MUST live on a writable filesystem. The deployed rootfs is not
+# reliably writable — read-only under tinyemu/wasm, space-tight when shrunk for
+# the web demo — which is why runsv otherwise dies with
+# "unable to open supervise/lock: file does not exist". So build the runsvdir
+# tree on the tmpfs: one dir per service whose `run` symlinks back to the real
+# script under /opt/picoforge/service. supervise/ then gets created on tmpfs.
+SVDIR=/tmp/service
+for svc in mesh webapp probe; do
+    mkdir -p "$SVDIR/$svc"
+    ln -sf "$PF_ROOT/service/$svc/run" "$SVDIR/$svc/run"
+done
+
+echo "[init] handing off to runit (runsvdir $SVDIR)"
+# runsvdir becomes the long-lived PID 1: it supervises every service under
+# $SVDIR and never exits, so the kernel never sees init die. Absolute path so
+# it resolves regardless of how the kernel seeded PATH.
+exec /usr/bin/runsvdir "$SVDIR"
