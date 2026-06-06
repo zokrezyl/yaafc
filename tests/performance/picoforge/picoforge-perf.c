@@ -21,7 +21,9 @@
  *   repo_create  POST /repos/new                         (write; sharded_storage + git_repo)
  *   register     POST /register (new user each time)     (write; accounts + authn)
  *   full         register → login → repo_create → /repos (end-to-end journey)
- *   mixed        each connection = a user doing a random op stream
+ *   mixed        each connection = a user doing a random op stream, including
+ *                GitLab-style group/namespace ops (ns_subtree/ns_members reads,
+ *                ns_create subgroup + ns_add_member writes) on its own namespace
  *
  * Usage:
  *   picoforge-perf [--host H] [--port P]
@@ -70,6 +72,10 @@ enum mixed_op {
     OP_ENQUEUE_RUN,
     OP_MAKE_REPO,
     OP_LOGIN,
+    OP_NS_SUBTREE,      /* read  — accounts.ns_subtree(<own ns>)            */
+    OP_NS_MEMBERS,      /* read  — accounts.ns_members(<own ns>)            */
+    OP_NS_CREATE,       /* write — accounts.ns_create(group under own ns)   */
+    OP_NS_ADD_MEMBER,   /* write — accounts.ns_add_member(<own ns>, uid)    */
     OP__COUNT,
 };
 
@@ -134,15 +140,21 @@ static uint32_t rng_next(uint64_t *state)
 static const char *const OP_NAMES[OP__COUNT] = {
     "read_count", "read_list", "put_file",
     "open_issue", "enqueue_run", "make_repo", "login",
+    "ns_subtree", "ns_members", "ns_create", "ns_add_member",
 };
 
 /* No raw-storage op: clients never touch a storage node directly — every
  * write goes through a business service (e.g. put_file = a real libgit2
  * commit into the bare repo on disk; make_repo/open_issue likewise go via
- * git_repo/issues, not the KV store). Weights sum to 100. */
+ * git_repo/issues, not the KV store). The ns_* ops exercise the GitLab-style
+ * group/namespace authority (accounts service, issue #30): each connection
+ * acts on its OWN personal namespace, which it owns, so the reads (subtree,
+ * members) and writes (subgroup create, add member) all pass the namespace
+ * RBAC gates. Weights sum to 100. */
 static const int OP_WEIGHTS[OP__COUNT] = {
-    /*read_count*/ 30, /*read_list*/ 20, /*put_file*/ 25,
-    /*open_issue*/ 10, /*enqueue_run*/ 7, /*make_repo*/ 5, /*login*/ 3,
+    /*read_count*/ 22, /*read_list*/ 15, /*put_file*/ 20,
+    /*open_issue*/ 8, /*enqueue_run*/ 5, /*make_repo*/ 5, /*login*/ 2,
+    /*ns_subtree*/ 9, /*ns_members*/ 6, /*ns_create*/ 4, /*ns_add_member*/ 4,
 };
 
 static enum mixed_op pick_op(uint64_t *rng)
@@ -193,6 +205,7 @@ struct vconn {
     uint64_t rng;
     uint32_t uid;
     int n_repos;
+    int n_groups;   /* subgroups this connection has created under its own ns */
 
     /* results */
     struct latencies lat;
@@ -436,6 +449,11 @@ static int scenario_step(struct vconn *vc, long counter)
         if (op == OP_MAKE_REPO && vc->n_repos >= vc->cfg->repos_per_conn) {
             op = OP_READ_LIST; did = OP_READ_LIST;
         }
+        /* Cap subgroup creation the same way repos are capped; once full,
+         * read the subtree instead so the op still exercises the namespace. */
+        if (op == OP_NS_CREATE && vc->n_groups >= vc->cfg->repos_per_conn) {
+            op = OP_NS_SUBTREE; did = OP_NS_SUBTREE;
+        }
         switch (op) {
         case OP_READ_COUNT: {
             static const char b[] = "{\"path\":\"git_repo.git_repo.count_total\",\"args\":[]}";
@@ -496,6 +514,53 @@ static int scenario_step(struct vconn *vc, long counter)
              * over a long run that bloats the session lookup and drags throughput. */
             if ((st == 303 || st == 200) && new_sid[0])
                 memcpy(vc->sid, new_sid, sizeof(vc->sid));
+            break;
+        }
+        case OP_NS_SUBTREE: {
+            /* The connection owns its personal namespace (path == its username),
+             * so it has reporter+ on the whole subtree — the gate ns_subtree
+             * requires. This is the call the webapp Projects page makes. */
+            int bn = snprintf(body, sizeof(body),
+                "{\"path\":\"accounts.accounts.ns_subtree\",\"args\":[\"%s\"]}", vc->uname);
+            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            break;
+        }
+        case OP_NS_MEMBERS: {
+            /* Owner of the namespace ⇒ maintainer, which ns_members requires. */
+            int bn = snprintf(body, sizeof(body),
+                "{\"path\":\"accounts.accounts.ns_members\",\"args\":[\"%s\"]}", vc->uname);
+            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            break;
+        }
+        case OP_NS_CREATE: {
+            /* A subgroup under the connection's own namespace; it is maintainer
+             * of the parent, which is what subgroup creation requires (creating
+             * a ROOT group is site-admin only, so we never do that here). */
+            int bn = snprintf(body, sizeof(body),
+                "{\"path\":\"accounts.accounts.ns_create\",\"args\":[%u,\"group\",\"g%d\",\"%s\"]}",
+                vc->uid, vc->n_groups, vc->uname);
+            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            if (st == 200) vc->n_groups++;
+            break;
+        }
+        case OP_NS_ADD_MEMBER: {
+            /* Grant a role on the connection's own namespace. The target must be
+             * a REAL account (accounts.ns_add_member rejects non-existent uids):
+             * with a seed population, pick a seeded uid (u1..uN); otherwise pick a
+             * sibling connection's uid, which it registered for itself. */
+            uint32_t member;
+            if (vc->cfg->seed_users > 0)
+                member = 1u + (uint32_t)(rng_next(&vc->rng) % (uint32_t)vc->cfg->seed_users);
+            else {
+                char other[40];
+                int oid = (int)(rng_next(&vc->rng) % (uint32_t)vc->cfg->total);
+                make_user(other, sizeof(other), vc->cfg->run_nonce, oid, -1);
+                member = hash_username(other);
+            }
+            int bn = snprintf(body, sizeof(body),
+                "{\"path\":\"accounts.accounts.ns_add_member\",\"args\":[\"%s\",%u,\"developer\"]}",
+                vc->uname, member);
+            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
             break;
         }
         case OP__COUNT: break;
