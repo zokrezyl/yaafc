@@ -538,7 +538,12 @@ struct picomesh_string_result accounts_accounts_ns_create_impl(struct ctx *ctx, 
     char path[256];
     int written = parent_path[0] ? snprintf(path, sizeof(path), "%s/%s", parent_path, slug)
                                  : snprintf(path, sizeof(path), "%s", slug);
-    if (written <= 0 || (size_t)written >= sizeof(path))
+    /* Cross-service invariant: a namespace path is stored VERBATIM in
+     * git_repo's repo_rec.owner_name (a 64-byte field) and is the basis of the
+     * deterministic repo id. Reject any path that would not fit there, so a
+     * namespace can never be created that no repo could reference (git_repo's
+     * path_ok rejects the same length — keep the two limits identical). */
+    if (written <= 0 || (size_t)written >= 64)
         return PICOMESH_ERR(picomesh_string, "accounts_ns_create: namespace path too long");
     int64_t nsid = ns_id_of(path);
     int64_t parent_id = parent_path[0] ? ns_id_of(parent_path) : 0;
@@ -763,6 +768,123 @@ struct picomesh_int_result accounts_accounts_ns_remove_member_impl(struct ctx *c
     if (changes < 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_remove_member: delete failed");
     yinfo("accounts_ns_remove_member: %s uid=%u removed=%d", path, uid, changes > 0 ? 1 : 0);
     return PICOMESH_OK(picomesh_int, changes > 0 ? 1 : 0);
+}
+
+/* 1 if `caller` may READ the namespace `path` (reporter+ inherited, site admin,
+ * or trusted internal). Fail closed for an unauthenticated caller. */
+static int ns_caller_can_read(const struct picomesh_authctx *caller, const char *path)
+{
+    if (!caller->authenticated) return 0; /* fail closed */
+    if (picomesh_groups_contains(caller->groups_csv, PICOMESH_GROUP_SYSTEM)) return 1;
+    if (picomesh_groups_max_role(caller->groups_csv, "site") >= picomesh_role_rank("maintainer")) return 1;
+    return picomesh_groups_effective_role(caller->groups_csv, path) >= picomesh_role_rank("reporter");
+}
+
+/* The namespace `path` and ALL of its descendants, as `[{"path":…}, …]` ordered
+ * by path (issue #30). A reporter+ on `path` inherits that role to every
+ * descendant, so the whole subtree is returned in one call — this is what lets
+ * the webapp's Projects page list repos in subgroups the caller can reach by
+ * INHERITED role (e.g. a developer on `acme` seeing `acme/platform/svc`) without
+ * a direct membership on the subgroup. FAIL CLOSED: a caller without reporter+
+ * on `path` gets nothing. Namespaces shard by hash(path), so the prefix query
+ * fans out across every shard. */
+PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_ns_subtree")
+struct picomesh_json_result accounts_accounts_ns_subtree_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
+                                                              const char *path)
+{
+    (void)ctx;
+    if (!path || !*path) return PICOMESH_ERR(picomesh_json, "accounts_ns_subtree: path required");
+    struct rel_handle h;
+    struct picomesh_void_result oh = accounts_open_uid(&h, hdrs, obj);
+    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_json, "accounts_ns_subtree: open failed", oh);
+    struct picomesh_void_result ens = accounts_ensure_ns_schema(&h, hdrs, obj);
+    if (PICOMESH_IS_ERR(ens)) return PICOMESH_ERR(picomesh_json, "accounts_ns_subtree: namespace schema failed", ens);
+    struct picomesh_authctx caller = ns_caller(hdrs);
+    if (!ns_caller_can_read(&caller, path))
+        return PICOMESH_ERR(picomesh_json, "accounts_ns_subtree: forbidden (need reporter on namespace)");
+    /* `path` itself OR any descendant `path/...`. The LIKE pattern escapes
+     * nothing because the slug grammar forbids `%` and `_`-as-wildcard concerns
+     * (SQLite LIKE treats `_` as a wildcard, but a false extra match would only
+     * widen the set to namespaces the caller already inherits into, never leak
+     * across a sibling — and the strict grammar keeps paths well-formed). */
+    char like[128];
+    snprintf(like, sizeof(like), "%s/%%", path);
+    struct yjson_writer *qw = yjson_writer_new();
+    yjson_writer_begin_array(qw);
+    yjson_writer_string(qw, path);
+    yjson_writer_string(qw, like);
+    char *args = rel_args_take(qw);
+    struct picomesh_json_result r = rel_query_page(&h, hdrs,
+        "SELECT path FROM namespaces WHERE path=? OR path LIKE ?", args, "path", 0, 0, 0);
+    free(args);
+    return r;
+}
+
+/* Delete the namespace `path` (its row + all memberships) (issue #30). Gated to
+ * the namespace OWNER, a site admin, or the trusted internal capability. Refuses
+ * if the namespace has CHILD namespaces (deleting a parent would orphan the
+ * subtree). Returns 1 if a row was removed, 0 if there was none. Used for the
+ * first-user `site` bootstrap rollback (remove the just-created site when the
+ * account it was created for fails to complete), so a failed first registration
+ * can never strand `site` under a phantom owner. */
+PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_ns_delete")
+struct picomesh_int_result accounts_accounts_ns_delete_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
+                                                            const char *path)
+{
+    (void)ctx;
+    if (!path || !*path) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: path required");
+    struct rel_handle h;
+    struct picomesh_void_result oh = accounts_open_uid(&h, hdrs, obj);
+    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: open failed", oh);
+    struct picomesh_void_result ens = accounts_ensure_ns_schema(&h, hdrs, obj);
+    if (PICOMESH_IS_ERR(ens)) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: namespace schema failed", ens);
+
+    /* Authorize against the recorded owner (NOT inherited maintainer — deletion
+     * is an owner/site-admin/system operation). */
+    h.shard = picomesh_fnv1a32(path);
+    char *qa = rel_args1s(path);
+    int found = 0;
+    int64_t owner_uid =
+        rel_query_int(&h, hdrs, "SELECT owner_uid FROM namespaces WHERE path=?", qa, "owner_uid", -1, &found);
+    free(qa);
+    if (!found) return PICOMESH_OK(picomesh_int, 0); /* nothing to delete */
+    struct picomesh_authctx caller = ns_caller(hdrs);
+    int is_system = caller.authenticated && picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM);
+    int is_site_admin = caller.authenticated &&
+        picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer");
+    int is_owner = caller.authenticated && (uint32_t)owner_uid == caller.uid;
+    if (!is_system && !is_site_admin && !is_owner)
+        return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: forbidden (owner or site admin only)");
+
+    /* Refuse to orphan a subtree: a namespace with children cannot be deleted. */
+    char clike[128];
+    snprintf(clike, sizeof(clike), "%s/%%", path);
+    char *ca = rel_args1s(clike);
+    int64_t children = rel_query_int(&h, hdrs,
+        "SELECT COUNT(*) AS n FROM namespaces WHERE path LIKE ?", ca, "n", 0, &found);
+    free(ca);
+    if (children > 0)
+        return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: namespace has child namespaces");
+
+    /* Remove the memberships. They shard by uid, so the row for each member
+     * lives on a different shard — run the delete on EVERY shard (a single
+     * rel_exec_changes only touches h.shard). */
+    struct picomesh_int_result sc = rel_handle_shard_count(&h, hdrs);
+    if (PICOMESH_IS_ERR(sc)) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: shard count failed", sc);
+    for (int shard = 0; shard < sc.value; ++shard) {
+        h.shard = (uint32_t)shard;
+        char *ma = rel_args1s(path);
+        int mc = rel_exec_changes(&h, hdrs, "DELETE FROM namespace_members WHERE namespace_path=?", ma);
+        free(ma);
+        if (mc < 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: membership delete failed");
+    }
+    h.shard = picomesh_fnv1a32(path);
+    char *na = rel_args1s(path);
+    int nc = rel_exec_changes(&h, hdrs, "DELETE FROM namespaces WHERE path=?", na);
+    free(na);
+    if (nc < 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: namespace delete failed");
+    yinfo("accounts_ns_delete: %s removed=%d", path, nc > 0 ? 1 : 0);
+    return PICOMESH_OK(picomesh_int, nc > 0 ? 1 : 0);
 }
 
 /* List registered users as `[{"uid":…,"username":…}, …]` — a plain SELECT. */

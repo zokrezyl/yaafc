@@ -491,6 +491,13 @@ static int path_ok(const char *s)
     if (!s || !*s) return 0;
     char buf[256];
     if (strlen(s) >= sizeof(buf)) return 0;
+    /* The full path is stored verbatim in repo_rec.owner_name (a single
+     * REPO_NAME_MAX field) and is the basis of the deterministic repo id. A
+     * path that does not fit would be silently truncated on store, so the id
+     * (hashed from the full path) would no longer match the stored/derived
+     * path, corrupting namespace_of and every later auth check. Reject rather
+     * than truncate — fail closed. */
+    if (strlen(s) >= REPO_NAME_MAX) return 0;
     snprintf(buf, sizeof(buf), "%s", s);
     int segments = 0;
     for (char *tok = strtok(buf, "/"); tok; tok = strtok(NULL, "/")) {
@@ -1031,6 +1038,22 @@ struct picomesh_uint32_result git_repo_git_repo_make_impl(struct ctx *ctx, struc
      * reached through the boundary. */
     if (!repo_caller_has_role(hdrs, owner_name, "developer"))
         return PICOMESH_ERR(picomesh_uint32, "git_repo_make: forbidden (insufficient namespace role)");
+
+    /* The creator uid is taken from the VERIFIED auth context, never the
+     * caller-supplied `owner_id` argument (issue #30). Otherwise a developer on
+     * `acme` could pass another user's uid and poison that user's owner index
+     * (their /repos would enumerate a repo they may not read). The only caller
+     * permitted to set `owner_id` to an arbitrary uid is the trusted internal
+     * capability (the gateway's /repos/new bootstrap, which mints a system
+     * token carrying the real creator's uid). */
+    {
+        struct picomesh_authctx creator;
+        picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &creator);
+        if (!creator.authenticated)
+            return PICOMESH_ERR(picomesh_uint32, "git_repo_make: authentication required");
+        if (!picomesh_groups_contains(creator.groups_csv, PICOMESH_GROUP_SYSTEM))
+            owner_id = creator.uid;
+    }
 
     /* Id is derived from the names (FNV-1a, see repo_hash) so the gateway and
      * every service agree on it without a lookup. */

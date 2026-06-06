@@ -950,10 +950,30 @@ static void panel_open(struct buf *b, const char *title, const char *meta)
 }
 static void panel_close(struct buf *b) { buf_puts(b, "</div></section>"); }
 
-/* GET /repos — the signed-in user's repositories, listed by name via
- * git_repo.git_repo.list_for_owner, with a create form and the repo count.
- * All data comes from the gateway over /_rpc; the webapp holds no state.
- * `sid` NULL/empty → not signed in → bounce to /login. */
+/* Forward declarations — these helpers are defined further down but are used by
+ * the RBAC-based /repos discovery below. */
+static struct yjson_doc *whoami_doc(struct yloop *loop, const struct serve_ud *sud, const char *sid);
+static int role_at_least(const char *role, const char *floor);
+static int json_escape(char *dst, size_t cap, const char *src);
+static struct yjson_doc *rpc_result_doc(struct yloop *loop, const struct serve_ud *sud,
+                                        const char *sid, const char *rpc_path,
+                                        const char *args_json,
+                                        const struct yjson_value **result_out);
+
+/* True iff `full` already appears as a "\n<full>\n" token in the newline-wrapped
+ * `seen` buffer — the dedup test for the /repos discovery merge. */
+static int repo_seen(const char *seen, const char *full)
+{
+    if (!seen || !full || !*full) return 0;
+    char needle[322];
+    snprintf(needle, sizeof(needle), "\n%s\n", full);
+    return strstr(seen, needle) != NULL;
+}
+
+/* GET /repos — the signed-in user's accessible repositories: every repo in
+ * every namespace the caller holds a role on (RBAC discovery), merged with the
+ * legacy creator index as a fallback. All data comes from the gateway over
+ * /_rpc; the webapp holds no state. `sid` NULL/empty → bounce to /login. */
 static void route_repos_get(struct yloop *loop, struct yloop_stream *s,
                             const struct serve_ud *sud, const char *sid,
                             const char *uname, uint32_t owner_uid, int is_admin,
@@ -966,15 +986,21 @@ static void route_repos_get(struct yloop *loop, struct yloop_stream *s,
 
     long total = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_total", "[]", -1);
 
-    /* List THIS user's repos by name (newline-separated). The owner key is
-     * the session-resolved uid, not anything cookie-derived. */
-    char args[48];
-    snprintf(args, sizeof(args), "[%u]", owner_uid);
-    char *names = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_owner", args, NULL);
+    /* Projects discovery is ROLE-based, not creator-index-based (issue #30): the
+     * page lists every repo in every namespace the caller can READ, INCLUDING
+     * subgroups reached by INHERITED role and EXCLUDING repos the caller created
+     * but has since lost access to. For each direct membership the caller holds
+     * (from /_whoami), accounts.ns_subtree returns that namespace AND all its
+     * descendants (the caller's reporter+ role inherits down the whole subtree);
+     * each namespace is then listed once via git_repo.list_for_namespace. The
+     * creator index (list_for_owner) is intentionally NOT consulted — it would
+     * leak repo paths in namespaces the caller no longer has a role on. */
+    struct yjson_doc *who = whoami_doc(loop, sud, sid);
+    const struct yjson_value *nss = who ? yjson_object_get(yjson_doc_root(who), "namespaces") : NULL;
 
     struct buf b; buf_init(&b);
     render_shell_open(&b, "Repositories", uname, "projects", is_admin);
-    render_page_header(&b, "Repositories", "Repositories you own across the mesh.",
+    render_page_header(&b, "Repositories", "Repositories you can access across the mesh.",
                        "<a class=\"btn primary\" href=\"/repos/new\">New repository</a>");
 
     char meta[64];
@@ -982,28 +1008,64 @@ static void route_repos_get(struct yloop *loop, struct yloop_stream *s,
     else            meta[0] = 0;
     panel_open(&b, "Your repositories", meta[0] ? meta : NULL);
 
+    /* Two dedup sets of "\n<token>\n": namespaces already listed (a nested
+     * membership is covered by an ancestor's subtree) and repos already shown. */
+    struct buf ns_seen; buf_init(&ns_seen); buf_puts(&ns_seen, "\n");
+    struct buf seen;    buf_init(&seen);    buf_puts(&seen, "\n");
     int any = 0;
-    if (names && *names) {
-        buf_puts(&b, "<table class=\"file-table\"><tbody>");
-        char *save = NULL;
-        for (char *line = strtok_r(names, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-            if (!*line) continue;
-            any = 1;
-            /* `line` is the repo's FULL PATH (<namespace>/<repo>) — link to it
-             * directly so group repos resolve correctly. */
-            buf_puts(&b, "<tr><td class=\"ic\">\xf0\x9f\x93\x81</td><td><a class=\"file-name dir\" href=\"/");
-            buf_esc(&b, line);
-            buf_puts(&b, "\">");
-            buf_esc(&b, line);
-            buf_puts(&b, "</a></td></tr>");
+    buf_puts(&b, "<table class=\"file-table\"><tbody>");
+
+    size_t ns_count = nss ? yjson_array_size(nss) : 0;
+    for (size_t i = 0; i < ns_count; ++i) {
+        const struct yjson_value *e = yjson_array_at(nss, i);
+        const char *root = yjson_as_string(yjson_object_get(e, "path"), NULL);
+        const char *role = yjson_as_string(yjson_object_get(e, "role"), NULL);
+        if (!root || !*root || !role || !role_at_least(role, "reporter")) continue;
+
+        /* Expand this membership to its full subtree (self + descendants). */
+        char esc[256], sargs[300];
+        if (!json_escape(esc, sizeof(esc), root)) continue;
+        snprintf(sargs, sizeof(sargs), "[\"%s\"]", esc);
+        const struct yjson_value *paths = NULL;
+        struct yjson_doc *sub = rpc_result_doc(loop, sud, sid, "accounts.accounts.ns_subtree", sargs, &paths);
+        size_t pn = (sub && paths && yjson_is_array(paths)) ? yjson_array_size(paths) : 0;
+        for (size_t j = 0; j < pn; ++j) {
+            const char *nspath = yjson_as_string(yjson_object_get(yjson_array_at(paths, j), "path"), NULL);
+            if (!nspath || !*nspath) continue;
+            if (repo_seen(ns_seen.data, nspath)) continue;  /* already listed via another membership */
+            buf_puts(&ns_seen, "\n"); buf_puts(&ns_seen, nspath); buf_puts(&ns_seen, "\n");
+
+            char nesc[256], nargs[300];
+            if (!json_escape(nesc, sizeof(nesc), nspath)) continue;
+            snprintf(nargs, sizeof(nargs), "[\"%s\"]", nesc);
+            char *names = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_namespace", nargs, NULL);
+            if (names && *names) {
+                char *save = NULL;
+                for (char *line = strtok_r(names, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+                    if (!*line) continue;
+                    char full[320];
+                    snprintf(full, sizeof(full), "%s/%s", nspath, line);
+                    if (repo_seen(seen.data, full)) continue;
+                    buf_puts(&seen, "\n"); buf_puts(&seen, full); buf_puts(&seen, "\n");
+                    any = 1;
+                    buf_puts(&b, "<tr><td class=\"ic\">\xf0\x9f\x93\x81</td><td><a class=\"file-name dir\" href=\"/");
+                    buf_esc(&b, full); buf_puts(&b, "\">");
+                    buf_esc(&b, full); buf_puts(&b, "</a></td></tr>");
+                }
+            }
+            free(names);
         }
-        buf_puts(&b, "</tbody></table>");
+        if (sub) yjson_doc_free(sub);
     }
+    buf_puts(&b, "</tbody></table>");
+    buf_free(&ns_seen);
+
     if (!any)
         buf_puts(&b, "<p class=\"muted\">No repositories yet — use "
                      "\xe2\x80\x9cNew repository\xe2\x80\x9d to create one.</p>");
     panel_close(&b);
-    free(names);
+    buf_free(&seen);
+    if (who) yjson_doc_free(who);
     render_shell_close(s, &b, keep_alive);
 }
 

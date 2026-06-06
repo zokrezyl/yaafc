@@ -640,11 +640,37 @@ Known mismatches:
 
   The first-user `site` bootstrap is created BEFORE the account-completion
   marker (`accounts_register`), keyed on `count == 0` (no completed accounts
-  yet). A completed account therefore always implies the bootstrap ran — there
-  is no window where the account exists but `site:owner` is missing and nothing
-  needs rolling back. A backend failure aborts the registration fail-closed; a
-  concurrent first registrant that loses the race for `site` continues as a
-  regular user.
+  yet), and is FAIL-CLOSED with rollback. A backend failure creating `site`
+  aborts the registration with nothing committed. If `site` is created but the
+  subsequent `accounts_register` fails, the just-created `site` namespace is
+  rolled back via `accounts.ns_delete` (an internal-only method, gated to the
+  namespace owner / site admin / `system:internal` and refused at the gateway),
+  so a failed first registration can never strand `site` under a phantom owner
+  with no completed account. A concurrent first registrant that loses the race
+  for `site` (it already exists, owned by another) did not create it and
+  continues as a regular user. The net invariant: `site:owner` is always backed
+  by a completed account, and the first deployment registrant becomes that owner.
+
+  Repo path lengths are bounded to prevent silent truncation: a namespace path
+  is stored verbatim in git_repo's fixed-size `owner_name` field and is the
+  basis of the deterministic repo id, so both `git_repo.make` (`path_ok`) and
+  `accounts.ns_create` reject any path that would not fit (identical limits),
+  rather than truncating and desyncing the id from the stored path. The repo
+  creator uid recorded by `git_repo.make` comes from the VERIFIED auth context,
+  never the caller-supplied `owner_id` argument (except for the trusted
+  `system:internal` capability), so a developer on a group cannot poison another
+  user's creator index by passing that user's uid.
+
+  Projects-page repo discovery (the webapp `/repos`) is ROLE-based, not
+  creator-index-based. For each direct membership the caller holds, the webapp
+  expands the namespace to its full subtree via `accounts.ns_subtree` (a
+  reporter+ role inherits down the whole subtree) and lists each namespace's
+  repos. This lists repos in subgroups reached only by INHERITED role (e.g. a
+  developer on `acme` sees `acme/platform/svc` with no direct subgroup grant),
+  and — because the creator index is no longer consulted for discovery — it does
+  NOT leak repo paths in namespaces the caller created in but has since been
+  revoked from. `list_for_owner`/`count_for_owner` remain (caller-or-site-admin
+  scoped) but are not part of access-based discovery.
 
   Acceptance tests for issue #30 live in two places: the integration pytest
   suite `tests/integration/picoforge/test_rbac.py` (18 tests over an isolated

@@ -1114,55 +1114,60 @@ static void route_register_post(struct yloop_stream *s, const char *body,
     }
     free(personal_ns.value);
 
-    /* Step 4 — first-user bootstrap, BEFORE the account-completion marker. The
-     * deployment's site owner is the FIRST registrant: here the count of
+    /* Step 4 — first-user `site` bootstrap, BEFORE the account-completion marker.
+     * The deployment's site owner is the FIRST registrant: here the count of
      * COMPLETED accounts is still 0 (our `users` row is not written until step
-     * 5), so `count == 0` identifies the first registrant. The `site` group
-     * namespace is created (with the internal capability) and owned by this
-     * user. Doing it BEFORE accounts_register means a completed account always
-     * implies the bootstrap ran — there is no window where the account is
-     * committed but `site:owner` is missing, and nothing needs rolling back.
-     * Fail closed: a real backend failure aborts the registration with nothing
-     * committed. A concurrent first registrant that lost the race for `site`
-     * (it already exists, owned by another) is NOT the site owner but is still a
-     * valid registration and continues as a regular user. */
-    SVC_OPEN(acc_boot, "accounts", accounts_accounts_create);
-    if (!acc_boot.ok) { register_release_claim(uid, uname); render_register(s, "accounts service unreachable", keep_alive); return; }
-    int first_user = 0;
-    struct picomesh_size_result cr = accounts_accounts_count(&acc_boot.c, acc_boot.obj, NULL);
-    if (PICOMESH_IS_OK(cr)) first_user = (cr.value == 0);
-    else picomesh_error_destroy(cr.error);
-    if (first_user) {
-        struct yheaders *site_caps = internal_caps(uid);
-        if (!site_caps) { SVC_CLOSE(acc_boot); register_release_claim(uid, uname); render_register(s, "registration temporarily unavailable — try again", keep_alive); return; }
-        struct picomesh_string_result site =
-            accounts_accounts_ns_create(&acc_boot.c, acc_boot.obj, site_caps, uid, "group", "site", "");
-        yheaders_free(site_caps);
-        if (PICOMESH_IS_ERR(site)) {
-            picomesh_error_destroy(site.error);
-            /* Distinguish "lost the race" (site already exists → continue) from
-             * a real failure (site absent → fail closed). */
-            struct picomesh_int64_result present =
-                accounts_accounts_ns_resolve(&acc_boot.c, acc_boot.obj, NULL, "site");
-            int site_present = PICOMESH_IS_OK(present) && present.value > 0;
-            if (PICOMESH_IS_ERR(present)) picomesh_error_destroy(present.error);
-            if (!site_present) {
-                SVC_CLOSE(acc_boot);
-                register_release_claim(uid, uname);
-                render_register(s, "registration temporarily unavailable — try again", keep_alive);
-                return;
+     * 5), so `count == 0` identifies the first registrant. We create the `site`
+     * group namespace owned by this user. Doing it BEFORE register keeps the
+     * bootstrap FAIL CLOSED: a backend failure here aborts the registration with
+     * nothing committed (no half-registered account without a site owner). The
+     * `created_site` flag records that THIS call created `site`, so a later
+     * register failure can roll it back (step 5) — there is then no window where
+     * `site` is owned by a uid that never completed registration. A concurrent
+     * first registrant that lost the race for `site` (already exists, owned by
+     * another) did NOT create it, is not the site owner, and continues as a
+     * regular user. */
+    int first_user = 0, created_site = 0;
+    {
+        SVC_OPEN(acc_boot, "accounts", accounts_accounts_create);
+        if (!acc_boot.ok) { register_release_claim(uid, uname); render_register(s, "accounts service unreachable", keep_alive); return; }
+        struct picomesh_size_result cr = accounts_accounts_count(&acc_boot.c, acc_boot.obj, NULL);
+        if (PICOMESH_IS_OK(cr)) first_user = (cr.value == 0);
+        else picomesh_error_destroy(cr.error);
+        if (first_user) {
+            struct yheaders *site_caps = internal_caps(uid);
+            if (!site_caps) { SVC_CLOSE(acc_boot); register_release_claim(uid, uname); render_register(s, "registration temporarily unavailable — try again", keep_alive); return; }
+            struct picomesh_string_result site =
+                accounts_accounts_ns_create(&acc_boot.c, acc_boot.obj, site_caps, uid, "group", "site", "");
+            yheaders_free(site_caps);
+            if (PICOMESH_IS_OK(site)) {
+                free(site.value);
+                created_site = 1;
+                yinfo("authz: uid=%u bootstrapped as site-owner", uid);
+            } else {
+                picomesh_error_destroy(site.error);
+                /* Distinguish "lost the race" (site already exists → continue) from
+                 * a real failure (site absent → fail closed, abort the register). */
+                struct picomesh_int64_result present =
+                    accounts_accounts_ns_resolve(&acc_boot.c, acc_boot.obj, NULL, "site");
+                int site_present = PICOMESH_IS_OK(present) && present.value > 0;
+                if (PICOMESH_IS_ERR(present)) picomesh_error_destroy(present.error);
+                if (!site_present) {
+                    SVC_CLOSE(acc_boot);
+                    register_release_claim(uid, uname);
+                    render_register(s, "registration temporarily unavailable — try again", keep_alive);
+                    return;
+                }
             }
-        } else {
-            free(site.value);
-            yinfo("authz: uid=%u bootstrapped as site-owner", uid);
         }
+        SVC_CLOSE(acc_boot);
     }
-    SVC_CLOSE(acc_boot);
 
     /* Step 5 — complete the account: accounts_register writes the `users`
-     * completion marker (after the credential, personal namespace, and any
-     * first-user site bootstrap) and confirms the claim. On failure, release
-     * the claim so the name is not stranded. */
+     * completion marker (after the credential, the personal namespace, and any
+     * first-user site bootstrap) and confirms the claim. On failure, release the
+     * claim AND roll back a site namespace we just created, so a failed first
+     * registration never strands `site` under a phantom owner. */
     SVC_OPEN(acc, "accounts", accounts_accounts_create);
     if (!acc.ok) { register_release_claim(uid, uname); render_register(s, "accounts service unreachable", keep_alive); return; }
     struct picomesh_int_result reg = accounts_accounts_register(&acc.c, acc.obj, NULL, uid, uname);
@@ -1170,6 +1175,19 @@ static void route_register_post(struct yloop_stream *s, const char *body,
     int was_new = PICOMESH_IS_OK(reg) && reg.value == 1;
     if (PICOMESH_IS_ERR(reg)) picomesh_error_destroy(reg.error);
     if (!was_new) {
+        if (created_site) {
+            struct yheaders *del_caps = internal_caps(uid);
+            if (del_caps) {
+                SVC_OPEN(acc_rb, "accounts", accounts_accounts_create);
+                if (acc_rb.ok) {
+                    struct picomesh_int_result del =
+                        accounts_accounts_ns_delete(&acc_rb.c, acc_rb.obj, del_caps, "site");
+                    if (PICOMESH_IS_ERR(del)) picomesh_error_destroy(del.error);
+                    SVC_CLOSE(acc_rb);
+                }
+                yheaders_free(del_caps);
+            }
+        }
         register_release_claim(uid, uname);
         render_register(s, "username already taken", keep_alive);
         return;

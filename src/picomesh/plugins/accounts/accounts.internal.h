@@ -21,6 +21,8 @@ typedef struct picomesh_int64_result (*accounts_accounts_ns_resolve_fn)(struct c
 typedef struct picomesh_json_result (*accounts_accounts_ns_list_fn)(struct ctx *, struct object *, struct yheaders *);
 typedef struct picomesh_json_result (*accounts_accounts_ns_members_fn)(struct ctx *, struct object *, struct yheaders *, const char *);
 typedef struct picomesh_int_result (*accounts_accounts_ns_remove_member_fn)(struct ctx *, struct object *, struct yheaders *, const char *, uint32_t);
+typedef struct picomesh_json_result (*accounts_accounts_ns_subtree_fn)(struct ctx *, struct object *, struct yheaders *, const char *);
+typedef struct picomesh_int_result (*accounts_accounts_ns_delete_fn)(struct ctx *, struct object *, struct yheaders *, const char *);
 typedef struct picomesh_json_result (*accounts_accounts_list_fn)(struct ctx *, struct object *, struct yheaders *, int64_t, int64_t);
 typedef struct picomesh_json_result (*accounts_accounts_list_all_fn)(struct ctx *, struct object *, struct yheaders *);
 

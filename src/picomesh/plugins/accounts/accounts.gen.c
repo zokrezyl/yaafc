@@ -32,6 +32,10 @@ static accounts_accounts_ns_members_fn _accounts_accounts_accounts_accounts_ns_m
 __attribute__((unused))
 static accounts_accounts_ns_remove_member_fn _accounts_accounts_accounts_accounts_ns_remove_member_check = accounts_accounts_ns_remove_member_impl;
 __attribute__((unused))
+static accounts_accounts_ns_subtree_fn _accounts_accounts_accounts_accounts_ns_subtree_check = accounts_accounts_ns_subtree_impl;
+__attribute__((unused))
+static accounts_accounts_ns_delete_fn _accounts_accounts_accounts_accounts_ns_delete_check = accounts_accounts_ns_delete_impl;
+__attribute__((unused))
 static accounts_accounts_list_fn _accounts_accounts_accounts_accounts_list_check = accounts_accounts_list_impl;
 __attribute__((unused))
 static accounts_accounts_list_all_fn _accounts_accounts_accounts_accounts_list_all_check = accounts_accounts_list_all_impl;
@@ -63,6 +67,8 @@ struct class_ptr_result accounts_accounts_class_get(void)
         {"accounts", "accounts_ns_list", (method_id_t)accounts_accounts_ns_list, (impl_t)accounts_accounts_ns_list_impl},
         {"accounts", "accounts_ns_members", (method_id_t)accounts_accounts_ns_members, (impl_t)accounts_accounts_ns_members_impl},
         {"accounts", "accounts_ns_remove_member", (method_id_t)accounts_accounts_ns_remove_member, (impl_t)accounts_accounts_ns_remove_member_impl},
+        {"accounts", "accounts_ns_subtree", (method_id_t)accounts_accounts_ns_subtree, (impl_t)accounts_accounts_ns_subtree_impl},
+        {"accounts", "accounts_ns_delete", (method_id_t)accounts_accounts_ns_delete, (impl_t)accounts_accounts_ns_delete_impl},
         {"accounts", "accounts_list", (method_id_t)accounts_accounts_list, (impl_t)accounts_accounts_list_impl},
         {"accounts", "accounts_list_all", (method_id_t)accounts_accounts_list_all, (impl_t)accounts_accounts_list_all_impl},
     };

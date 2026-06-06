@@ -1078,6 +1078,23 @@ code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -b $SIDE_COOKIES "h
 [ "$code" = "403" ] && note_pass "webapp /groups/<ns> refuses a non-maintainer (403)" \
                     || note_fail "non-maintainer /groups/acme returned $code (want 403)"
 
+# /repos is RBAC-based discovery, NOT creator-index-based (issue #30): erin is
+# only a REPORTER on acme and created nothing, yet her Projects page must list
+# acme/api (created by root) because she holds a role on its namespace.
+curl -sS --max-time 10 -o /dev/null -c "$LOG_DIR/web-erin.txt" -XPOST "http://127.0.0.1:${SIDE}/login" \
+     --data-urlencode 'username=erin' --data-urlencode 'password=pw-erin' >/dev/null
+out=$(curl -sS --max-time 10 -b "$LOG_DIR/web-erin.txt" "http://127.0.0.1:${SIDE}/repos")
+expect_contains 'webapp /repos shows a group repo the user can access but did not create' "$out" 'href="/acme/api"'
+
+# /repos follows INHERITED role into subgroups: bob is developer on acme with NO
+# direct grant on acme/platform, yet his Projects page must list the subgroup
+# repo acme/platform/svc (discovered via the namespace subtree, not the creator
+# index). This is the case the creator-index discovery missed.
+curl -sS --max-time 10 -o /dev/null -c "$LOG_DIR/web-bob.txt" -XPOST "http://127.0.0.1:${SIDE}/login" \
+     --data-urlencode 'username=bob' --data-urlencode 'password=pw-bob' >/dev/null
+out=$(curl -sS --max-time 10 -b "$LOG_DIR/web-bob.txt" "http://127.0.0.1:${SIDE}/repos")
+expect_contains 'webapp /repos lists an INHERITED subgroup repo (no direct grant, not creator)' "$out" 'href="/acme/platform/svc"'
+
 echo
 # Persistence proof. The security/rel-db refactor split storage in two:
 #   * Account + session state (users, username→uid, sessions, tokens) moved

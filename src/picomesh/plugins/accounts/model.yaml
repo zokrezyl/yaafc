@@ -212,6 +212,32 @@ methods:
         type: "const char *"
       - name: uid
         type: uint32_t
+  - slot: accounts_ns_subtree
+    domain: accounts
+    owning_class: accounts
+    return_type: struct picomesh_json_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: path
+        type: "const char *"
+  - slot: accounts_ns_delete
+    domain: accounts
+    owning_class: accounts
+    return_type: struct picomesh_int_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: path
+        type: "const char *"
   - slot: accounts_list
     domain: accounts
     owning_class: accounts
@@ -293,6 +319,12 @@ classes:
       - slot: accounts_ns_remove_member
         slot_domain: accounts
         impl: accounts_accounts_ns_remove_member_impl
+      - slot: accounts_ns_subtree
+        slot_domain: accounts
+        impl: accounts_accounts_ns_subtree_impl
+      - slot: accounts_ns_delete
+        slot_domain: accounts
+        impl: accounts_accounts_ns_delete_impl
       - slot: accounts_list
         slot_domain: accounts
         impl: accounts_accounts_list_impl

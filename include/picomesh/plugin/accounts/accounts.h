@@ -38,6 +38,8 @@ struct picomesh_int64_result accounts_accounts_ns_resolve(struct ctx * ctx, stru
 struct picomesh_json_result accounts_accounts_ns_list(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 struct picomesh_json_result accounts_accounts_ns_members(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * path);
 struct picomesh_int_result accounts_accounts_ns_remove_member(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * path, uint32_t uid);
+struct picomesh_json_result accounts_accounts_ns_subtree(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * path);
+struct picomesh_int_result accounts_accounts_ns_delete(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * path);
 struct picomesh_json_result accounts_accounts_list(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, int64_t offset, int64_t limit);
 struct picomesh_json_result accounts_accounts_list_all(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 

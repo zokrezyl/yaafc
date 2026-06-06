@@ -741,6 +741,20 @@ mesh:
                 resource_from: "{kwargs.path}"
                 role_scope: namespace_path
                 site_bypass: true
+              # The namespace subtree (a namespace + its descendants) drives the
+              # webapp Projects page's role-based repo discovery: a reporter+ on
+              # the namespace inherits into the whole subtree, so reporter is the
+              # gate (mirrors the read gate on the repos themselves).
+              accounts.accounts.ns_subtree:
+                required_role: reporter
+                resource_from: "{kwargs.path}"
+                role_scope: namespace_path
+                site_bypass: true
+              # ns_delete is NOT exposed here: it is an internal-only operation
+              # (the first-user `site` bootstrap rollback calls it over a direct
+              # service connection with the system capability). Absence from the
+              # gateway policy means an external /_rpc caller is denied — the
+              # namespace tree cannot be pruned from outside the mesh.
               # Admin surfaces — site-owner only, expressed through the model
               # (replaces the gateway's old raw role:<uid> read).
               accounts.accounts.list:
