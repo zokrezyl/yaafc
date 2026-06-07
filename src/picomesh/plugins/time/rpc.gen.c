@@ -134,6 +134,7 @@ static int time_clock_now_ms_jinvoke(struct ctx *ctx, struct object *obj, struct
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] time_clock_now_ms");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int64_result call_result = time_clock_now_ms(call_ctx, obj, hdrs);
@@ -153,6 +154,7 @@ static int time_clock_sleep_ms_jinvoke(struct ctx *ctx, struct object *obj, stru
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] time_clock_sleep_ms");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;

@@ -275,6 +275,7 @@ static int relational_storage_db_exec_jinvoke(struct ctx *ctx, struct object *ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] relational_storage_db_exec");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -299,6 +300,7 @@ static int relational_storage_db_query_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] relational_storage_db_query");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -323,6 +325,7 @@ static int relational_storage_db_shard_count_jinvoke(struct ctx *ctx, struct obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] relational_storage_db_shard_count");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;

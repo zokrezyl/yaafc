@@ -1,3 +1,7 @@
+/* sigaction + execinfo backtrace() (the fatal-signal crash handler below) are
+ * GNU/POSIX extensions; define _GNU_SOURCE before any system header. */
+#define _GNU_SOURCE 1
+
 /* picomesh — driver binary.
  *
  * Parses argv via yargv (yaapp-style command-into-command CLI),
@@ -61,6 +65,8 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <signal.h>
+#include <execinfo.h>
 
 static const struct yargv_option_def PICOMESH_OPTIONS[] = {
     {"--help",        "-h", "help",        "show help",                       YARGV_BOOL,      0},
@@ -546,9 +552,54 @@ static int cmd_config_dump(struct picomesh_engine *e)
     return 0;
 }
 
+/* Fatal-signal crash handler: when the process dies on SIGSEGV/SIGABRT/etc.,
+ * dump the signal + a raw backtrace to stderr BEFORE exiting. In the riscv VM
+ * the mesh's stderr is wired to /dev/console (runsv → init), so a silent crash
+ * — the "gateway :8080 unreachable" the webapp then reports — now leaves a
+ * backtrace in the boot log instead of vanishing. backtrace_symbols_fd is the
+ * async-signal-safe dumper (it does not malloc); the binary is built
+ * unstripped, so frames resolve (else feed the addresses to addr2line). */
+PICOMESH_EXTERNAL_CALLBACK
+static void ymain_fatal_signal(int sig)
+{
+    static const char head[] = "\n*** picomesh FATAL: caught signal ";
+    write(STDERR_FILENO, head, sizeof(head) - 1);
+    const char *name = sig == SIGSEGV ? "SIGSEGV" : sig == SIGABRT ? "SIGABRT" :
+                       sig == SIGBUS  ? "SIGBUS"  : sig == SIGILL  ? "SIGILL"  :
+                       sig == SIGFPE  ? "SIGFPE"  : "?";
+    write(STDERR_FILENO, name, strlen(name));
+    write(STDERR_FILENO, " — backtrace follows ***\n", 25);
+    void *frames[64];
+    int n = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+    /* Restore the default disposition and re-raise so the real exit status /
+     * core dump is preserved (and runsv then restarts the service). */
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void ymain_install_crash_handler(void)
+{
+    /* Warm backtrace()'s unwinder once now (its first call may allocate), so
+     * the in-handler call stays allocation-free. */
+    void *warm[1];
+    (void)backtrace(warm, 1);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = ymain_fatal_signal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_NODEFER | SA_RESETHAND;
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGBUS,  &sa, NULL);
+    sigaction(SIGILL,  &sa, NULL);
+    sigaction(SIGFPE,  &sa, NULL);
+}
+
 int main(int argc, char **argv)
 {
     ytrace_init();
+    ymain_install_crash_handler();
 
     struct yargv_chain_ptr_result pr = yargv_parse(PICOMESH_OPTIONS, PICOMESH_OPTION_COUNT, argc, argv);
     if (PICOMESH_IS_ERR(pr)) return die_err("yargv_parse", pr.error);

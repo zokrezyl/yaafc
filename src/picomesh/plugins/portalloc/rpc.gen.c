@@ -339,6 +339,7 @@ static int portalloc_portalloc_allocate_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] portalloc_portalloc_allocate");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -360,6 +361,7 @@ static int portalloc_portalloc_release_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] portalloc_portalloc_release");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -380,6 +382,7 @@ static int portalloc_portalloc_count_used_jinvoke(struct ctx *ctx, struct object
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] portalloc_portalloc_count_used");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = portalloc_portalloc_count_used(call_ctx, obj, hdrs);
@@ -399,6 +402,7 @@ static int portalloc_portalloc_list_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] portalloc_portalloc_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -421,6 +425,7 @@ static int portalloc_portalloc_list_all_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] portalloc_portalloc_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = portalloc_portalloc_list_all(call_ctx, obj, hdrs);

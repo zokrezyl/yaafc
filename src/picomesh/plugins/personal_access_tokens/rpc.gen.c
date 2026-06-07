@@ -441,6 +441,7 @@ static int personal_access_tokens_personal_access_tokens_mint_jinvoke(struct ctx
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] personal_access_tokens_personal_access_tokens_mint");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -461,6 +462,7 @@ static int personal_access_tokens_personal_access_tokens_lookup_jinvoke(struct c
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] personal_access_tokens_personal_access_tokens_lookup");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -481,6 +483,7 @@ static int personal_access_tokens_personal_access_tokens_revoke_jinvoke(struct c
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] personal_access_tokens_personal_access_tokens_revoke");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -501,6 +504,7 @@ static int personal_access_tokens_personal_access_tokens_list_for_user_jinvoke(s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] personal_access_tokens_personal_access_tokens_list_for_user");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -521,6 +525,7 @@ static int personal_access_tokens_personal_access_tokens_count_active_jinvoke(st
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] personal_access_tokens_personal_access_tokens_count_active");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = personal_access_tokens_personal_access_tokens_count_active(call_ctx, obj, hdrs);
@@ -540,6 +545,7 @@ static int personal_access_tokens_personal_access_tokens_list_jinvoke(struct ctx
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] personal_access_tokens_personal_access_tokens_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -562,6 +568,7 @@ static int personal_access_tokens_personal_access_tokens_list_all_jinvoke(struct
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] personal_access_tokens_personal_access_tokens_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = personal_access_tokens_personal_access_tokens_list_all(call_ctx, obj, hdrs);

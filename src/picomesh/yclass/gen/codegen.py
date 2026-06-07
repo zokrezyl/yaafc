@@ -1428,6 +1428,7 @@ static int {slot}_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {{
+    yinfo("[rpc] {slot}");
 {''.join(arg_reads)}\
     struct ctx local_ctx = {{0}};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;

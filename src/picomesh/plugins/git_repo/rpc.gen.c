@@ -1134,6 +1134,7 @@ static int git_repo_git_repo_make_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_make");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1156,6 +1157,7 @@ static int git_repo_git_repo_delete_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_delete");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1176,6 +1178,7 @@ static int git_repo_git_repo_owner_of_jinvoke(struct ctx *ctx, struct object *ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_owner_of");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1196,6 +1199,7 @@ static int git_repo_git_repo_namespace_of_jinvoke(struct ctx *ctx, struct object
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_namespace_of");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1217,6 +1221,7 @@ static int git_repo_git_repo_count_for_owner_jinvoke(struct ctx *ctx, struct obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_count_for_owner");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1237,6 +1242,7 @@ static int git_repo_git_repo_count_total_jinvoke(struct ctx *ctx, struct object 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_count_total");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_repo_git_repo_count_total(call_ctx, obj, hdrs);
@@ -1256,6 +1262,7 @@ static int git_repo_git_repo_list_for_owner_jinvoke(struct ctx *ctx, struct obje
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_list_for_owner");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1277,6 +1284,7 @@ static int git_repo_git_repo_list_for_namespace_jinvoke(struct ctx *ctx, struct 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_list_for_namespace");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1298,6 +1306,7 @@ static int git_repo_git_repo_count_for_namespace_jinvoke(struct ctx *ctx, struct
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_count_for_namespace");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1318,6 +1327,7 @@ static int git_repo_git_repo_read_tree_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_read_tree");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1341,6 +1351,7 @@ static int git_repo_git_repo_read_file_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_read_file");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1364,6 +1375,7 @@ static int git_repo_git_repo_put_file_jinvoke(struct ctx *ctx, struct object *ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_put_file");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1390,6 +1402,7 @@ static int git_repo_git_repo_is_public_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_is_public");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1410,6 +1423,7 @@ static int git_repo_git_repo_set_public_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_set_public");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int arg1 = (int)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -1431,6 +1445,7 @@ static int git_repo_git_repo_list_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -1453,6 +1468,7 @@ static int git_repo_git_repo_list_all_jinvoke(struct ctx *ctx, struct object *ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_repo_git_repo_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_repo_git_repo_list_all(call_ctx, obj, hdrs);

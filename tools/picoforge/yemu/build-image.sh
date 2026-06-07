@@ -55,7 +55,8 @@ if [ ! -d "$DEPLOY" ]; then
     exit 1
 fi
 for f in picoforge.yaml run.sh frontend/static/style.css \
-         init service/common.sh service/mesh/run service/webapp/run service/probe/run; do
+         init service/common.sh service/finish \
+         service/mesh/run service/webapp/run service/probe/run; do
     [ -e "$DEPLOY/$f" ] || { echo "FAIL: $DEPLOY/$f missing" >&2; exit 1; }
 done
 
@@ -236,7 +237,8 @@ sudo cp -a "$DEPLOY/service"    "$MNT/opt/picoforge/service"
 sudo chmod 755 "$MNT/opt/picoforge/run.sh" "$MNT/opt/picoforge/init" \
     "$MNT/opt/picoforge/service/mesh/run" \
     "$MNT/opt/picoforge/service/webapp/run" \
-    "$MNT/opt/picoforge/service/probe/run"
+    "$MNT/opt/picoforge/service/probe/run" \
+    "$MNT/opt/picoforge/service/finish"
 
 # NOTE: runit's service directory is NOT wired here on the rootfs. /init builds
 # the runsvdir tree on the tmpfs at boot (/tmp/service/<svc>/run -> the payload

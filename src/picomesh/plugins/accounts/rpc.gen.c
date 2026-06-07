@@ -1303,6 +1303,7 @@ static int accounts_accounts_claim_username_jinvoke(struct ctx *ctx, struct obje
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_claim_username");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -1324,6 +1325,7 @@ static int accounts_accounts_release_username_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_release_username");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -1345,6 +1347,7 @@ static int accounts_accounts_register_jinvoke(struct ctx *ctx, struct object *ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_register");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -1366,6 +1369,7 @@ static int accounts_accounts_exists_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_exists");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1386,6 +1390,7 @@ static int accounts_accounts_set_balance_jinvoke(struct ctx *ctx, struct object 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_set_balance");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -1407,6 +1412,7 @@ static int accounts_accounts_balance_jinvoke(struct ctx *ctx, struct object *obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_balance");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1427,6 +1433,7 @@ static int accounts_accounts_count_jinvoke(struct ctx *ctx, struct object *obj, 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_count");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = accounts_accounts_count(call_ctx, obj, hdrs);
@@ -1446,6 +1453,7 @@ static int accounts_accounts_set_groups_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_set_groups");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -1467,6 +1475,7 @@ static int accounts_accounts_groups_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_groups");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1488,6 +1497,7 @@ static int accounts_accounts_ns_create_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_create");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1512,6 +1522,7 @@ static int accounts_accounts_ns_add_member_jinvoke(struct ctx *ctx, struct objec
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_add_member");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1534,6 +1545,7 @@ static int accounts_accounts_ns_resolve_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_resolve");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1554,6 +1566,7 @@ static int accounts_accounts_ns_list_jinvoke(struct ctx *ctx, struct object *obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_list");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = accounts_accounts_ns_list(call_ctx, obj, hdrs);
@@ -1574,6 +1587,7 @@ static int accounts_accounts_ns_members_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_members");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1595,6 +1609,7 @@ static int accounts_accounts_ns_remove_member_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_remove_member");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -1616,6 +1631,7 @@ static int accounts_accounts_ns_subtree_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_subtree");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1637,6 +1653,7 @@ static int accounts_accounts_ns_delete_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_ns_delete");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1657,6 +1674,7 @@ static int accounts_accounts_list_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -1679,6 +1697,7 @@ static int accounts_accounts_list_all_jinvoke(struct ctx *ctx, struct object *ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] accounts_accounts_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = accounts_accounts_list_all(call_ctx, obj, hdrs);

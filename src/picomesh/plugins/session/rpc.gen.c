@@ -491,6 +491,7 @@ static int session_session_start_jinvoke(struct ctx *ctx, struct object *obj, st
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] session_session_start");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -514,6 +515,7 @@ static int session_session_jwt_jinvoke(struct ctx *ctx, struct object *obj, stru
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] session_session_jwt");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -535,6 +537,7 @@ static int session_session_lookup_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] session_session_lookup");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -555,6 +558,7 @@ static int session_session_destroy_jinvoke(struct ctx *ctx, struct object *obj, 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] session_session_destroy");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -575,6 +579,7 @@ static int session_session_count_active_jinvoke(struct ctx *ctx, struct object *
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] session_session_count_active");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = session_session_count_active(call_ctx, obj, hdrs);
@@ -594,6 +599,7 @@ static int session_session_list_jinvoke(struct ctx *ctx, struct object *obj, str
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] session_session_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -616,6 +622,7 @@ static int session_session_list_all_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] session_session_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = session_session_list_all(call_ctx, obj, hdrs);

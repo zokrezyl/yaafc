@@ -830,6 +830,7 @@ static int sharded_storage_db_set_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_set");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -852,6 +853,7 @@ static int sharded_storage_db_get_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_get");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -874,6 +876,7 @@ static int sharded_storage_db_exists_jinvoke(struct ctx *ctx, struct object *obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_exists");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -895,6 +898,7 @@ static int sharded_storage_db_del_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_del");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -916,6 +920,7 @@ static int sharded_storage_db_count_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_count");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -936,6 +941,7 @@ static int sharded_storage_db_list_jinvoke(struct ctx *ctx, struct object *obj, 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_list");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     int64_t arg2 = (int64_t)yjson_as_int(yjson_array_at(args, 2), 0);
@@ -960,6 +966,7 @@ static int sharded_storage_db_list_all_jinvoke(struct ctx *ctx, struct object *o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_list_all");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -982,6 +989,7 @@ static int sharded_storage_db_incr_jinvoke(struct ctx *ctx, struct object *obj, 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_incr");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     int64_t arg2 = (int64_t)yjson_as_int(yjson_array_at(args, 2), 0);
@@ -1004,6 +1012,7 @@ static int sharded_storage_db_put_if_absent_jinvoke(struct ctx *ctx, struct obje
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_put_if_absent");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1026,6 +1035,7 @@ static int sharded_storage_db_compare_and_set_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] sharded_storage_db_compare_and_set");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");

@@ -985,6 +985,7 @@ static int git_pipeline_git_pipeline_enqueue_jinvoke(struct ctx *ctx, struct obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_enqueue");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1005,6 +1006,7 @@ static int git_pipeline_git_pipeline_enqueue_job_jinvoke(struct ctx *ctx, struct
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_enqueue_job");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1028,6 +1030,7 @@ static int git_pipeline_git_pipeline_lease_jinvoke(struct ctx *ctx, struct objec
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_lease");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1048,6 +1051,7 @@ static int git_pipeline_git_pipeline_lease_job_jinvoke(struct ctx *ctx, struct o
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_lease_job");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -1070,6 +1074,7 @@ static int git_pipeline_git_pipeline_job_descriptor_jinvoke(struct ctx *ctx, str
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_job_descriptor");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1091,6 +1096,7 @@ static int git_pipeline_git_pipeline_append_log_jinvoke(struct ctx *ctx, struct 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_append_log");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1113,6 +1119,7 @@ static int git_pipeline_git_pipeline_read_log_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_read_log");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1134,6 +1141,7 @@ static int git_pipeline_git_pipeline_complete_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_complete");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int32_t arg1 = (int32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -1155,6 +1163,7 @@ static int git_pipeline_git_pipeline_complete_job_jinvoke(struct ctx *ctx, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_complete_job");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int32_t arg1 = (int32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -1177,6 +1186,7 @@ static int git_pipeline_git_pipeline_requeue_expired_jinvoke(struct ctx *ctx, st
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_requeue_expired");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_pipeline_git_pipeline_requeue_expired(call_ctx, obj, hdrs);
@@ -1196,6 +1206,7 @@ static int git_pipeline_git_pipeline_count_pending_jinvoke(struct ctx *ctx, stru
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_count_pending");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_pipeline_git_pipeline_count_pending(call_ctx, obj, hdrs);
@@ -1215,6 +1226,7 @@ static int git_pipeline_git_pipeline_count_running_jinvoke(struct ctx *ctx, stru
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_count_running");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_pipeline_git_pipeline_count_running(call_ctx, obj, hdrs);
@@ -1234,6 +1246,7 @@ static int git_pipeline_git_pipeline_count_done_jinvoke(struct ctx *ctx, struct 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_count_done");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = git_pipeline_git_pipeline_count_done(call_ctx, obj, hdrs);
@@ -1253,6 +1266,7 @@ static int git_pipeline_git_pipeline_list_jinvoke(struct ctx *ctx, struct object
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -1275,6 +1289,7 @@ static int git_pipeline_git_pipeline_list_all_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] git_pipeline_git_pipeline_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_pipeline_git_pipeline_list_all(call_ctx, obj, hdrs);

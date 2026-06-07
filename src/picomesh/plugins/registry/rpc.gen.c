@@ -442,6 +442,7 @@ static int registry_registry_register_service_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] registry_registry_register_service");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -465,6 +466,7 @@ static int registry_registry_deregister_service_jinvoke(struct ctx *ctx, struct 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] registry_registry_deregister_service");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -486,6 +488,7 @@ static int registry_registry_resolve_jinvoke(struct ctx *ctx, struct object *obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] registry_registry_resolve");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -507,6 +510,7 @@ static int registry_registry_discover_service_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] registry_registry_discover_service");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -528,6 +532,7 @@ static int registry_registry_list_services_jinvoke(struct ctx *ctx, struct objec
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] registry_registry_list_services");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = registry_registry_list_services(call_ctx, obj, hdrs);
@@ -548,6 +553,7 @@ static int registry_registry_count_jinvoke(struct ctx *ctx, struct object *obj, 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] registry_registry_count");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = registry_registry_count(call_ctx, obj, hdrs);

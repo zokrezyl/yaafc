@@ -401,6 +401,7 @@ static int storage_set_jinvoke(struct ctx *ctx, struct object *obj, struct yhead
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] storage_set");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
@@ -423,6 +424,7 @@ static int storage_get_jinvoke(struct ctx *ctx, struct object *obj, struct yhead
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] storage_get");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -445,6 +447,7 @@ static int storage_exists_jinvoke(struct ctx *ctx, struct object *obj, struct yh
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] storage_exists");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -466,6 +469,7 @@ static int storage_del_jinvoke(struct ctx *ctx, struct object *obj, struct yhead
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] storage_del");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     struct ctx local_ctx = {0};
@@ -487,6 +491,7 @@ static int storage_count_jinvoke(struct ctx *ctx, struct object *obj, struct yhe
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] storage_count");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;

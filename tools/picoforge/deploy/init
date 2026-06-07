@@ -67,6 +67,9 @@ SVDIR=/tmp/service
 for svc in mesh webapp probe; do
     mkdir -p "$SVDIR/$svc"
     ln -sf "$PF_ROOT/service/$svc/run" "$SVDIR/$svc/run"
+    # `finish` hook (shared script) → runsv logs each exit/crash + restart to
+    # the console, so runit's supervision is visible in the boot log.
+    ln -sf "$PF_ROOT/service/finish" "$SVDIR/$svc/finish"
 done
 
 echo "[init] handing off to runit (runsvdir $SVDIR)"

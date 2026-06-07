@@ -20,10 +20,18 @@ MESH_PORT="${MESH_PORT:-8080}"
 WEBAPP_HTTP_HOST="${WEBAPP_HTTP_HOST:-0.0.0.0}"
 WEBAPP_HTTP_PORT="${WEBAPP_HTTP_PORT:-8081}"
 
-# Error-only tracing by default; the mesh node's env is inherited by every
-# collocated service. Override: YTRACE_LOG_LEVEL=trace / YTRACE_DEFAULT_ON=no.
+# Debug tracing ON by default: `info` level (info<warn<error) shows the whole
+# request flow — gateway dispatch, accounts_register, token_issuer login,
+# session start, `yhttp POST /login`, plus every warn/error — so the console
+# reveals WHERE login dies / the mesh crashes. We deliberately do NOT use
+# `trace`/`debug`: the probe's 1s /_describe poll emits hundreds of per-slot
+# `debug` lines that would drown the request flow. The mesh node's env is
+# inherited by every collocated service + the webapp.
+#   YTRACE_LOG_LEVEL=trace  → everything (very noisy, full per-call detail)
+#   YTRACE_LOG_LEVEL=error  → errors only (production)
+#   YTRACE_DEFAULT_ON=no    → tracing off
 export YTRACE_DEFAULT_ON="${YTRACE_DEFAULT_ON:-yes}"
-export YTRACE_LOG_LEVEL="${YTRACE_LOG_LEVEL:-error}"
+export YTRACE_LOG_LEVEL="${YTRACE_LOG_LEVEL:-info}"
 
 # The gateway mints HS256 JWTs signed with this secret; without it
 # register/login fail. A public-demo default — the VM's /init already

@@ -539,6 +539,7 @@ static int mesh_mesh_register_service_jinvoke(struct ctx *ctx, struct object *ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_register_service");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -560,6 +561,7 @@ static int mesh_mesh_resolve_jinvoke(struct ctx *ctx, struct object *obj, struct
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_resolve");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -580,6 +582,7 @@ static int mesh_mesh_forget_jinvoke(struct ctx *ctx, struct object *obj, struct 
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_forget");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -600,6 +603,7 @@ static int mesh_mesh_count_services_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_count_services");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = mesh_mesh_count_services(call_ctx, obj, hdrs);
@@ -619,6 +623,7 @@ static int mesh_mesh_spawn_picomesh_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_spawn_picomesh");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -639,6 +644,7 @@ static int mesh_mesh_kill_pid_jinvoke(struct ctx *ctx, struct object *obj, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_kill_pid");
     int32_t arg0 = (int32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -659,6 +665,7 @@ static int mesh_mesh_count_children_jinvoke(struct ctx *ctx, struct object *obj,
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_count_children");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = mesh_mesh_count_children(call_ctx, obj, hdrs);
@@ -678,6 +685,7 @@ static int mesh_mesh_reconcile_from_config_jinvoke(struct ctx *ctx, struct objec
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_reconcile_from_config");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = mesh_mesh_reconcile_from_config(call_ctx, obj, hdrs);
@@ -697,6 +705,7 @@ static int mesh_mesh_reconcile_jinvoke(struct ctx *ctx, struct object *obj, stru
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] mesh_mesh_reconcile");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = mesh_mesh_reconcile(call_ctx, obj, hdrs);

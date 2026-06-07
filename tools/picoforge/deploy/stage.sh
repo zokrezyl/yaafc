@@ -69,7 +69,7 @@ cp -a "$INIT_SRC"    "$DEPLOY.new/init"
 cp -a "$SERVICE_SRC" "$DEPLOY.new/service"
 chmod +x "$DEPLOY.new/run.sh" "$DEPLOY.new/init" \
     "$DEPLOY.new/service/mesh/run" "$DEPLOY.new/service/webapp/run" \
-    "$DEPLOY.new/service/probe/run"
+    "$DEPLOY.new/service/probe/run" "$DEPLOY.new/service/finish"
 
 # Adjust the yaml's static_dir to the deploy-relative path. The source
 # yaml uses an in-repo path (assets/picoforge/static) so

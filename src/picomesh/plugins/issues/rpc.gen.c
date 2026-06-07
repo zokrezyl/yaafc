@@ -504,6 +504,7 @@ static int issues_issues_open_jinvoke(struct ctx *ctx, struct object *obj, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_open");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -525,6 +526,7 @@ static int issues_issues_close_jinvoke(struct ctx *ctx, struct object *obj, stru
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_close");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -545,6 +547,7 @@ static int issues_issues_status_jinvoke(struct ctx *ctx, struct object *obj, str
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_status");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -565,6 +568,7 @@ static int issues_issues_count_open_in_repo_jinvoke(struct ctx *ctx, struct obje
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_count_open_in_repo");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -585,6 +589,7 @@ static int issues_issues_count_total_jinvoke(struct ctx *ctx, struct object *obj
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_count_total");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = issues_issues_count_total(call_ctx, obj, hdrs);
@@ -604,6 +609,7 @@ static int issues_issues_list_jinvoke(struct ctx *ctx, struct object *obj, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -626,6 +632,7 @@ static int issues_issues_list_all_jinvoke(struct ctx *ctx, struct object *obj, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = issues_issues_list_all(call_ctx, obj, hdrs);
@@ -646,6 +653,7 @@ static int issues_issues_repo_of_jinvoke(struct ctx *ctx, struct object *obj, st
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] issues_issues_repo_of");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;

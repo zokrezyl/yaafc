@@ -3235,6 +3235,11 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
         if (strstr(ka_hdr, "keep-alive")) keep_alive = 1;
     }
 
+    /* High-level request log: every page/action the webapp serves, at the
+     * entry point, before routing. method/path are length-counted slices of
+     * the read buffer (not NUL-terminated), so print with %.*s. */
+    yinfo("[webapp] %.*s %.*s", (int)method_len, method, (int)path_len, path);
+
     /* Method+path dispatch. /login + /static are always served (login is
      * the gateway's auth, static is the sidecar's own assets). Every data
      * page is service-driven: discover the active mesh services once, then

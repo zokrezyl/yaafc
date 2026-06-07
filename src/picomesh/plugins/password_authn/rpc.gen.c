@@ -394,6 +394,7 @@ static int password_authn_password_authn_register_jinvoke(struct ctx *ctx, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] password_authn_password_authn_register");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -415,6 +416,7 @@ static int password_authn_password_authn_authenticate_jinvoke(struct ctx *ctx, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] password_authn_password_authn_authenticate");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -436,6 +438,7 @@ static int password_authn_password_authn_change_password_jinvoke(struct ctx *ctx
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] password_authn_password_authn_change_password");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -457,6 +460,7 @@ static int password_authn_password_authn_count_registered_jinvoke(struct ctx *ct
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] password_authn_password_authn_count_registered");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_size_result call_result = password_authn_password_authn_count_registered(call_ctx, obj, hdrs);
@@ -476,6 +480,7 @@ static int password_authn_password_authn_list_jinvoke(struct ctx *ctx, struct ob
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] password_authn_password_authn_list");
     int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
     int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
@@ -498,6 +503,7 @@ static int password_authn_password_authn_list_all_jinvoke(struct ctx *ctx, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] password_authn_password_authn_list_all");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = password_authn_password_authn_list_all(call_ctx, obj, hdrs);

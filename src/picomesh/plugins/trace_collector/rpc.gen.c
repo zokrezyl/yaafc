@@ -582,6 +582,7 @@ static int trace_collector_trace_collector_ingest_jinvoke(struct ctx *ctx, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_ingest");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -602,6 +603,7 @@ static int trace_collector_trace_collector_get_trace_jinvoke(struct ctx *ctx, st
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_get_trace");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -623,6 +625,7 @@ static int trace_collector_trace_collector_traces_jinvoke(struct ctx *ctx, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_traces");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     uint32_t arg2 = (uint32_t)yjson_as_int(yjson_array_at(args, 2), 0);
@@ -646,6 +649,7 @@ static int trace_collector_trace_collector_services_jinvoke(struct ctx *ctx, str
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_services");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = trace_collector_trace_collector_services(call_ctx, obj, hdrs);
@@ -666,6 +670,7 @@ static int trace_collector_trace_collector_operations_jinvoke(struct ctx *ctx, s
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_operations");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -687,6 +692,7 @@ static int trace_collector_trace_collector_latency_jinvoke(struct ctx *ctx, stru
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_latency");
     const char *arg0 = yjson_as_string(yjson_array_at(args, 0), "");
     const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
     uint32_t arg2 = (uint32_t)yjson_as_int(yjson_array_at(args, 2), 0);
@@ -710,6 +716,7 @@ static int trace_collector_trace_collector_stats_jinvoke(struct ctx *ctx, struct
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_stats");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = trace_collector_trace_collector_stats(call_ctx, obj, hdrs);
@@ -730,6 +737,7 @@ static int trace_collector_trace_collector_errors_jinvoke(struct ctx *ctx, struc
                           const struct yjson_value *args,
                           struct yjson_writer *result, char *err, size_t err_cap)
 {
+    yinfo("[rpc] trace_collector_trace_collector_errors");
     uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
