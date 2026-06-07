@@ -315,14 +315,11 @@
                 ov.classList.add('minimized');
                 tog.textContent = '+';
             }
-            /* Auto-submit the default GET so the user lands on the
-             * picoforge login page without having to click "GET". The
-             * form defaults to port=8081 path=/-/login (the webapp HTML
-             * tier; the gateway on :8080 serves no GET pages). */
-            var form = document.getElementById('svc-form');
-            if (form) {
-                form.dispatchEvent(new Event('submit', { cancelable: true }));
-            }
+            /* Run the one-shot startup smoke: it waits for the gateway/backend,
+             * exercises register/login/repos/create against :8081, reports
+             * PASS/FAIL into this overlay, then leaves the app on /-/login so
+             * the user can sign in. (Replaces the old bare auto-GET /-/login.) */
+            runStartupSmoke();
         }
         window.__renderStatus = function (text, level, tag) {
             var d = document.createElement('div');
@@ -930,6 +927,80 @@
                 current = await svcFetchOnce(port, loc);
             }
             return current;
+        }
+
+        /* ---- one-shot startup smoke ------------------------------------
+         * Runs ONCE when the in-VM webapp comes up (kicked from
+         * revealService). Waits for the gateway/backend to answer, then drives
+         * the real endpoints through the slirp bridge — register a throwaway
+         * user (picomesh auto-logs-in), confirm the authenticated /-/repos, and
+         * create a repo — reporting PASS/FAIL into the boot overlay. No
+         * clicking: open the page (make run-webserver) and watch it go green.
+         * It leaves the app on /-/login so the user can sign in afterwards. */
+        var smokeStarted = false;
+        function smokeLine(text, ok) {
+            var d = document.createElement('div');
+            d.className = ok === true ? 'ok' : ok === false ? 'err' : '';
+            d.textContent = (ok === true ? '  PASS: ' : ok === false ? '  FAIL: ' : '[smoke] ') + text;
+            body.appendChild(d);
+            body.scrollTop = body.scrollHeight;
+            console.log('[smoke]', (ok === undefined ? '' : (ok ? 'PASS ' : 'FAIL ')) + text);
+        }
+        function smokeBodyText(resp) {
+            try { return new TextDecoder('utf-8', { fatal: false }).decode(resp.body || new Uint8Array(0)); }
+            catch (e) { return ''; }
+        }
+        async function runStartupSmoke() {
+            if (smokeStarted) return;
+            smokeStarted = true;
+            var PORT = 8081; // the picoforge webapp HTML tier
+            // Make the webapp the active port so the user's manual login/nav
+            // (picomesh-submit / picomesh-nav handlers gate on svcLastPort > 0)
+            // work after boot — this replaced the old auto-GET that used to set
+            // it. Without this, every login/click is silently "ignored".
+            svcLastPort = PORT;
+            var loggedIn = /Sign out|\/-\/logout/;
+            smokeLine('startup smoke: waiting for webapp :' + PORT + ' …');
+
+            // 1. Wait for the gateway/backend to be up (GET /-/login -> 200).
+            var up = false;
+            for (var i = 0; i < 150 && !up; i++) {
+                try { var r = await svcFetchOnce(PORT, '/-/login'); if (r.status === 200) up = true; }
+                catch (e) { /* not up yet */ }
+                if (!up) await new Promise(function (res) { setTimeout(res, 2000); });
+            }
+            smokeLine('webapp serves GET /-/login (200)', up);
+            if (!up) { smokeLine('STARTUP SMOKE ABORTED — backend never came up', false); return; }
+
+            var pass = 1, total = 1;
+            function tally(ok) { total++; if (ok) pass++; return ok; }
+            try {
+                // 2. Register a throwaway user; picomesh auto-logs-in (303 + sid).
+                var u = 'smoke' + (Date.now() % 1000000);
+                var reg = await followFromResp(PORT,
+                    await svcFetchWithMethod(PORT, 'POST', '/-/register', 'username=' + u + '&password=pw'), 5);
+                smokeLine('register ' + u + ' + auto-login (session established)',
+                    tally(reg.status === 200 && loggedIn.test(smokeBodyText(reg))));
+
+                // 3. The session persists: authenticated /-/repos shows the shell.
+                var repos = await svcFetchOnce(PORT, '/-/repos');
+                smokeLine('authenticated GET /-/repos (logged in)',
+                    tally(repos.status === 200 && loggedIn.test(smokeBodyText(repos))));
+
+                // 4. Create a repo: POST /-/repos/new -> 303 -> repo tree page.
+                var mk = await followFromResp(PORT,
+                    await svcFetchWithMethod(PORT, 'POST', '/-/repos/new', 'name=smoke-repo'), 5);
+                smokeLine('create repo ' + u + '/smoke-repo',
+                    tally(mk.status === 200 && /smoke-repo/.test((mk.path || '') + smokeBodyText(mk))));
+            } catch (e) {
+                smokeLine('smoke error: ' + (e && e.message ? e.message : e), false);
+            }
+            smokeLine('STARTUP SMOKE ' + (pass === total ? 'PASS' : 'FAIL') +
+                      ' — ' + pass + '/' + total + ' checks', pass === total);
+
+            // Leave the user on the login page (the smoke registered its own
+            // throwaway account; logging in below replaces that cookie).
+            try { renderResp(PORT, await svcFetchOnce(PORT, '/-/login')); } catch (e) { /* ignore */ }
         }
 
         async function svcGo(ev) {

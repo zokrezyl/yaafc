@@ -24,7 +24,7 @@ BUILD_DIR_DEPLOY  := build-deploy
 BUILD_DIR_CODEGEN := build-codegen
 BUILD_DIR_WEBASM_YEMU := build-webasm-yemu-release
 
-.PHONY: help all build-desktop-release build-desktop-debug build-desktop-asan build-linux-riscv64-release build-deploy build-yemu-release run-qemu build-webasm-yemu-release run-node run-codegen perf-picoforge perf-throughput-notracing perf-throughput-tracing clean
+.PHONY: help all build-desktop-release build-desktop-debug build-desktop-asan build-linux-riscv64-release build-deploy build-yemu-release run-qemu build-webasm-yemu-release run-node run-webserver run-codegen perf-picoforge perf-throughput-notracing perf-throughput-tracing clean
 
 # AddressSanitizer flags. Frame pointers for readable traces; the same flags
 # go on compile AND link so the asan runtime is pulled in. The vendored static
@@ -177,6 +177,22 @@ run-node:
 		$(MAKE) build-webasm-yemu-release; \
 	fi
 	node tools/picoforge/yemu/node/picomesh-vm.cjs $(NODE_ARGS)
+
+## run-webserver            serve the wasm bundle over HTTP with python
+##                          (the bundle's own serve.py, which sets the
+##                          COOP/COEP headers the wasm needs) — exactly how the
+##                          GitHub Pages deploy is served. Builds the bundle if
+##                          missing. Open http://127.0.0.1:$(WEBSERVER_PORT)/
+##                          and the page boots the VM + runs a startup smoke.
+##                          Override the port: make run-webserver WEBSERVER_PORT=9000
+WEBSERVER_PORT ?= 8000
+run-webserver:
+	@if [ ! -f $(BUILD_DIR_WEBASM_YEMU)/picomesh-yemu.js ]; then \
+		echo "==> wasm bundle missing — building it first"; \
+		$(MAKE) build-webasm-yemu-release; \
+	fi
+	@echo "==> serving $(BUILD_DIR_WEBASM_YEMU) at http://127.0.0.1:$(WEBSERVER_PORT)/  (Ctrl-C to stop)"
+	python3 $(BUILD_DIR_WEBASM_YEMU)/serve.py $(WEBSERVER_PORT) $(BUILD_DIR_WEBASM_YEMU)
 
 ## build-linux-riscv64-release  cross-compile picomesh + picoforge-webapp for
 ##                              riscv64 (static, for the yemu demo VM
