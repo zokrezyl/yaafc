@@ -84,6 +84,15 @@ mesh:
         # (rel_ensure_schema); the uid database also carries the product tables,
         # applied verbatim on shard open (mirrors picoforge.yaml's rstore_uid).
         relational_storage:
+          # EPHEMERAL/in-RAM deploy (the DB tree lives on the tmpfs /tmp and is
+          # discarded on reboot), so trade durability for speed: keep the
+          # rollback journal in memory and skip every fsync. Under the RISC-V
+          # CPU emulation this is the single biggest boot/seed speedup — it kills
+          # the -wal/-shm file churn + fsync syscalls that dominated the perf
+          # profile. (Flat keys apply to all databases below.) The split mesh
+          # leaves these unset → WAL + synchronous=FULL (durable) as before.
+          journal_mode: MEMORY
+          synchronous: "OFF"
           databases:
             uid:
               shards: 1

@@ -530,6 +530,12 @@ void tinyemu_session_close(int sid)
  * shared/tinyemu-pty.c) so even when the VM is deeply idle we wake
  * at least every 10 ms to drain the input ring and slirp's queues. */
 #define BRIDGE_MAX_SLEEP_MS 10
+/* Wall-clock the emulator may burn per tick when the guest is busy (it bails
+ * the instant the CPU idles). Kept at 8ms: it caps emulation at ~80% CPU,
+ * leaving headroom for slirp networking + the timer, which also run on this
+ * (single) main thread — raising it past the 10ms tick interval pegged the
+ * main thread and did NOT speed the boot (the bottleneck is browser wasm
+ * throughput + the 256MB rootfs load, not this budget). */
 #define BRIDGE_TICK_BUDGET_MS 8.0
 
 static void bridge_main_loop_tick(void)

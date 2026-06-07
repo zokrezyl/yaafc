@@ -998,8 +998,9 @@
             smokeLine('STARTUP SMOKE ' + (pass === total ? 'PASS' : 'FAIL') +
                       ' — ' + pass + '/' + total + ' checks', pass === total);
 
-            // Leave the user on the login page (the smoke registered its own
-            // throwaway account; logging in below replaces that cookie).
+            // Drop the smoke's throwaway-account cookies so the user lands
+            // ANONYMOUS on /-/login and can sign in cleanly as root/demo.
+            Object.keys(svcCookies).forEach(function (k) { delete svcCookies[k]; });
             try { renderResp(PORT, await svcFetchOnce(PORT, '/-/login')); } catch (e) { /* ignore */ }
         }
 

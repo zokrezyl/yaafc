@@ -49,6 +49,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strcasecmp */
 #include <sys/stat.h>
 
 #define REL_MAX_SHARDS  64
@@ -223,6 +224,16 @@ static struct rel_set *rel_init(const char *db_name)
     const char *dir = rel_cfg_str(cfg, s->name, "path");          /* shard dir */
     const char *schema = rel_cfg_str(cfg, s->name, "schema");     /* DDL, verbatim */
     int shards = rel_cfg_int(cfg, s->name, "shards", 8);
+    /* Durability/throughput knobs. Default is WAL (gh#29 engine policy). An
+     * EPHEMERAL deploy on tmpfs — the webasm/qemu demo, where the whole DB tree
+     * is in RAM and discarded on reboot — can set journal_mode=MEMORY +
+     * synchronous=OFF to skip the -wal/-shm files and every fsync, which under
+     * CPU emulation is the dominant boot/seed cost. Read with the same
+     * per-db/flat fallback as path/shards (so `relational_storage.journal_mode`
+     * sets it for all databases at once). */
+    const char *journal = rel_cfg_str(cfg, s->name, "journal_mode");
+    const char *synchronous = rel_cfg_str(cfg, s->name, "synchronous");
+    if (!journal || !*journal) journal = "WAL";
     if (!dir || !*dir) {
         char msg[220];
         snprintf(msg, sizeof(msg),
@@ -263,16 +274,29 @@ static struct rel_set *rel_init(const char *db_name)
          *     fails to stick on a SQLite built without FK support. Running with
          *     it silently off is a correctness downgrade, so we FAIL the open. */
         char *pragma_err = NULL;
-        if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, &pragma_err) != SQLITE_OK) {
-            ywarn("relational_storage: set journal_mode=WAL on %s failed: %s", path, pragma_err ? pragma_err : "?");
+        char journal_sql[64];
+        snprintf(journal_sql, sizeof(journal_sql), "PRAGMA journal_mode=%s;", journal);
+        if (sqlite3_exec(db, journal_sql, NULL, NULL, &pragma_err) != SQLITE_OK) {
+            ywarn("relational_storage: set journal_mode=%s on %s failed: %s", journal, path, pragma_err ? pragma_err : "?");
             sqlite3_free(pragma_err);
             pragma_err = NULL;
         }
         char journal_mode[16];
         if (rel_pragma_text(db, "PRAGMA journal_mode;", journal_mode, sizeof(journal_mode))
-            && strcmp(journal_mode, "wal") != 0)
-            ywarn("relational_storage: %s journal_mode is '%s', not WAL — durability/concurrency reduced",
-                  path, journal_mode[0] ? journal_mode : "?");
+            && strcasecmp(journal_mode, journal) != 0)
+            ywarn("relational_storage: %s journal_mode is '%s', not %s — durability/concurrency reduced",
+                  path, journal_mode[0] ? journal_mode : "?", journal);
+        /* Optional synchronous override (e.g. OFF on ephemeral tmpfs — no
+         * fsync). Left at the SQLite default (FULL under WAL) when unset. */
+        if (synchronous && *synchronous) {
+            char sync_sql[64];
+            snprintf(sync_sql, sizeof(sync_sql), "PRAGMA synchronous=%s;", synchronous);
+            if (sqlite3_exec(db, sync_sql, NULL, NULL, &pragma_err) != SQLITE_OK) {
+                ywarn("relational_storage: set synchronous=%s on %s failed: %s", synchronous, path, pragma_err ? pragma_err : "?");
+                sqlite3_free(pragma_err);
+                pragma_err = NULL;
+            }
+        }
 
         if (sqlite3_exec(db, "PRAGMA foreign_keys=ON;", NULL, NULL, &pragma_err) != SQLITE_OK) {
             ywarn("relational_storage: set foreign_keys=ON on %s failed: %s", path, pragma_err ? pragma_err : "?");
