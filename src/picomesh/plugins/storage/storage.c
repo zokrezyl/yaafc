@@ -67,22 +67,22 @@ int storage_context_is_valid(const char *context)
 
 static enum storage_backend resolve_configured_backend(void)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return STORAGE_BACKEND_SQLITE;
-    struct yconfig_node_ptr_result r =
-        yconfig_get(picomesh_engine_config(e), "storage.backend");
-    if (PICOMESH_IS_ERR(r)) {
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return STORAGE_BACKEND_SQLITE;
+    struct yconfig_node_ptr_result backend_node_res =
+        yconfig_get(picomesh_engine_config(engine), "storage.backend");
+    if (PICOMESH_IS_ERR(backend_node_res)) {
         /* An absent key returns OK+NULL; an error here is a real config-read
          * failure. Defaulting silently could pick the wrong backend and write
          * data to the wrong store, so make it loud (and don't leak the chain). */
         yerror("storage: reading 'storage.backend' failed: %s",
-               r.error.msg ? r.error.msg : "?");
-        picomesh_error_destroy(r.error);
+               backend_node_res.error.msg ? backend_node_res.error.msg : "?");
+        picomesh_error_destroy(backend_node_res.error);
         return STORAGE_BACKEND_SQLITE;
     }
-    if (r.value) {
-        const char *s = yconfig_node_as_string(r.value, NULL);
-        if (s && strcmp(s, "mdbx") == 0) return STORAGE_BACKEND_MDBX;
+    if (backend_node_res.value) {
+        const char *backend_name = yconfig_node_as_string(backend_node_res.value, NULL);
+        if (backend_name && strcmp(backend_name, "mdbx") == 0) return STORAGE_BACKEND_MDBX;
     }
     return STORAGE_BACKEND_SQLITE;
 }

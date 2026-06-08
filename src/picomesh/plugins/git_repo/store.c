@@ -92,13 +92,13 @@ PICOMESH_RESULT_DECLARE(gr_storage, struct gr_storage);
  * one proxy per channel (service-lifetime), so this is cheap to call per op. */
 static struct gr_storage_result gr_open(void)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return PICOMESH_ERR(gr_storage, "git_repo: no active engine");
-    struct gr_storage h = {.c = picomesh_engine_service_ctx(e, "sharded_storage")};
-    struct object_ptr_result o = sharded_storage_db_create(&h.c);
-    if (PICOMESH_IS_ERR(o)) return PICOMESH_ERR(gr_storage, "git_repo: storage_db_create failed", o);
-    h.obj = o.value;
-    return PICOMESH_OK(gr_storage, h);
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return PICOMESH_ERR(gr_storage, "git_repo: no active engine");
+    struct gr_storage storage = {.c = picomesh_engine_service_ctx(engine, "sharded_storage")};
+    struct object_ptr_result create_res = sharded_storage_db_create(&storage.c);
+    if (PICOMESH_IS_ERR(create_res)) return PICOMESH_ERR(gr_storage, "git_repo: storage_db_create failed", create_res);
+    storage.obj = create_res.value;
+    return PICOMESH_OK(gr_storage, storage);
 }
 
 /* Resolve the owning namespace PATH to its canonical id via the accounts
@@ -107,12 +107,12 @@ static struct gr_storage_result gr_open(void)
  * 0 when no such namespace exists; a backend error propagates. */
 static struct picomesh_int64_result gr_resolve_namespace(struct yheaders *hdrs, const char *path)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return PICOMESH_ERR(picomesh_int64, "git_repo: no active engine for namespace resolve");
-    struct ctx c = picomesh_engine_service_ctx(e, "accounts");
-    struct object_ptr_result o = accounts_accounts_create(&c);
-    if (PICOMESH_IS_ERR(o)) return PICOMESH_ERR(picomesh_int64, "git_repo: accounts unreachable", o);
-    return accounts_accounts_ns_resolve(&c, o.value, hdrs, path);
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return PICOMESH_ERR(picomesh_int64, "git_repo: no active engine for namespace resolve");
+    struct ctx accounts_ctx = picomesh_engine_service_ctx(engine, "accounts");
+    struct object_ptr_result create_res = accounts_accounts_create(&accounts_ctx);
+    if (PICOMESH_IS_ERR(create_res)) return PICOMESH_ERR(picomesh_int64, "git_repo: accounts unreachable", create_res);
+    return accounts_accounts_ns_resolve(&accounts_ctx, create_res.value, hdrs, path);
 }
 
 /* A parsed repo metadata row. */
@@ -127,31 +127,31 @@ struct repo_rec {
 /* Load repo:<rid> into *out. OK value: 1 = present (parsed into *out),
  * 0 = absent. A backend read failure is propagated — distinct from "no
  * such repo". */
-static struct picomesh_int_result repo_load(struct gr_storage *h, struct yheaders *hdrs, uint32_t rid, struct repo_rec *out)
+static struct picomesh_int_result repo_load(struct gr_storage *storage, struct yheaders *hdrs, uint32_t rid, struct repo_rec *out)
 {
-    char k[40];
-    snprintf(k, sizeof(k), "repo:%u", rid);
-    struct picomesh_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, GIT_REPO_CTX, k);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int, "git_repo: repo read failed", r);
-    if (!r.value || !r.value[0]) { free(r.value); return PICOMESH_OK(picomesh_int, 0); }
-    char *s = r.value;
-    char *t1 = strchr(s, '\t');
-    char *t2 = t1 ? strchr(t1 + 1, '\t') : NULL;
-    char *t3 = t2 ? strchr(t2 + 1, '\t') : NULL;
-    if (!t1 || !t2 || !t3) { free(s); return PICOMESH_OK(picomesh_int, 0); }
-    char *t4 = strchr(t3 + 1, '\t');   /* optional 5th field: namespace_id */
-    *t1 = *t2 = *t3 = 0;
-    if (t4) *t4 = 0;
+    char key[40];
+    snprintf(key, sizeof(key), "repo:%u", rid);
+    struct picomesh_string_result get_res = sharded_storage_db_get(&storage->c, storage->obj, hdrs, GIT_REPO_CTX, key);
+    if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_int, "git_repo: repo read failed", get_res);
+    if (!get_res.value || !get_res.value[0]) { free(get_res.value); return PICOMESH_OK(picomesh_int, 0); }
+    char *row = get_res.value;
+    char *tab1 = strchr(row, '\t');
+    char *tab2 = tab1 ? strchr(tab1 + 1, '\t') : NULL;
+    char *tab3 = tab2 ? strchr(tab2 + 1, '\t') : NULL;
+    if (!tab1 || !tab2 || !tab3) { free(row); return PICOMESH_OK(picomesh_int, 0); }
+    char *tab4 = strchr(tab3 + 1, '\t');   /* optional 5th field: namespace_id */
+    *tab1 = *tab2 = *tab3 = 0;
+    if (tab4) *tab4 = 0;
     memset(out, 0, sizeof(*out));
-    out->owner_id = (uint32_t)strtoul(s, NULL, 10);
-    snprintf(out->owner_name, sizeof(out->owner_name), "%s", t1 + 1);
-    snprintf(out->repo_name,  sizeof(out->repo_name),  "%s", t2 + 1);
-    out->is_public = atoi(t3 + 1) ? 1 : 0;
+    out->owner_id = (uint32_t)strtoul(row, NULL, 10);
+    snprintf(out->owner_name, sizeof(out->owner_name), "%s", tab1 + 1);
+    snprintf(out->repo_name,  sizeof(out->repo_name),  "%s", tab2 + 1);
+    out->is_public = atoi(tab3 + 1) ? 1 : 0;
     /* Older rows predate namespace_id — derive it from the path so the field is
      * always populated (the id is the deterministic hash of the path). */
-    out->namespace_id = t4 ? (uint32_t)strtoul(t4 + 1, NULL, 10) : picomesh_fnv1a32(out->owner_name);
+    out->namespace_id = tab4 ? (uint32_t)strtoul(tab4 + 1, NULL, 10) : picomesh_fnv1a32(out->owner_name);
     if (!out->namespace_id) out->namespace_id = picomesh_fnv1a32(out->owner_name);
-    free(s);
+    free(row);
     return PICOMESH_OK(picomesh_int, 1);
 }
 
@@ -191,70 +191,70 @@ static int repo_caller_may_list(struct yheaders *hdrs, uint32_t owner_id)
 }
 
 /* Write the canonical repo row; propagates a failed write. */
-static struct picomesh_void_result repo_store_row(struct gr_storage *h, struct yheaders *hdrs, uint32_t rid, const struct repo_rec *rec)
+static struct picomesh_void_result repo_store_row(struct gr_storage *storage, struct yheaders *hdrs, uint32_t rid, const struct repo_rec *rec)
 {
-    char k[40], v[192];
-    snprintf(k, sizeof(k), "repo:%u", rid);
-    snprintf(v, sizeof(v), "%u\t%s\t%s\t%d\t%u",
+    char key[40], row[192];
+    snprintf(key, sizeof(key), "repo:%u", rid);
+    snprintf(row, sizeof(row), "%u\t%s\t%s\t%d\t%u",
              rec->owner_id, rec->owner_name, rec->repo_name, rec->is_public, rec->namespace_id);
-    struct picomesh_int_result r = sharded_storage_db_set(&h->c, h->obj, hdrs, GIT_REPO_CTX, k, v);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_void, "git_repo: repo write failed", r);
+    struct picomesh_int_result set_res = sharded_storage_db_set(&storage->c, storage->obj, hdrs, GIT_REPO_CTX, key, row);
+    if (PICOMESH_IS_ERR(set_res)) return PICOMESH_ERR(picomesh_void, "git_repo: repo write failed", set_res);
     return PICOMESH_OK_VOID();
 }
 
 /* Read the global repo count. Backend error propagated; absent → 0. */
-static struct picomesh_int64_result gr_count_get(struct gr_storage *h, struct yheaders *hdrs)
+static struct picomesh_int64_result gr_count_get(struct gr_storage *storage, struct yheaders *hdrs)
 {
-    struct picomesh_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, GIT_REPO_CTX, "count");
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int64, "git_repo: count read failed", r);
-    int64_t n = (r.value && r.value[0]) ? strtoll(r.value, NULL, 10) : 0;
-    free(r.value);
-    return PICOMESH_OK(picomesh_int64, n < 0 ? 0 : n);
+    struct picomesh_string_result get_res = sharded_storage_db_get(&storage->c, storage->obj, hdrs, GIT_REPO_CTX, "count");
+    if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_int64, "git_repo: count read failed", get_res);
+    int64_t count = (get_res.value && get_res.value[0]) ? strtoll(get_res.value, NULL, 10) : 0;
+    free(get_res.value);
+    return PICOMESH_OK(picomesh_int64, count < 0 ? 0 : count);
 }
 
 /* Atomic counter bump — OK value is the value after the add; backend failure
  * propagated, never collapsed into 0. */
-static struct picomesh_int64_result gr_incr(struct gr_storage *h, struct yheaders *hdrs, const char *key, int64_t delta)
+static struct picomesh_int64_result gr_incr(struct gr_storage *storage, struct yheaders *hdrs, const char *key, int64_t delta)
 {
-    struct picomesh_int64_result r = sharded_storage_db_incr(&h->c, h->obj, hdrs, GIT_REPO_CTX, key, delta);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int64, "git_repo: counter update failed", r);
-    return r;
+    struct picomesh_int64_result incr_res = sharded_storage_db_incr(&storage->c, storage->obj, hdrs, GIT_REPO_CTX, key, delta);
+    if (PICOMESH_IS_ERR(incr_res)) return PICOMESH_ERR(picomesh_int64, "git_repo: counter update failed", incr_res);
+    return incr_res;
 }
 
 /* Atomic compare-and-set. OK value: 1 = swapped, 0 = compare mismatch. An
  * empty `expected` matches an absent/empty key, so the same primitive both
  * creates and updates the owner index. A backend error is propagated. */
-static struct picomesh_int_result gr_cas(struct gr_storage *h, struct yheaders *hdrs, const char *key,
+static struct picomesh_int_result gr_cas(struct gr_storage *storage, struct yheaders *hdrs, const char *key,
                                          const char *expected, const char *replacement)
 {
-    struct picomesh_int_result r =
-        sharded_storage_db_compare_and_set(&h->c, h->obj, hdrs, GIT_REPO_CTX, key, expected, replacement);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int, "git_repo: compare-and-set failed", r);
-    return r;
+    struct picomesh_int_result cas_res =
+        sharded_storage_db_compare_and_set(&storage->c, storage->obj, hdrs, GIT_REPO_CTX, key, expected, replacement);
+    if (PICOMESH_IS_ERR(cas_res)) return PICOMESH_ERR(picomesh_int, "git_repo: compare-and-set failed", cas_res);
+    return cas_res;
 }
 
 /* The per-owner index: "owner:<uid>" = newline-joined repo names. OK value is
  * the malloc'd list (caller frees), "" when the owner has none. A backend
  * read failure is propagated. */
-static struct picomesh_string_result owner_list_get(struct gr_storage *h, struct yheaders *hdrs, uint32_t owner_id)
+static struct picomesh_string_result owner_list_get(struct gr_storage *storage, struct yheaders *hdrs, uint32_t owner_id)
 {
-    char k[40];
-    snprintf(k, sizeof(k), "owner:%u", owner_id);
-    struct picomesh_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, GIT_REPO_CTX, k);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_string, "git_repo: owner index read failed", r);
-    return r;
+    char key[40];
+    snprintf(key, sizeof(key), "owner:%u", owner_id);
+    struct picomesh_string_result get_res = sharded_storage_db_get(&storage->c, storage->obj, hdrs, GIT_REPO_CTX, key);
+    if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_string, "git_repo: owner index read failed", get_res);
+    return get_res;
 }
 
 /* Is `name` present as a whole line in the newline-joined `list`? */
 static int name_in_list(const char *list, const char *name)
 {
-    size_t nl = strlen(name);
-    for (const char *p = list; p && *p; ) {
-        const char *e = strchr(p, '\n');
-        size_t len = e ? (size_t)(e - p) : strlen(p);
-        if (len == nl && memcmp(p, name, nl) == 0) return 1;
-        if (!e) break;
-        p = e + 1;
+    size_t name_len = strlen(name);
+    for (const char *cursor = list; cursor && *cursor; ) {
+        const char *newline = strchr(cursor, '\n');
+        size_t len = newline ? (size_t)(newline - cursor) : strlen(cursor);
+        if (len == name_len && memcmp(cursor, name, name_len) == 0) return 1;
+        if (!newline) break;
+        cursor = newline + 1;
     }
     return 0;
 }
@@ -264,26 +264,26 @@ static int name_in_list(const char *list, const char *name)
  * what stops two concurrent creates by the same owner from clobbering each
  * other's list entry. Idempotent — a name already present is a no-op. A
  * backend read/CAS error is propagated; only a clean CAS mismatch retries. */
-static struct picomesh_void_result owner_list_add(struct gr_storage *h, struct yheaders *hdrs,
+static struct picomesh_void_result owner_list_add(struct gr_storage *storage, struct yheaders *hdrs,
                                                   uint32_t owner_id, const char *repo_name)
 {
-    char k[40];
-    snprintf(k, sizeof(k), "owner:%u", owner_id);
+    char key[40];
+    snprintf(key, sizeof(key), "owner:%u", owner_id);
     for (int attempt = 0; attempt < 128; ++attempt) {
-        struct picomesh_string_result lr = owner_list_get(h, hdrs, owner_id);
-        if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index read failed", lr);
-        char *list = lr.value;
+        struct picomesh_string_result list_res = owner_list_get(storage, hdrs, owner_id);
+        if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index read failed", list_res);
+        char *list = list_res.value;
         const char *cur = list ? list : "";
         if (name_in_list(cur, repo_name)) { free(list); return PICOMESH_OK_VOID(); }
         size_t need = strlen(cur) + strlen(repo_name) + 2;
-        char *nl = malloc(need);
-        if (!nl) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: owner index out of memory"); }
-        snprintf(nl, need, "%s%s\n", cur, repo_name);
-        struct picomesh_int_result cas = gr_cas(h, hdrs, k, cur, nl);
-        free(nl);
+        char *new_list = malloc(need);
+        if (!new_list) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: owner index out of memory"); }
+        snprintf(new_list, need, "%s%s\n", cur, repo_name);
+        struct picomesh_int_result cas_res = gr_cas(storage, hdrs, key, cur, new_list);
+        free(new_list);
         free(list);
-        if (PICOMESH_IS_ERR(cas)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index CAS failed", cas);
-        if (cas.value) return PICOMESH_OK_VOID();
+        if (PICOMESH_IS_ERR(cas_res)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index CAS failed", cas_res);
+        if (cas_res.value) return PICOMESH_OK_VOID();
         /* clean mismatch → another writer changed the list; retry */
     }
     return PICOMESH_ERR(picomesh_void, "git_repo: owner index append contended out");
@@ -291,34 +291,34 @@ static struct picomesh_void_result owner_list_add(struct gr_storage *h, struct y
 
 /* Remove repo_name from "owner:<uid>" atomically (same CAS-retry shape).
  * Rebuilds the list without mutating the bytes we pass as `expected`. */
-static struct picomesh_void_result owner_list_remove(struct gr_storage *h, struct yheaders *hdrs,
+static struct picomesh_void_result owner_list_remove(struct gr_storage *storage, struct yheaders *hdrs,
                                                      uint32_t owner_id, const char *repo_name)
 {
-    char k[40];
-    snprintf(k, sizeof(k), "owner:%u", owner_id);
+    char key[40];
+    snprintf(key, sizeof(key), "owner:%u", owner_id);
     for (int attempt = 0; attempt < 128; ++attempt) {
-        struct picomesh_string_result lr = owner_list_get(h, hdrs, owner_id);
-        if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index read failed", lr);
-        char *list = lr.value;
+        struct picomesh_string_result list_res = owner_list_get(storage, hdrs, owner_id);
+        if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index read failed", list_res);
+        char *list = list_res.value;
         if (!list || !*list) { free(list); return PICOMESH_OK_VOID(); }  /* nothing to remove */
         size_t cap = strlen(list) + 1;
-        char *nl = malloc(cap);
-        if (!nl) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: owner index out of memory"); }
-        nl[0] = 0;
-        size_t len = 0, rn = strlen(repo_name);
-        for (const char *p = list; *p; ) {
-            const char *e = strchr(p, '\n');
-            size_t llen = e ? (size_t)(e - p) : strlen(p);
-            if (llen > 0 && !(llen == rn && memcmp(p, repo_name, rn) == 0))
-                len += (size_t)snprintf(nl + len, cap - len, "%.*s\n", (int)llen, p);
-            if (!e) break;
-            p = e + 1;
+        char *new_list = malloc(cap);
+        if (!new_list) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: owner index out of memory"); }
+        new_list[0] = 0;
+        size_t len = 0, name_len = strlen(repo_name);
+        for (const char *cursor = list; *cursor; ) {
+            const char *newline = strchr(cursor, '\n');
+            size_t line_len = newline ? (size_t)(newline - cursor) : strlen(cursor);
+            if (line_len > 0 && !(line_len == name_len && memcmp(cursor, repo_name, name_len) == 0))
+                len += (size_t)snprintf(new_list + len, cap - len, "%.*s\n", (int)line_len, cursor);
+            if (!newline) break;
+            cursor = newline + 1;
         }
-        struct picomesh_int_result cas = gr_cas(h, hdrs, k, list, nl);
-        free(nl);
+        struct picomesh_int_result cas_res = gr_cas(storage, hdrs, key, list, new_list);
+        free(new_list);
         free(list);
-        if (PICOMESH_IS_ERR(cas)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index CAS failed", cas);
-        if (cas.value) return PICOMESH_OK_VOID();
+        if (PICOMESH_IS_ERR(cas_res)) return PICOMESH_ERR(picomesh_void, "git_repo: owner index CAS failed", cas_res);
+        if (cas_res.value) return PICOMESH_OK_VOID();
     }
     return PICOMESH_ERR(picomesh_void, "git_repo: owner index remove contended out");
 }
@@ -331,61 +331,61 @@ static struct picomesh_void_result owner_list_remove(struct gr_storage *h, struc
  * so a namespace's repos — personal or group — are enumerable by path. Same
  * newline-joined value + CAS-retry shape as the owner index, generalised over an
  * arbitrary key. */
-static struct picomesh_string_result repo_index_get(struct gr_storage *h, struct yheaders *hdrs, const char *key)
+static struct picomesh_string_result repo_index_get(struct gr_storage *storage, struct yheaders *hdrs, const char *key)
 {
-    struct picomesh_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, GIT_REPO_CTX, key);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_string, "git_repo: index read failed", r);
-    return r;
+    struct picomesh_string_result get_res = sharded_storage_db_get(&storage->c, storage->obj, hdrs, GIT_REPO_CTX, key);
+    if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_string, "git_repo: index read failed", get_res);
+    return get_res;
 }
 
-static struct picomesh_void_result repo_index_add(struct gr_storage *h, struct yheaders *hdrs,
+static struct picomesh_void_result repo_index_add(struct gr_storage *storage, struct yheaders *hdrs,
                                                   const char *key, const char *name)
 {
     for (int attempt = 0; attempt < 128; ++attempt) {
-        struct picomesh_string_result lr = repo_index_get(h, hdrs, key);
-        if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_void, "git_repo: index read failed", lr);
-        char *list = lr.value;
+        struct picomesh_string_result list_res = repo_index_get(storage, hdrs, key);
+        if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_void, "git_repo: index read failed", list_res);
+        char *list = list_res.value;
         const char *cur = list ? list : "";
         if (name_in_list(cur, name)) { free(list); return PICOMESH_OK_VOID(); }
         size_t need = strlen(cur) + strlen(name) + 2;
-        char *nl = malloc(need);
-        if (!nl) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: index out of memory"); }
-        snprintf(nl, need, "%s%s\n", cur, name);
-        struct picomesh_int_result cas = gr_cas(h, hdrs, key, cur, nl);
-        free(nl);
+        char *new_list = malloc(need);
+        if (!new_list) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: index out of memory"); }
+        snprintf(new_list, need, "%s%s\n", cur, name);
+        struct picomesh_int_result cas_res = gr_cas(storage, hdrs, key, cur, new_list);
+        free(new_list);
         free(list);
-        if (PICOMESH_IS_ERR(cas)) return PICOMESH_ERR(picomesh_void, "git_repo: index CAS failed", cas);
-        if (cas.value) return PICOMESH_OK_VOID();
+        if (PICOMESH_IS_ERR(cas_res)) return PICOMESH_ERR(picomesh_void, "git_repo: index CAS failed", cas_res);
+        if (cas_res.value) return PICOMESH_OK_VOID();
     }
     return PICOMESH_ERR(picomesh_void, "git_repo: index append contended out");
 }
 
-static struct picomesh_void_result repo_index_remove(struct gr_storage *h, struct yheaders *hdrs,
+static struct picomesh_void_result repo_index_remove(struct gr_storage *storage, struct yheaders *hdrs,
                                                      const char *key, const char *name)
 {
     for (int attempt = 0; attempt < 128; ++attempt) {
-        struct picomesh_string_result lr = repo_index_get(h, hdrs, key);
-        if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_void, "git_repo: index read failed", lr);
-        char *list = lr.value;
+        struct picomesh_string_result list_res = repo_index_get(storage, hdrs, key);
+        if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_void, "git_repo: index read failed", list_res);
+        char *list = list_res.value;
         if (!list || !*list) { free(list); return PICOMESH_OK_VOID(); }
         size_t cap = strlen(list) + 1;
-        char *nl = malloc(cap);
-        if (!nl) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: index out of memory"); }
-        nl[0] = 0;
-        size_t len = 0, rn = strlen(name);
-        for (const char *p = list; *p; ) {
-            const char *e = strchr(p, '\n');
-            size_t llen = e ? (size_t)(e - p) : strlen(p);
-            if (llen > 0 && !(llen == rn && memcmp(p, name, rn) == 0))
-                len += (size_t)snprintf(nl + len, cap - len, "%.*s\n", (int)llen, p);
-            if (!e) break;
-            p = e + 1;
+        char *new_list = malloc(cap);
+        if (!new_list) { free(list); return PICOMESH_ERR(picomesh_void, "git_repo: index out of memory"); }
+        new_list[0] = 0;
+        size_t len = 0, name_len = strlen(name);
+        for (const char *cursor = list; *cursor; ) {
+            const char *newline = strchr(cursor, '\n');
+            size_t line_len = newline ? (size_t)(newline - cursor) : strlen(cursor);
+            if (line_len > 0 && !(line_len == name_len && memcmp(cursor, name, name_len) == 0))
+                len += (size_t)snprintf(new_list + len, cap - len, "%.*s\n", (int)line_len, cursor);
+            if (!newline) break;
+            cursor = newline + 1;
         }
-        struct picomesh_int_result cas = gr_cas(h, hdrs, key, list, nl);
-        free(nl);
+        struct picomesh_int_result cas_res = gr_cas(storage, hdrs, key, list, new_list);
+        free(new_list);
         free(list);
-        if (PICOMESH_IS_ERR(cas)) return PICOMESH_ERR(picomesh_void, "git_repo: index CAS failed", cas);
-        if (cas.value) return PICOMESH_OK_VOID();
+        if (PICOMESH_IS_ERR(cas_res)) return PICOMESH_ERR(picomesh_void, "git_repo: index CAS failed", cas_res);
+        if (cas_res.value) return PICOMESH_OK_VOID();
     }
     return PICOMESH_ERR(picomesh_void, "git_repo: index remove contended out");
 }
@@ -404,20 +404,20 @@ static void ns_index_key(char *out, size_t cap, const char *path)
  * resolved. The pointer is owned by yconfig (stable for the process life). */
 static const char *resolve_repos_dir(void)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) {
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) {
         ywarn("git_repo: no active engine — cannot resolve required config 'git_repo.repos_dir'");
         return NULL;
     }
-    struct yconfig_node_ptr_result r =
-        yconfig_get(picomesh_engine_config(e), "git_repo.repos_dir");
-    const char *s = (PICOMESH_IS_OK(r) && r.value) ? yconfig_node_as_string(r.value, NULL) : NULL;
-    if (!s || !*s) {
+    struct yconfig_node_ptr_result config_res =
+        yconfig_get(picomesh_engine_config(engine), "git_repo.repos_dir");
+    const char *repos_dir = (PICOMESH_IS_OK(config_res) && config_res.value) ? yconfig_node_as_string(config_res.value, NULL) : NULL;
+    if (!repos_dir || !*repos_dir) {
         ywarn("git_repo: required config 'git_repo.repos_dir' is missing — "
               "refusing to fall back to a shared default");
         return NULL;
     }
-    return s;
+    return repos_dir;
 }
 
 /* Whether to create the on-disk bare repo (libgit2 git_repository_init)
@@ -429,12 +429,12 @@ static const char *resolve_repos_dir(void)
  * it off; real deployments leave it on. */
 static int repo_disk_init_enabled(void)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (e) {
-        struct yconfig_node_ptr_result r =
-            yconfig_get(picomesh_engine_config(e), "git_repo.disk_init");
-        if (PICOMESH_IS_OK(r) && r.value)
-            return yconfig_node_as_int(r.value, 1) != 0;
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (engine) {
+        struct yconfig_node_ptr_result config_res =
+            yconfig_get(picomesh_engine_config(engine), "git_repo.disk_init");
+        if (PICOMESH_IS_OK(config_res) && config_res.value)
+            return yconfig_node_as_int(config_res.value, 1) != 0;
     }
     return 1;
 }
@@ -450,9 +450,9 @@ static int ensure_libgit2(void)
     int rc = git_libgit2_init();
     tried = 1;
     if (rc < 0) {
-        const git_error *e = git_error_last();
+        const git_error *git_err = git_error_last();
         ywarn("git_repo: git_libgit2_init failed: %s",
-              e && e->message ? e->message : "(no msg)");
+              git_err && git_err->message ? git_err->message : "(no msg)");
         return 0;
     }
     ok = 1;
@@ -466,20 +466,20 @@ static int ensure_libgit2(void)
  * `username_ok` / `reponame_ok` checks — we re-validate at the sink so
  * a future caller bypassing the frontend can't reach the filesystem
  * with a hostile name. */
-static int path_segment_ok(const char *s)
+static int path_segment_ok(const char *segment)
 {
-    if (!s || !*s) return 0;
-    if (s[0] == '.') return 0;
+    if (!segment || !*segment) return 0;
+    if (segment[0] == '.') return 0;
     /* "-" is the webapp's GitLab-style routing sentinel ("<repo>/-/<verb>"), so
      * a namespace/repo segment may never be exactly "-". */
-    if (strcmp(s, "-") == 0) return 0;
-    size_t n = 0;
-    for (const char *p = s; *p; ++p, ++n) {
-        if (n >= REPO_NAME_MAX - 1) return 0;
-        char c = *p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') ||
-              c == '.' || c == '-' || c == '_'))
+    if (strcmp(segment, "-") == 0) return 0;
+    size_t len = 0;
+    for (const char *cursor = segment; *cursor; ++cursor, ++len) {
+        if (len >= REPO_NAME_MAX - 1) return 0;
+        char ch = *cursor;
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+              (ch >= '0' && ch <= '9') ||
+              ch == '.' || ch == '-' || ch == '_'))
             return 0;
     }
     return 1;
@@ -489,28 +489,28 @@ static int path_segment_ok(const char *s)
  * path segment. A repo's owning namespace may be a personal namespace
  * (`alice`) or a nested group namespace (`acme/platform`), so `owner_name`
  * is a path, not a single segment. Empty or trailing/double-slash is rejected. */
-static int path_ok(const char *s)
+static int path_ok(const char *path)
 {
-    if (!s || !*s) return 0;
+    if (!path || !*path) return 0;
     char buf[256];
-    if (strlen(s) >= sizeof(buf)) return 0;
+    if (strlen(path) >= sizeof(buf)) return 0;
     /* The full path is stored verbatim in repo_rec.owner_name (a single
      * REPO_NAME_MAX field) and is the basis of the deterministic repo id. A
      * path that does not fit would be silently truncated on store, so the id
      * (hashed from the full path) would no longer match the stored/derived
      * path, corrupting namespace_of and every later auth check. Reject rather
      * than truncate — fail closed. */
-    if (strlen(s) >= REPO_NAME_MAX) return 0;
-    snprintf(buf, sizeof(buf), "%s", s);
+    if (strlen(path) >= REPO_NAME_MAX) return 0;
+    snprintf(buf, sizeof(buf), "%s", path);
     int segments = 0;
-    for (char *tok = strtok(buf, "/"); tok; tok = strtok(NULL, "/")) {
-        if (!path_segment_ok(tok)) return 0;
+    for (char *token = strtok(buf, "/"); token; token = strtok(NULL, "/")) {
+        if (!path_segment_ok(token)) return 0;
         ++segments;
     }
     /* strtok collapses adjacent slashes, so re-check the raw form has no
      * leading/trailing/double slash that would let two paths alias. */
-    size_t len = strlen(s);
-    if (s[0] == '/' || s[len - 1] == '/' || strstr(s, "//")) return 0;
+    size_t len = strlen(path);
+    if (path[0] == '/' || path[len - 1] == '/' || strstr(path, "//")) return 0;
     return segments > 0;
 }
 
@@ -525,12 +525,12 @@ static uint32_t repo_hash(const char *owner_name, const char *repo_name)
 {
     char key[160];
     snprintf(key, sizeof(key), "%s/%s", owner_name, repo_name);
-    uint32_t h = 2166136261u;
-    for (const char *p = key; *p; ++p) {
-        h ^= (unsigned char)*p;
-        h *= 16777619u;
+    uint32_t hash = 2166136261u;
+    for (const char *cursor = key; *cursor; ++cursor) {
+        hash ^= (unsigned char)*cursor;
+        hash *= 16777619u;
     }
-    return h ? h : 1;
+    return hash ? hash : 1;
 }
 
 /* Build `<repos_dir>/<owner_name>/<repo_name>.git` into `out`. */
@@ -539,8 +539,8 @@ static int repo_dir_build(const char *owner_name, const char *repo_name,
 {
     const char *root = resolve_repos_dir();
     if (!root) return -1;
-    int n = snprintf(out, cap, "%s/%s/%s.git", root, owner_name, repo_name);
-    return (n > 0 && (size_t)n < cap) ? 0 : -1;
+    int written = snprintf(out, cap, "%s/%s/%s.git", root, owner_name, repo_name);
+    return (written > 0 && (size_t)written < cap) ? 0 : -1;
 }
 
 /* mkdir -p for the parent of the repo dir. libgit2's repository_init
@@ -548,10 +548,10 @@ static int repo_dir_build(const char *owner_name, const char *repo_name,
 static int mkdir_p(const char *path)
 {
     char buf[1024];
-    size_t n = strlen(path);
-    if (n == 0 || n >= sizeof(buf)) return -1;
-    memcpy(buf, path, n + 1);
-    for (size_t i = 1; i < n; ++i) {
+    size_t len = strlen(path);
+    if (len == 0 || len >= sizeof(buf)) return -1;
+    memcpy(buf, path, len + 1);
+    for (size_t i = 1; i < len; ++i) {
         if (buf[i] == '/') {
             buf[i] = 0;
             if (mkdir(buf, 0755) != 0 && errno != EEXIST) return -1;
@@ -595,17 +595,17 @@ struct git_init_work {
 static void git_init_work_fn(void *shard_state, void *arg)
 {
     (void)shard_state;   /* make creates a fresh repo; nothing to cache here */
-    struct git_init_work *w = arg;
-    if (mkdir_p(w->parent) != 0) {
-        w->mkdir_errno = errno ? errno : -1;
+    struct git_init_work *work = arg;
+    if (mkdir_p(work->parent) != 0) {
+        work->mkdir_errno = errno ? errno : -1;
         return;
     }
     git_repository *repo = NULL;
-    w->git_rc = git_repository_init(&repo, w->path, /*is_bare*/ 1);
-    if (w->git_rc < 0) {
-        const git_error *e = git_error_last();
-        snprintf(w->git_errmsg, sizeof(w->git_errmsg), "%s",
-                 e && e->message ? e->message : "(no msg)");
+    work->git_rc = git_repository_init(&repo, work->path, /*is_bare*/ 1);
+    if (work->git_rc < 0) {
+        const git_error *git_err = git_error_last();
+        snprintf(work->git_errmsg, sizeof(work->git_errmsg), "%s",
+                 git_err && git_err->message ? git_err->message : "(no msg)");
     } else {
         git_repository_free(repo);
     }
@@ -649,52 +649,52 @@ static void *gr_cache_init(void *ud)
 {
     (void)ud;
     ensure_libgit2();           /* this thread runs libgit2; init is ref-counted */
-    struct gr_repo_cache *c = calloc(1, sizeof(*c));
-    if (c) c->max = 64;
-    return c;
+    struct gr_repo_cache *cache = calloc(1, sizeof(*cache));
+    if (cache) cache->max = 64;
+    return cache;
 }
 
 static void gr_cache_free(void *state)
 {
-    struct gr_repo_cache *c = state;
-    if (!c) return;
-    struct gr_cached *e, *tmp;
-    HASH_ITER(hh, c->by_path, e, tmp) {
-        HASH_DEL(c->by_path, e);
-        git_repository_free(e->repo);
-        free(e);
+    struct gr_repo_cache *cache = state;
+    if (!cache) return;
+    struct gr_cached *entry, *tmp;
+    HASH_ITER(hh, cache->by_path, entry, tmp) {
+        HASH_DEL(cache->by_path, entry);
+        git_repository_free(entry->repo);
+        free(entry);
     }
-    free(c);
+    free(cache);
 }
 
 /* Open-or-reuse the handle for `path`. Cache-OWNED — never freed by callers
  * (use gr_repo_release, a no-op). Single shard thread ⇒ no lock, and no
  * in-use eviction race (only one work fn runs per shard at a time). */
-static int gr_repo_acquire(struct gr_repo_cache *c, const char *path, git_repository **out)
+static int gr_repo_acquire(struct gr_repo_cache *cache, const char *path, git_repository **out)
 {
     *out = NULL;
-    struct gr_cached *e = NULL;
-    if (c) HASH_FIND_STR(c->by_path, path, e);
-    if (e) { *out = e->repo; return 0; }
+    struct gr_cached *entry = NULL;
+    if (cache) HASH_FIND_STR(cache->by_path, path, entry);
+    if (entry) { *out = entry->repo; return 0; }
 
     git_repository *repo = NULL;
     if (git_repository_open(&repo, path) != 0) return -1;
     *out = repo;
-    if (!c) return 0;           /* defensive: no cache ⇒ uncached (shouldn't happen) */
+    if (!cache) return 0;           /* defensive: no cache ⇒ uncached (shouldn't happen) */
 
-    e = calloc(1, sizeof(*e));
-    if (e) {
-        snprintf(e->path, sizeof(e->path), "%s", path);
-        e->repo = repo;
-        HASH_ADD_STR(c->by_path, path, e);
-        c->count++;
-        if (c->max && c->count > c->max) {   /* over budget → evict the oldest */
-            struct gr_cached *old = c->by_path;
-            if (old && old != e) {
-                HASH_DEL(c->by_path, old);
+    entry = calloc(1, sizeof(*entry));
+    if (entry) {
+        snprintf(entry->path, sizeof(entry->path), "%s", path);
+        entry->repo = repo;
+        HASH_ADD_STR(cache->by_path, path, entry);
+        cache->count++;
+        if (cache->max && cache->count > cache->max) {   /* over budget → evict the oldest */
+            struct gr_cached *old = cache->by_path;
+            if (old && old != entry) {
+                HASH_DEL(cache->by_path, old);
                 git_repository_free(old->repo);
                 free(old);
-                c->count--;
+                cache->count--;
             }
         }
     }
@@ -704,9 +704,9 @@ static int gr_repo_acquire(struct gr_repo_cache *c, const char *path, git_reposi
 /* The cache owns the handle; releasing is a no-op (freed on eviction/teardown).
  * Kept for 1:1 symmetry with the old open/free shape so the work fns read
  * cleanly and can never accidentally free a cached handle. */
-static void gr_repo_release(struct gr_repo_cache *c, git_repository *repo)
+static void gr_repo_release(struct gr_repo_cache *cache, git_repository *repo)
 {
-    (void)c; (void)repo;
+    (void)cache; (void)repo;
 }
 
 /* Process-wide affine git executor (one per process, like sharded_storage's
@@ -718,16 +718,16 @@ static struct yexec *git_exec(void)
     static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&mu);
     if (!exec) {
-        int n = 8;
-        struct picomesh_engine *e = picomesh_active_engine();
-        const struct yconfig *cfg = e ? picomesh_engine_config(e) : NULL;
+        int shard_count = 8;
+        struct picomesh_engine *engine = picomesh_active_engine();
+        const struct yconfig *cfg = engine ? picomesh_engine_config(engine) : NULL;
         if (cfg) {
-            struct yconfig_node_ptr_result r = yconfig_get(cfg, "git_repo.commit_shards");
-            if (PICOMESH_IS_OK(r) && r.value) n = (int)yconfig_node_as_int(r.value, 8);
-            else if (PICOMESH_IS_ERR(r)) picomesh_error_destroy(r.error);
+            struct yconfig_node_ptr_result config_res = yconfig_get(cfg, "git_repo.commit_shards");
+            if (PICOMESH_IS_OK(config_res) && config_res.value) shard_count = (int)yconfig_node_as_int(config_res.value, 8);
+            else if (PICOMESH_IS_ERR(config_res)) picomesh_error_destroy(config_res.error);
         }
-        if (n < 1) n = 1;
-        exec = yexec_create(n, gr_cache_init, gr_cache_free, NULL);
+        if (shard_count < 1) shard_count = 1;
+        exec = yexec_create(shard_count, gr_cache_init, gr_cache_free, NULL);
     }
     pthread_mutex_unlock(&mu);
     return exec;
@@ -739,8 +739,8 @@ static struct yexec *git_exec(void)
  * a coroutine, yexec_submit runs the fn inline on a throwaway cache. */
 static void gr_run(const char *key_path, void (*fn)(void *shard_state, void *arg), void *work)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    struct yloop *loop = e ? picomesh_engine_loop(e) : NULL;
+    struct picomesh_engine *engine = picomesh_active_engine();
+    struct yloop *loop = engine ? picomesh_engine_loop(engine) : NULL;
     yexec_submit(git_exec(), loop, picomesh_fnv1a32(key_path), fn, work);
 }
 
@@ -772,62 +772,62 @@ static int resolve_tree(git_repository *repo, const char *ref, git_tree **out_tr
 static void git_read_tree_work_fn(void *shard_state, void *ud)
 {
     struct gr_repo_cache *cache = shard_state;
-    struct git_read_work *w = ud;
-    w->out = NULL; w->out_len = 0; w->rc = 0;
+    struct git_read_work *work = ud;
+    work->out = NULL; work->out_len = 0; work->rc = 0;
 
     git_repository *repo = NULL;
-    if (gr_repo_acquire(cache, w->repo_path, &repo) != 0) { w->rc = -1; return; }
+    if (gr_repo_acquire(cache, work->repo_path, &repo) != 0) { work->rc = -1; return; }
 
     git_tree *tree = NULL;
-    if (resolve_tree(repo, w->ref, &tree) != 0) {
+    if (resolve_tree(repo, work->ref, &tree) != 0) {
         /* Empty/unborn repo → empty listing, not an error. */
         gr_repo_release(cache, repo);
-        w->out = strdup("");
-        w->rc = w->out ? 0 : -1;
+        work->out = strdup("");
+        work->rc = work->out ? 0 : -1;
         return;
     }
 
     /* Descend into a subdirectory when path is non-empty. */
     git_tree *subtree = NULL;
-    const git_tree *cur = tree;
-    if (w->path[0]) {
-        git_tree_entry *te = NULL;
-        if (git_tree_entry_bypath(&te, tree, w->path) != 0 ||
-            git_tree_entry_type(te) != GIT_OBJECT_TREE) {
-            if (te) git_tree_entry_free(te);
+    const git_tree *current_tree = tree;
+    if (work->path[0]) {
+        git_tree_entry *tree_entry = NULL;
+        if (git_tree_entry_bypath(&tree_entry, tree, work->path) != 0 ||
+            git_tree_entry_type(tree_entry) != GIT_OBJECT_TREE) {
+            if (tree_entry) git_tree_entry_free(tree_entry);
             git_tree_free(tree); gr_repo_release(cache, repo);
-            w->rc = -2; /* path is not a directory */
+            work->rc = -2; /* path is not a directory */
             return;
         }
-        int lr = git_tree_lookup(&subtree, repo, git_tree_entry_id(te));
-        git_tree_entry_free(te);
-        if (lr != 0) { git_tree_free(tree); gr_repo_release(cache, repo); w->rc = -3; return; }
-        cur = subtree;
+        int lookup_rc = git_tree_lookup(&subtree, repo, git_tree_entry_id(tree_entry));
+        git_tree_entry_free(tree_entry);
+        if (lookup_rc != 0) { git_tree_free(tree); gr_repo_release(cache, repo); work->rc = -3; return; }
+        current_tree = subtree;
     }
 
     /* One entry per line: "<type>\t<name>\n", type ∈ {tree,blob}. git
      * returns entries name-sorted already. */
-    size_t n = git_tree_entrycount(cur);
+    size_t entry_count = git_tree_entrycount(current_tree);
     size_t cap = 256, len = 0;
     char *buf = malloc(cap);
     if (buf) {
         buf[0] = 0;
-        for (size_t i = 0; i < n; i++) {
-            const git_tree_entry *e = git_tree_entry_byindex(cur, i);
-            const char *nm = git_tree_entry_name(e);
-            const char *ty = git_tree_entry_type(e) == GIT_OBJECT_TREE ? "tree" : "blob";
-            size_t need = strlen(ty) + 1 + strlen(nm) + 1;
+        for (size_t i = 0; i < entry_count; i++) {
+            const git_tree_entry *entry = git_tree_entry_byindex(current_tree, i);
+            const char *name = git_tree_entry_name(entry);
+            const char *type = git_tree_entry_type(entry) == GIT_OBJECT_TREE ? "tree" : "blob";
+            size_t need = strlen(type) + 1 + strlen(name) + 1;
             if (len + need + 1 > cap) {
                 while (len + need + 1 > cap) cap *= 2;
-                char *nb = realloc(buf, cap);
-                if (!nb) { free(buf); buf = NULL; break; }
-                buf = nb;
+                char *new_buf = realloc(buf, cap);
+                if (!new_buf) { free(buf); buf = NULL; break; }
+                buf = new_buf;
             }
-            len += (size_t)snprintf(buf + len, cap - len, "%s\t%s\n", ty, nm);
+            len += (size_t)snprintf(buf + len, cap - len, "%s\t%s\n", type, name);
         }
     }
-    if (buf) { buf[len] = 0; w->out = buf; w->out_len = len; w->rc = 0; }
-    else w->rc = -1;
+    if (buf) { buf[len] = 0; work->out = buf; work->out_len = len; work->rc = 0; }
+    else work->rc = -1;
 
     if (subtree) git_tree_free(subtree);
     git_tree_free(tree);
@@ -837,33 +837,33 @@ static void git_read_tree_work_fn(void *shard_state, void *ud)
 static void git_read_file_work_fn(void *shard_state, void *ud)
 {
     struct gr_repo_cache *cache = shard_state;
-    struct git_read_work *w = ud;
-    w->out = NULL; w->out_len = 0; w->rc = 0;
+    struct git_read_work *work = ud;
+    work->out = NULL; work->out_len = 0; work->rc = 0;
 
     git_repository *repo = NULL;
-    if (gr_repo_acquire(cache, w->repo_path, &repo) != 0) { w->rc = -1; return; }
+    if (gr_repo_acquire(cache, work->repo_path, &repo) != 0) { work->rc = -1; return; }
 
     git_tree *tree = NULL;
-    if (resolve_tree(repo, w->ref, &tree) != 0) { gr_repo_release(cache, repo); w->rc = -2; return; }
+    if (resolve_tree(repo, work->ref, &tree) != 0) { gr_repo_release(cache, repo); work->rc = -2; return; }
 
-    git_tree_entry *te = NULL;
-    if (git_tree_entry_bypath(&te, tree, w->path) != 0 ||
-        git_tree_entry_type(te) != GIT_OBJECT_BLOB) {
-        if (te) git_tree_entry_free(te);
+    git_tree_entry *tree_entry = NULL;
+    if (git_tree_entry_bypath(&tree_entry, tree, work->path) != 0 ||
+        git_tree_entry_type(tree_entry) != GIT_OBJECT_BLOB) {
+        if (tree_entry) git_tree_entry_free(tree_entry);
         git_tree_free(tree); gr_repo_release(cache, repo);
-        w->rc = -3; /* not a file */
+        work->rc = -3; /* not a file */
         return;
     }
     git_blob *blob = NULL;
-    int lr = git_blob_lookup(&blob, repo, git_tree_entry_id(te));
-    git_tree_entry_free(te);
-    if (lr != 0) { git_tree_free(tree); gr_repo_release(cache, repo); w->rc = -4; return; }
+    int lookup_rc = git_blob_lookup(&blob, repo, git_tree_entry_id(tree_entry));
+    git_tree_entry_free(tree_entry);
+    if (lookup_rc != 0) { git_tree_free(tree); gr_repo_release(cache, repo); work->rc = -4; return; }
 
-    size_t sz = (size_t)git_blob_rawsize(blob);
+    size_t size = (size_t)git_blob_rawsize(blob);
     const void *raw = git_blob_rawcontent(blob);
-    char *out = malloc(sz + 1);
-    if (out) { memcpy(out, raw, sz); out[sz] = 0; w->out = out; w->out_len = sz; w->rc = 0; }
-    else w->rc = -1;
+    char *out = malloc(size + 1);
+    if (out) { memcpy(out, raw, size); out[size] = 0; work->out = out; work->out_len = size; work->rc = 0; }
+    else work->rc = -1;
 
     git_blob_free(blob);
     git_tree_free(tree);
@@ -886,46 +886,46 @@ struct git_put_work {
  * writing the resulting tree id to *out. One path component per level,
  * preserving sibling entries of any existing subtree. */
 static int put_insert(git_repository *repo, const git_tree *base,
-                      char **comps, int idx, int n,
+                      char **comps, int idx, int comp_count,
                       const git_oid *blob_oid, git_oid *out)
 {
-    git_treebuilder *bld = NULL;
-    if (git_treebuilder_new(&bld, repo, base) != 0) return -1;
+    git_treebuilder *builder = NULL;
+    if (git_treebuilder_new(&builder, repo, base) != 0) return -1;
 
     int rc;
-    if (idx == n - 1) {
-        rc = git_treebuilder_insert(NULL, bld, comps[idx], blob_oid, GIT_FILEMODE_BLOB);
+    if (idx == comp_count - 1) {
+        rc = git_treebuilder_insert(NULL, builder, comps[idx], blob_oid, GIT_FILEMODE_BLOB);
     } else {
-        git_tree *sub = NULL;
+        git_tree *subtree = NULL;
         if (base) {
-            const git_tree_entry *e = git_treebuilder_get(bld, comps[idx]);
-            if (e && git_tree_entry_type(e) == GIT_OBJECT_TREE)
-                git_tree_lookup(&sub, repo, git_tree_entry_id(e));
+            const git_tree_entry *entry = git_treebuilder_get(builder, comps[idx]);
+            if (entry && git_tree_entry_type(entry) == GIT_OBJECT_TREE)
+                git_tree_lookup(&subtree, repo, git_tree_entry_id(entry));
         }
         git_oid sub_oid;
-        rc = put_insert(repo, sub, comps, idx + 1, n, blob_oid, &sub_oid);
-        if (sub) git_tree_free(sub);
+        rc = put_insert(repo, subtree, comps, idx + 1, comp_count, blob_oid, &sub_oid);
+        if (subtree) git_tree_free(subtree);
         if (rc == 0)
-            rc = git_treebuilder_insert(NULL, bld, comps[idx], &sub_oid, GIT_FILEMODE_TREE);
+            rc = git_treebuilder_insert(NULL, builder, comps[idx], &sub_oid, GIT_FILEMODE_TREE);
     }
-    if (rc == 0) rc = git_treebuilder_write(out, bld);
-    git_treebuilder_free(bld);
+    if (rc == 0) rc = git_treebuilder_write(out, builder);
+    git_treebuilder_free(builder);
     return rc;
 }
 
 static void git_put_file_work_fn(void *shard_state, void *ud)
 {
     struct gr_repo_cache *cache = shard_state;
-    struct git_put_work *w = ud;
-    w->rc = 0; w->out_oid[0] = 0;
+    struct git_put_work *work = ud;
+    work->rc = 0; work->out_oid[0] = 0;
 
     git_repository *repo = NULL;
-    if (gr_repo_acquire(cache, w->repo_path, &repo) != 0) { w->rc = -1; return; }
+    if (gr_repo_acquire(cache, work->repo_path, &repo) != 0) { work->rc = -1; return; }
 
     /* 1) content → blob */
     git_oid blob_oid;
-    if (git_blob_create_from_buffer(&blob_oid, repo, w->content, w->content_len) != 0) {
-        gr_repo_release(cache, repo); w->rc = -2; return;
+    if (git_blob_create_from_buffer(&blob_oid, repo, work->content, work->content_len) != 0) {
+        gr_repo_release(cache, repo); work->rc = -2; return;
     }
 
     /* 2) the branch HEAD points at + its tip commit + that commit's tree */
@@ -934,8 +934,8 @@ static void git_put_file_work_fn(void *shard_state, void *ud)
     git_reference *head = NULL;
     if (git_reference_lookup(&head, repo, "HEAD") == 0) {
         if (git_reference_type(head) == GIT_REFERENCE_SYMBOLIC) {
-            const char *t = git_reference_symbolic_target(head);
-            if (t) snprintf(branch_ref, sizeof(branch_ref), "%s", t);
+            const char *target = git_reference_symbolic_target(head);
+            if (target) snprintf(branch_ref, sizeof(branch_ref), "%s", target);
         }
         git_reference_free(head);
     }
@@ -949,52 +949,52 @@ static void git_put_file_work_fn(void *shard_state, void *ud)
 
     /* 3) split path into components, build the new root tree */
     char pathbuf[1024];
-    snprintf(pathbuf, sizeof(pathbuf), "%s", w->path);
+    snprintf(pathbuf, sizeof(pathbuf), "%s", work->path);
     char *comps[64];
-    int n = 0;
-    for (char *tok = strtok(pathbuf, "/"); tok && n < 64; tok = strtok(NULL, "/"))
-        comps[n++] = tok;
-    if (n == 0) {
+    int comp_count = 0;
+    for (char *token = strtok(pathbuf, "/"); token && comp_count < 64; token = strtok(NULL, "/"))
+        comps[comp_count++] = token;
+    if (comp_count == 0) {
         if (base) git_tree_free(base);
         if (parent) git_commit_free(parent);
         gr_repo_release(cache, repo);
-        w->rc = -3; return;
+        work->rc = -3; return;
     }
 
     git_oid tree_oid;
-    int rc = put_insert(repo, base, comps, 0, n, &blob_oid, &tree_oid);
+    int rc = put_insert(repo, base, comps, 0, comp_count, &blob_oid, &tree_oid);
     if (base) git_tree_free(base);
     if (rc != 0) {
         if (parent) git_commit_free(parent);
         gr_repo_release(cache, repo);
-        w->rc = -4; return;
+        work->rc = -4; return;
     }
 
     git_tree *new_tree = NULL;
     if (git_tree_lookup(&new_tree, repo, &tree_oid) != 0) {
         if (parent) git_commit_free(parent);
         gr_repo_release(cache, repo);
-        w->rc = -5; return;
+        work->rc = -5; return;
     }
 
     /* 4) signature + commit (updates branch_ref, so HEAD advances) */
     git_signature *sig = NULL;
-    const char *an = w->author_name[0] ? w->author_name : "picoforge";
-    const char *ae = w->author_email[0] ? w->author_email : "picoforge@localhost";
-    if (git_signature_now(&sig, an, ae) != 0) {
+    const char *author = work->author_name[0] ? work->author_name : "picoforge";
+    const char *email = work->author_email[0] ? work->author_email : "picoforge@localhost";
+    if (git_signature_now(&sig, author, email) != 0) {
         git_tree_free(new_tree);
         if (parent) git_commit_free(parent);
         gr_repo_release(cache, repo);
-        w->rc = -6; return;
+        work->rc = -6; return;
     }
 
     git_oid commit_oid;
     const git_commit *parents[1] = { parent };
     rc = git_commit_create(&commit_oid, repo, branch_ref, sig, sig, NULL,
-                           w->message[0] ? w->message : "update", new_tree,
+                           work->message[0] ? work->message : "update", new_tree,
                            has_parent ? 1 : 0, has_parent ? parents : NULL);
-    if (rc == 0) git_oid_tostr(w->out_oid, sizeof(w->out_oid), &commit_oid);
-    else w->rc = -7;
+    if (rc == 0) git_oid_tostr(work->out_oid, sizeof(work->out_oid), &commit_oid);
+    else work->rc = -7;
 
     git_signature_free(sig);
     git_tree_free(new_tree);
@@ -1029,10 +1029,10 @@ struct picomesh_uint32_result git_repo_git_repo_make_impl(struct ctx *ctx, struc
      * (issue #30): a repo references a real namespace_id, it does not implicitly
      * create one. Resolved BEFORE any on-disk work so a bad request creates
      * nothing. */
-    struct picomesh_int64_result nsr = gr_resolve_namespace(hdrs, owner_name);
-    if (PICOMESH_IS_ERR(nsr)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: namespace resolve failed", nsr);
-    if (nsr.value <= 0) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: owning namespace does not exist");
-    uint32_t namespace_id = (uint32_t)nsr.value;
+    struct picomesh_int64_result namespace_res = gr_resolve_namespace(hdrs, owner_name);
+    if (PICOMESH_IS_ERR(namespace_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: namespace resolve failed", namespace_res);
+    if (namespace_res.value <= 0) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: owning namespace does not exist");
+    uint32_t namespace_id = (uint32_t)namespace_res.value;
 
     /* Service-local authz (FAIL CLOSED, issue #30): require developer+ on the
      * target namespace, a site admin, or the trusted internal capability (the
@@ -1062,26 +1062,26 @@ struct picomesh_uint32_result git_repo_git_repo_make_impl(struct ctx *ctx, struc
      * every service agree on it without a lookup. */
     uint32_t repo_id = repo_hash(owner_name, repo_name);
 
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
 
     /* Reject a duplicate up front (same id ⇒ same owner/name). A backend
      * read failure here is propagated, not treated as "no duplicate". */
     struct repo_rec existing;
-    struct picomesh_int_result dup = repo_load(&h, hdrs, repo_id, &existing);
-    if (PICOMESH_IS_ERR(dup)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: duplicate check failed", dup);
-    if (dup.value) {
+    struct picomesh_int_result dup_res = repo_load(&storage, hdrs, repo_id, &existing);
+    if (PICOMESH_IS_ERR(dup_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: duplicate check failed", dup_res);
+    if (dup_res.value) {
         /* The repo already exists. A PRIOR create may have committed the repo
          * row but failed before updating an index (the owner/namespace indexes
          * are written after the row). Repair them idempotently so the namespace
          * page lists the repo on a retry, then report the duplicate. */
         char full_dup[192];
         snprintf(full_dup, sizeof(full_dup), "%s/%s", existing.owner_name, existing.repo_name);
-        (void)owner_list_add(&h, hdrs, existing.owner_id, full_dup);
+        (void)owner_list_add(&storage, hdrs, existing.owner_id, full_dup);
         char nsk_dup[200];
         ns_index_key(nsk_dup, sizeof(nsk_dup), existing.owner_name);
-        (void)repo_index_add(&h, hdrs, nsk_dup, existing.repo_name);
+        (void)repo_index_add(&storage, hdrs, nsk_dup, existing.repo_name);
         return PICOMESH_ERR(picomesh_uint32, "git_repo_make: repo already exists");
     }
 
@@ -1100,8 +1100,8 @@ struct picomesh_uint32_result git_repo_git_repo_make_impl(struct ctx *ctx, struc
         const char *root = resolve_repos_dir();
         if (!root)
             return PICOMESH_ERR(picomesh_uint32, "git_repo_make: required config 'git_repo.repos_dir' missing");
-        int pn = snprintf(work.parent, sizeof(work.parent), "%s/%s", root, owner_name);
-        if (pn <= 0 || (size_t)pn >= sizeof(work.parent))
+        int written = snprintf(work.parent, sizeof(work.parent), "%s/%s", root, owner_name);
+        if (written <= 0 || (size_t)written >= sizeof(work.parent))
             return PICOMESH_ERR(picomesh_uint32, "git_repo_make: path too long");
         gr_run(work.path, git_init_work_fn, &work);
         if (work.mkdir_errno != 0) {
@@ -1127,31 +1127,31 @@ struct picomesh_uint32_result git_repo_git_repo_make_impl(struct ctx *ctx, struc
     struct repo_rec rec = {.owner_id = owner_id, .is_public = 0, .namespace_id = namespace_id};
     snprintf(rec.owner_name, sizeof(rec.owner_name), "%s", owner_name);
     snprintf(rec.repo_name,  sizeof(rec.repo_name),  "%s", repo_name);
-    char rk[40], rv[192];
-    snprintf(rk, sizeof(rk), "repo:%u", repo_id);
-    snprintf(rv, sizeof(rv), "%u\t%s\t%s\t%d\t%u",
+    char repo_key[40], repo_row[192];
+    snprintf(repo_key, sizeof(repo_key), "repo:%u", repo_id);
+    snprintf(repo_row, sizeof(repo_row), "%u\t%s\t%s\t%d\t%u",
              rec.owner_id, rec.owner_name, rec.repo_name, rec.is_public, rec.namespace_id);
-    struct picomesh_int_result ins =
-        sharded_storage_db_put_if_absent(&h.c, h.obj, hdrs, GIT_REPO_CTX, rk, rv);
-    if (PICOMESH_IS_ERR(ins))
-        return PICOMESH_ERR(picomesh_uint32, "git_repo_make: storage write failed", ins);
-    if (ins.value == 0)
+    struct picomesh_int_result insert_res =
+        sharded_storage_db_put_if_absent(&storage.c, storage.obj, hdrs, GIT_REPO_CTX, repo_key, repo_row);
+    if (PICOMESH_IS_ERR(insert_res))
+        return PICOMESH_ERR(picomesh_uint32, "git_repo_make: storage write failed", insert_res);
+    if (insert_res.value == 0)
         return PICOMESH_ERR(picomesh_uint32, "git_repo_make: repo already exists");
-    struct picomesh_int64_result cinc = gr_incr(&h, hdrs, "count", 1);
-    if (PICOMESH_IS_ERR(cinc)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: bump count failed", cinc);
+    struct picomesh_int64_result count_inc_res = gr_incr(&storage, hdrs, "count", 1);
+    if (PICOMESH_IS_ERR(count_inc_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: bump count failed", count_inc_res);
     /* The owner index keys by the creator's uid but stores the repo's FULL PATH
      * (<namespace>/<repo>), so "your repositories" links resolve correctly even
      * for a repo created in a GROUP namespace (where the path != the username). */
     char full_path[192];
     snprintf(full_path, sizeof(full_path), "%s/%s", owner_name, repo_name);
-    struct picomesh_void_result oadd = owner_list_add(&h, hdrs, owner_id, full_path);
-    if (PICOMESH_IS_ERR(oadd)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: owner index append failed", oadd);
+    struct picomesh_void_result owner_add_res = owner_list_add(&storage, hdrs, owner_id, full_path);
+    if (PICOMESH_IS_ERR(owner_add_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: owner index append failed", owner_add_res);
     /* Also index by the owning NAMESPACE PATH (value = bare repo name, since the
      * path is the key) so the repo is enumerable from its namespace page. */
     char nsk[200];
     ns_index_key(nsk, sizeof(nsk), owner_name);
-    struct picomesh_void_result nsadd = repo_index_add(&h, hdrs, nsk, repo_name);
-    if (PICOMESH_IS_ERR(nsadd)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: namespace index append failed", nsadd);
+    struct picomesh_void_result ns_add_res = repo_index_add(&storage, hdrs, nsk, repo_name);
+    if (PICOMESH_IS_ERR(ns_add_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_make: namespace index append failed", ns_add_res);
     return PICOMESH_OK(picomesh_uint32, repo_id);
 }
 
@@ -1160,14 +1160,14 @@ struct picomesh_int_result git_repo_git_repo_delete_impl(struct ctx *ctx, struct
                                                    uint32_t repo_id)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
 
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: load failed", lr);
-    if (lr.value == 0) return PICOMESH_OK(picomesh_int, 0);  /* no such repo */
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_OK(picomesh_int, 0);  /* no such repo */
 
     /* Deleting a repo is a maintainer-grade operation on its namespace
      * (inherited), or a site admin / trusted internal capability (issue #30).
@@ -1179,11 +1179,11 @@ struct picomesh_int_result git_repo_git_repo_delete_impl(struct ctx *ctx, struct
      * the caller that actually removed it. Gate the on-disk rm, the count
      * decrement and the owner-index removal on that, so a backend failure
      * propagates and two racing deletes can't both decrement the count. */
-    char k[40];
-    snprintf(k, sizeof(k), "repo:%u", repo_id);
-    struct picomesh_int_result del = sharded_storage_db_del(&h.c, h.obj, hdrs, GIT_REPO_CTX, k);
-    if (PICOMESH_IS_ERR(del)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: row delete failed", del);
-    if (del.value == 0) return PICOMESH_OK(picomesh_int, 0);  /* another caller removed it first */
+    char key[40];
+    snprintf(key, sizeof(key), "repo:%u", repo_id);
+    struct picomesh_int_result del_res = sharded_storage_db_del(&storage.c, storage.obj, hdrs, GIT_REPO_CTX, key);
+    if (PICOMESH_IS_ERR(del_res)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: row delete failed", del_res);
+    if (del_res.value == 0) return PICOMESH_OK(picomesh_int, 0);  /* another caller removed it first */
 
     /* Names from the metadata row tell us exactly which on-disk dir to drop. */
     char path[1024];
@@ -1192,16 +1192,16 @@ struct picomesh_int_result git_repo_git_repo_delete_impl(struct ctx *ctx, struct
             ywarn("git_repo: rm_rf(%s) failed: %s", path, strerror(errno));
     }
 
-    struct picomesh_int64_result cdec = gr_incr(&h, hdrs, "count", -1);
-    if (PICOMESH_IS_ERR(cdec)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: count update failed", cdec);
+    struct picomesh_int64_result count_dec_res = gr_incr(&storage, hdrs, "count", -1);
+    if (PICOMESH_IS_ERR(count_dec_res)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: count update failed", count_dec_res);
     char full_del[192];
     snprintf(full_del, sizeof(full_del), "%s/%s", rec.owner_name, rec.repo_name);
-    struct picomesh_void_result orem = owner_list_remove(&h, hdrs, rec.owner_id, full_del);
-    if (PICOMESH_IS_ERR(orem)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: owner index update failed", orem);
+    struct picomesh_void_result owner_remove_res = owner_list_remove(&storage, hdrs, rec.owner_id, full_del);
+    if (PICOMESH_IS_ERR(owner_remove_res)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: owner index update failed", owner_remove_res);
     char nsk[200];
     ns_index_key(nsk, sizeof(nsk), rec.owner_name);
-    struct picomesh_void_result nsrem = repo_index_remove(&h, hdrs, nsk, rec.repo_name);
-    if (PICOMESH_IS_ERR(nsrem)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: namespace index update failed", nsrem);
+    struct picomesh_void_result ns_remove_res = repo_index_remove(&storage, hdrs, nsk, rec.repo_name);
+    if (PICOMESH_IS_ERR(ns_remove_res)) return PICOMESH_ERR(picomesh_int, "git_repo_delete: namespace index update failed", ns_remove_res);
     return PICOMESH_OK(picomesh_int, 1);
 }
 
@@ -1210,13 +1210,13 @@ struct picomesh_uint32_result git_repo_git_repo_owner_of_impl(struct ctx *ctx, s
                                                         uint32_t repo_id)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_uint32, "git_repo_owner_of: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_owner_of: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_uint32, "git_repo_owner_of: load failed", lr);
-    return PICOMESH_OK(picomesh_uint32, lr.value ? rec.owner_id : 0);
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_uint32, "git_repo_owner_of: load failed", load_res);
+    return PICOMESH_OK(picomesh_uint32, load_res.value ? rec.owner_id : 0);
 }
 
 /* The repo's owning NAMESPACE PATH (issue #30). For a personal repo this is the
@@ -1229,13 +1229,13 @@ struct picomesh_string_result git_repo_git_repo_namespace_of_impl(struct ctx *ct
                                                                   uint32_t repo_id)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "git_repo_namespace_of: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_string, "git_repo_namespace_of: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_string, "git_repo_namespace_of: load failed", lr);
-    char *out = strdup(lr.value ? rec.owner_name : "");
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_string, "git_repo_namespace_of: load failed", load_res);
+    char *out = strdup(load_res.value ? rec.owner_name : "");
     if (!out) return PICOMESH_ERR(picomesh_string, "git_repo_namespace_of: out of memory");
     return PICOMESH_OK(picomesh_string, out);
 }
@@ -1247,28 +1247,28 @@ struct picomesh_size_result git_repo_git_repo_count_for_owner_impl(struct ctx *c
     (void)ctx; (void)obj;
     if (!repo_caller_may_list(hdrs, owner_id))
         return PICOMESH_ERR(picomesh_size, "git_repo_count_for_owner: forbidden (cannot list another namespace)");
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_owner: storage open failed", sr);
-    struct gr_storage h = sr.value;
-    struct picomesh_string_result lr = owner_list_get(&h, hdrs, owner_id);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_owner: read failed", lr);
-    char *list = lr.value;
-    size_t n = 0;
-    for (const char *p = list; p && *p; ++p) if (*p == '\n') n++;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_owner: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
+    struct picomesh_string_result list_res = owner_list_get(&storage, hdrs, owner_id);
+    if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_owner: read failed", list_res);
+    char *list = list_res.value;
+    size_t count = 0;
+    for (const char *cursor = list; cursor && *cursor; ++cursor) if (*cursor == '\n') count++;
     free(list);
-    return PICOMESH_OK(picomesh_size, n);
+    return PICOMESH_OK(picomesh_size, count);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@git_repo:git_repo:git_repo_count_total")
 struct picomesh_size_result git_repo_git_repo_count_total_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_size, "git_repo_count_total: storage open failed", sr);
-    struct gr_storage h = sr.value;
-    struct picomesh_int64_result cr = gr_count_get(&h, hdrs);
-    if (PICOMESH_IS_ERR(cr)) return PICOMESH_ERR(picomesh_size, "git_repo_count_total: read failed", cr);
-    return PICOMESH_OK(picomesh_size, (size_t)cr.value);
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_size, "git_repo_count_total: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
+    struct picomesh_int64_result count_res = gr_count_get(&storage, hdrs);
+    if (PICOMESH_IS_ERR(count_res)) return PICOMESH_ERR(picomesh_size, "git_repo_count_total: read failed", count_res);
+    return PICOMESH_OK(picomesh_size, (size_t)count_res.value);
 }
 
 /* List the repo names owned by `owner_id`, newline-separated (empty
@@ -1284,15 +1284,15 @@ struct picomesh_string_result git_repo_git_repo_list_for_owner_impl(struct ctx *
     (void)ctx; (void)obj;
     if (!repo_caller_may_list(hdrs, owner_id))
         return PICOMESH_ERR(picomesh_string, "git_repo_list_for_owner: forbidden (cannot list another namespace)");
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_owner: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_owner: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     /* The owner index is already the newline-joined name list the caller
      * wants — hand it back verbatim (empty string when the user owns none).
      * A backend read failure is propagated, never shown as "no repos". */
-    struct picomesh_string_result lr = owner_list_get(&h, hdrs, owner_id);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_owner: read failed", lr);
-    char *list = lr.value;
+    struct picomesh_string_result list_res = owner_list_get(&storage, hdrs, owner_id);
+    if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_owner: read failed", list_res);
+    char *list = list_res.value;
     if (!list) {
         list = strdup("");
         if (!list) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_owner: out of memory");
@@ -1313,14 +1313,14 @@ struct picomesh_string_result git_repo_git_repo_list_for_namespace_impl(struct c
     if (!path_ok(path)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_namespace: invalid namespace path");
     if (!repo_caller_has_role(hdrs, path, "reporter"))
         return PICOMESH_ERR(picomesh_string, "git_repo_list_for_namespace: forbidden (insufficient namespace role)");
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_namespace: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_namespace: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     char nsk[200];
     ns_index_key(nsk, sizeof(nsk), path);
-    struct picomesh_string_result lr = repo_index_get(&h, hdrs, nsk);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_namespace: read failed", lr);
-    char *list = lr.value ? lr.value : strdup("");
+    struct picomesh_string_result list_res = repo_index_get(&storage, hdrs, nsk);
+    if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_namespace: read failed", list_res);
+    char *list = list_res.value ? list_res.value : strdup("");
     if (!list) return PICOMESH_ERR(picomesh_string, "git_repo_list_for_namespace: out of memory");
     return PICOMESH_OK(picomesh_string, list);
 }
@@ -1334,18 +1334,18 @@ struct picomesh_size_result git_repo_git_repo_count_for_namespace_impl(struct ct
     if (!path_ok(path)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_namespace: invalid namespace path");
     if (!repo_caller_has_role(hdrs, path, "reporter"))
         return PICOMESH_ERR(picomesh_size, "git_repo_count_for_namespace: forbidden (insufficient namespace role)");
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_namespace: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_namespace: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     char nsk[200];
     ns_index_key(nsk, sizeof(nsk), path);
-    struct picomesh_string_result lr = repo_index_get(&h, hdrs, nsk);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_namespace: read failed", lr);
-    char *list = lr.value;
-    size_t n = 0;
-    for (const char *p = list; p && *p; ++p) if (*p == '\n') n++;
+    struct picomesh_string_result list_res = repo_index_get(&storage, hdrs, nsk);
+    if (PICOMESH_IS_ERR(list_res)) return PICOMESH_ERR(picomesh_size, "git_repo_count_for_namespace: read failed", list_res);
+    char *list = list_res.value;
+    size_t count = 0;
+    for (const char *cursor = list; cursor && *cursor; ++cursor) if (*cursor == '\n') count++;
     free(list);
-    return PICOMESH_OK(picomesh_size, n);
+    return PICOMESH_OK(picomesh_size, count);
 }
 
 /* ---- tree/blob/commit public methods ------------------------------ */
@@ -1358,13 +1358,13 @@ struct picomesh_string_result git_repo_git_repo_read_tree_impl(struct ctx *ctx, 
                                                             uint32_t repo_id, const char *ref, const char *path)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: load failed", lr);
-    if (lr.value == 0) return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: no such repo");
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: no such repo");
     /* Read authz (resource-level, namespace RBAC — issue #30): a public repo is
      * world-readable; a private one needs at least `reporter` on the repo's
      * owning namespace (inherited from parent namespaces), or a site admin.
@@ -1374,16 +1374,16 @@ struct picomesh_string_result git_repo_git_repo_read_tree_impl(struct ctx *ctx, 
         return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: forbidden (insufficient namespace role)");
     if (!ensure_libgit2()) return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: libgit2 init failed");
 
-    struct git_read_work w;
-    memset(&w, 0, sizeof(w));
-    if (repo_dir_build(rec.owner_name, rec.repo_name, w.repo_path, sizeof(w.repo_path)) != 0)
+    struct git_read_work work;
+    memset(&work, 0, sizeof(work));
+    if (repo_dir_build(rec.owner_name, rec.repo_name, work.repo_path, sizeof(work.repo_path)) != 0)
         return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: path too long");
-    snprintf(w.ref, sizeof(w.ref), "%s", ref ? ref : "");
-    snprintf(w.path, sizeof(w.path), "%s", path ? path : "");
+    snprintf(work.ref, sizeof(work.ref), "%s", ref ? ref : "");
+    snprintf(work.path, sizeof(work.path), "%s", path ? path : "");
 
-    gr_run(w.repo_path, git_read_tree_work_fn, &w);
-    if (w.rc != 0 || !w.out) { free(w.out); return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: not a directory or git error"); }
-    return PICOMESH_OK(picomesh_string, w.out);
+    gr_run(work.repo_path, git_read_tree_work_fn, &work);
+    if (work.rc != 0 || !work.out) { free(work.out); return PICOMESH_ERR(picomesh_string, "git_repo_read_tree: not a directory or git error"); }
+    return PICOMESH_OK(picomesh_string, work.out);
 }
 
 /* Read a file's contents from the repo tree. `ref` defaults to HEAD.
@@ -1395,29 +1395,29 @@ struct picomesh_string_result git_repo_git_repo_read_file_impl(struct ctx *ctx, 
 {
     (void)ctx; (void)obj;
     if (!path || !*path) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: path required");
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: load failed", lr);
-    if (lr.value == 0) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: no such repo");
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: no such repo");
     /* Same read authz as read_tree: public → anyone, private → reporter+ on the
      * repo's namespace (inherited) or a site admin. */
     if (!rec.is_public && !repo_caller_has_role(hdrs, rec.owner_name, "reporter"))
         return PICOMESH_ERR(picomesh_string, "git_repo_read_file: forbidden (insufficient namespace role)");
     if (!ensure_libgit2()) return PICOMESH_ERR(picomesh_string, "git_repo_read_file: libgit2 init failed");
 
-    struct git_read_work w;
-    memset(&w, 0, sizeof(w));
-    if (repo_dir_build(rec.owner_name, rec.repo_name, w.repo_path, sizeof(w.repo_path)) != 0)
+    struct git_read_work work;
+    memset(&work, 0, sizeof(work));
+    if (repo_dir_build(rec.owner_name, rec.repo_name, work.repo_path, sizeof(work.repo_path)) != 0)
         return PICOMESH_ERR(picomesh_string, "git_repo_read_file: path too long");
-    snprintf(w.ref, sizeof(w.ref), "%s", ref ? ref : "");
-    snprintf(w.path, sizeof(w.path), "%s", path);
+    snprintf(work.ref, sizeof(work.ref), "%s", ref ? ref : "");
+    snprintf(work.path, sizeof(work.path), "%s", path);
 
-    gr_run(w.repo_path, git_read_file_work_fn, &w);
-    if (w.rc != 0 || !w.out) { free(w.out); return PICOMESH_ERR(picomesh_string, "git_repo_read_file: not a file or git error"); }
-    return PICOMESH_OK(picomesh_string, w.out);
+    gr_run(work.repo_path, git_read_file_work_fn, &work);
+    if (work.rc != 0 || !work.out) { free(work.out); return PICOMESH_ERR(picomesh_string, "git_repo_read_file: not a file or git error"); }
+    return PICOMESH_OK(picomesh_string, work.out);
 }
 
 /* Create or overwrite a file at `path` (nested dirs are created in the
@@ -1432,13 +1432,13 @@ struct picomesh_string_result git_repo_git_repo_put_file_impl(struct ctx *ctx, s
 {
     (void)ctx; (void)obj;
     if (!path || !*path) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: path required");
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: load failed", lr);
-    if (lr.value == 0) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: no such repo");
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: no such repo");
     /* Write authz (resource-level namespace RBAC, on top of the gateway policy
      * gate — issue #30): the verified caller must hold at least `developer` on
      * the repo's owning namespace (inherited from parent namespaces), OR be a
@@ -1448,20 +1448,20 @@ struct picomesh_string_result git_repo_git_repo_put_file_impl(struct ctx *ctx, s
         return PICOMESH_ERR(picomesh_string, "git_repo_put_file: forbidden (insufficient namespace role)");
     if (!ensure_libgit2()) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: libgit2 init failed");
 
-    struct git_put_work w;
-    memset(&w, 0, sizeof(w));
-    if (repo_dir_build(rec.owner_name, rec.repo_name, w.repo_path, sizeof(w.repo_path)) != 0)
+    struct git_put_work work;
+    memset(&work, 0, sizeof(work));
+    if (repo_dir_build(rec.owner_name, rec.repo_name, work.repo_path, sizeof(work.repo_path)) != 0)
         return PICOMESH_ERR(picomesh_string, "git_repo_put_file: path too long");
-    snprintf(w.path, sizeof(w.path), "%s", path);
-    w.content = content ? content : "";
-    w.content_len = content ? strlen(content) : 0;
-    snprintf(w.message, sizeof(w.message), "%s", message ? message : "");
-    snprintf(w.author_name, sizeof(w.author_name), "%s", author_name ? author_name : "");
-    snprintf(w.author_email, sizeof(w.author_email), "%s", author_email ? author_email : "");
+    snprintf(work.path, sizeof(work.path), "%s", path);
+    work.content = content ? content : "";
+    work.content_len = content ? strlen(content) : 0;
+    snprintf(work.message, sizeof(work.message), "%s", message ? message : "");
+    snprintf(work.author_name, sizeof(work.author_name), "%s", author_name ? author_name : "");
+    snprintf(work.author_email, sizeof(work.author_email), "%s", author_email ? author_email : "");
 
-    gr_run(w.repo_path, git_put_file_work_fn, &w);
-    if (w.rc != 0 || !w.out_oid[0]) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: git error");
-    char *oid = strdup(w.out_oid);
+    gr_run(work.repo_path, git_put_file_work_fn, &work);
+    if (work.rc != 0 || !work.out_oid[0]) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: git error");
+    char *oid = strdup(work.out_oid);
     if (!oid) return PICOMESH_ERR(picomesh_string, "git_repo_put_file: out of memory");
     return PICOMESH_OK(picomesh_string, oid);
 }
@@ -1478,13 +1478,13 @@ struct picomesh_int_result git_repo_git_repo_is_public_impl(struct ctx *ctx, str
                                                          uint32_t repo_id)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_int, "git_repo_is_public: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_int, "git_repo_is_public: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_int, "git_repo_is_public: load failed", lr);
-    return PICOMESH_OK(picomesh_int, (lr.value && rec.is_public) ? 1 : 0);
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int, "git_repo_is_public: load failed", load_res);
+    return PICOMESH_OK(picomesh_int, (load_res.value && rec.is_public) ? 1 : 0);
 }
 
 /* Set the repo's visibility (1 = public, 0 = private). Owner-only;
@@ -1494,20 +1494,20 @@ struct picomesh_int_result git_repo_git_repo_set_public_impl(struct ctx *ctx, st
                                                           uint32_t repo_id, int is_public)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: storage open failed", sr);
-    struct gr_storage h = sr.value;
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
     struct repo_rec rec;
-    struct picomesh_int_result lr = repo_load(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: load failed", lr);
-    if (lr.value == 0) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: no such repo");
+    struct picomesh_int_result load_res = repo_load(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: no such repo");
     /* Changing visibility is a maintainer-grade operation on the repo's
      * namespace (inherited), or a site admin (issue #30). */
     if (!repo_caller_has_role(hdrs, rec.owner_name, "maintainer"))
         return PICOMESH_ERR(picomesh_int, "git_repo_set_public: forbidden (insufficient namespace role)");
     rec.is_public = is_public ? 1 : 0;
-    struct picomesh_void_result w = repo_store_row(&h, hdrs, repo_id, &rec);
-    if (PICOMESH_IS_ERR(w)) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: write failed", w);
+    struct picomesh_void_result store_res = repo_store_row(&storage, hdrs, repo_id, &rec);
+    if (PICOMESH_IS_ERR(store_res)) return PICOMESH_ERR(picomesh_int, "git_repo_set_public: write failed", store_res);
     yinfo("git_repo: repo=%u visibility -> %s", repo_id, rec.is_public ? "public" : "private");
     return PICOMESH_OK(picomesh_int, 1);
 }
@@ -1521,10 +1521,10 @@ struct picomesh_json_result git_repo_git_repo_list_impl(struct ctx *ctx, struct 
                                                      int64_t offset, int64_t limit)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_json, "git_repo_list: storage open failed", sr);
-    struct gr_storage h = sr.value;
-    return sharded_storage_db_list(&h.c, h.obj, hdrs, GIT_REPO_CTX, "repo:", offset, limit);
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_json, "git_repo_list: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
+    return sharded_storage_db_list(&storage.c, storage.obj, hdrs, GIT_REPO_CTX, "repo:", offset, limit);
 }
 
 /* Unbounded variant — every repo. Use with care on large deployments. */
@@ -1533,10 +1533,10 @@ struct picomesh_json_result git_repo_git_repo_list_all_impl(struct ctx *ctx, str
                                                             struct yheaders *hdrs)
 {
     (void)ctx; (void)obj;
-    struct gr_storage_result sr = gr_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_json, "git_repo_list_all: storage open failed", sr);
-    struct gr_storage h = sr.value;
-    return sharded_storage_db_list_all(&h.c, h.obj, hdrs, GIT_REPO_CTX, "repo:");
+    struct gr_storage_result storage_res = gr_open();
+    if (PICOMESH_IS_ERR(storage_res)) return PICOMESH_ERR(picomesh_json, "git_repo_list_all: storage open failed", storage_res);
+    struct gr_storage storage = storage_res.value;
+    return sharded_storage_db_list_all(&storage.c, storage.obj, hdrs, GIT_REPO_CTX, "repo:");
 }
 
 #include "store.gen.c"

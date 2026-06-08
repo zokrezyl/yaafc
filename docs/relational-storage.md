@@ -99,7 +99,9 @@ any other model — the engine doesn't care.
 - [x] session → relational (`sessions` table), in the global shard.
 - [x] token_issuer → relational (`refresh_tokens` table), in the global shard.
 - [ ] git_repo metadata → relational (repos / repo_members).
-- [ ] issues → relational (issues).
+- [x] issues → relational (`issues` table in `rstore_uid`, global shard): the
+      hand-kept `open:<repo>` KV counter is now `COUNT(… status='open')` and the
+      close CAS is `UPDATE … WHERE status='open'`, so the open count can't drift.
 - [ ] git_pipeline → relational (pipeline_runs).
 - [ ] global reads (e.g. roster, totals) via shard fan-out / read models.
 
@@ -118,9 +120,10 @@ prefixed KV keys, so these moved first. This supersedes the earlier note that
 
 ### Product state — still KV (scope of the remaining gh#18 work)
 
-`git_repo` (incl. repo membership/permission metadata), `issues`, and
-`git_pipeline` still store their state as prefixed keys in `sharded_storage`.
-Migrating them is the open part of gh#18 and is **namespace-sharded**, not
+`git_repo` (incl. repo membership/permission metadata) and `git_pipeline` still
+store their state as prefixed keys in `sharded_storage`. `issues` has moved to
+SQL on the global shard (see above); the remaining git_repo/git_pipeline work
+is the open part of gh#18 and is **namespace-sharded**, not
 global: a repo/issue/pipeline workflow should be shard-local
 (`shard = namespace_id % N`) and transactional, enforcing local uniqueness such
 as `(namespace_id, repo_name)` and `(repo_id, issue_number)`. That migration is

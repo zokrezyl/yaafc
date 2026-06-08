@@ -25,19 +25,19 @@ static const char *sqlite_resolve_db_path(void)
 {
     struct picomesh_engine *e = picomesh_active_engine();
     if (!e) return ":memory:";
-    struct yconfig_node_ptr_result r =
+    struct yconfig_node_ptr_result db_path_node_res =
         yconfig_get(picomesh_engine_config(e), "storage.db_path");
-    if (PICOMESH_IS_ERR(r)) {
+    if (PICOMESH_IS_ERR(db_path_node_res)) {
         /* A config-read failure (not an absent key, which returns OK+NULL) must
          * not silently drop us into in-memory mode and lose persistence. */
         yerror("storage[sqlite]: reading 'storage.db_path' failed: %s",
-               r.error.msg ? r.error.msg : "?");
-        picomesh_error_destroy(r.error);
+               db_path_node_res.error.msg ? db_path_node_res.error.msg : "?");
+        picomesh_error_destroy(db_path_node_res.error);
         return ":memory:";
     }
-    if (r.value) {
-        const char *s = yconfig_node_as_string(r.value, NULL);
-        if (s && *s) return s;
+    if (db_path_node_res.value) {
+        const char *db_path = yconfig_node_as_string(db_path_node_res.value, NULL);
+        if (db_path && *db_path) return db_path;
     }
     return ":memory:";
 }

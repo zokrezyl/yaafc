@@ -85,8 +85,8 @@ struct ytelemetry_store {
 
 static struct ytelemetry_store *ytelemetry_store_state(void)
 {
-    static struct ytelemetry_store s = {.init_mu = PTHREAD_MUTEX_INITIALIZER};
-    return &s;
+    static struct ytelemetry_store store = {.init_mu = PTHREAD_MUTEX_INITIALIZER};
+    return &store;
 }
 
 static uint64_t ytelemetry_store_now_ns(void)
@@ -108,50 +108,50 @@ static void ytelemetry_store_copystr(char *dst, size_t cap, const char *src)
 static unsigned ytelemetry_shard_for(const char *trace_id, unsigned shard_count)
 {
     uint64_t hash = 1469598103934665603ull;
-    for (const unsigned char *p = (const unsigned char *)trace_id; p && *p; ++p) {
-        hash ^= *p;
+    for (const unsigned char *byte = (const unsigned char *)trace_id; byte && *byte; ++byte) {
+        hash ^= *byte;
         hash *= 1099511628211ull;
     }
     return (unsigned)(hash % shard_count);
 }
 
 /* Apply config + allocate shards. Caller holds init_mu; first call wins. */
-static void ytelemetry_store_setup_locked(struct ytelemetry_store *s,
+static void ytelemetry_store_setup_locked(struct ytelemetry_store *store,
                                           const struct ytelemetry_store_config *config)
 {
-    if (s->inited) return;
+    if (store->inited) return;
 
     struct ytelemetry_store_config cfg = config ? *config : (struct ytelemetry_store_config){0};
     size_t total = cfg.max_spans ? cfg.max_spans : YTEL_DEFAULT_MAX_SPANS;
-    s->shard_count = cfg.shards ? cfg.shards : YTEL_DEFAULT_SHARDS;
-    s->bucket_spans = cfg.bucket_spans ? cfg.bucket_spans : YTEL_DEFAULT_BUCKET_SPANS;
-    s->flush_ns = (cfg.flush_ms ? cfg.flush_ms : YTEL_DEFAULT_FLUSH_MS) * 1000000ull;
-    s->max_age_ns = cfg.max_age_seconds * 1000000000ull;
+    store->shard_count = cfg.shards ? cfg.shards : YTEL_DEFAULT_SHARDS;
+    store->bucket_spans = cfg.bucket_spans ? cfg.bucket_spans : YTEL_DEFAULT_BUCKET_SPANS;
+    store->flush_ns = (cfg.flush_ms ? cfg.flush_ms : YTEL_DEFAULT_FLUSH_MS) * 1000000ull;
+    store->max_age_ns = cfg.max_age_seconds * 1000000000ull;
 
-    s->shards = calloc(s->shard_count, sizeof(*s->shards));
-    if (!s->shards) { s->shard_count = 1; s->shards = calloc(1, sizeof(*s->shards)); }
-    s->shard_cap = total / s->shard_count;
-    if (!s->shard_cap) s->shard_cap = 1;
-    for (unsigned k = 0; k < s->shard_count; ++k)
-        pthread_mutex_init(&s->shards[k].mu, NULL);
+    store->shards = calloc(store->shard_count, sizeof(*store->shards));
+    if (!store->shards) { store->shard_count = 1; store->shards = calloc(1, sizeof(*store->shards)); }
+    store->shard_cap = total / store->shard_count;
+    if (!store->shard_cap) store->shard_cap = 1;
+    for (unsigned k = 0; k < store->shard_count; ++k)
+        pthread_mutex_init(&store->shards[k].mu, NULL);
 
-    s->inited = 1;
+    store->inited = 1;
 }
 
-static void ytelemetry_store_ensure(struct ytelemetry_store *s)
+static void ytelemetry_store_ensure(struct ytelemetry_store *store)
 {
-    if (s->inited) return;
-    pthread_mutex_lock(&s->init_mu);
-    ytelemetry_store_setup_locked(s, NULL);
-    pthread_mutex_unlock(&s->init_mu);
+    if (store->inited) return;
+    pthread_mutex_lock(&store->init_mu);
+    ytelemetry_store_setup_locked(store, NULL);
+    pthread_mutex_unlock(&store->init_mu);
 }
 
 void ytelemetry_store_init_config(const struct ytelemetry_store_config *config)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    pthread_mutex_lock(&s->init_mu);
-    ytelemetry_store_setup_locked(s, config);
-    pthread_mutex_unlock(&s->init_mu);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    pthread_mutex_lock(&store->init_mu);
+    ytelemetry_store_setup_locked(store, config);
+    pthread_mutex_unlock(&store->init_mu);
 }
 
 void ytelemetry_store_init(size_t max_spans, uint64_t max_age_seconds)
@@ -161,27 +161,27 @@ void ytelemetry_store_init(size_t max_spans, uint64_t max_age_seconds)
 }
 
 /* Lazily allocate a shard's ring. Caller holds the shard lock. */
-static void ytelemetry_shard_ensure_ring(struct ytel_shard *sh, size_t cap)
+static void ytelemetry_shard_ensure_ring(struct ytel_shard *shard, size_t cap)
 {
-    if (sh->ring) return;
-    sh->cap = cap ? cap : 1;
-    sh->ring = calloc(sh->cap, sizeof(*sh->ring));
-    if (!sh->ring) sh->cap = 0;
+    if (shard->ring) return;
+    shard->cap = cap ? cap : 1;
+    shard->ring = calloc(shard->cap, sizeof(*shard->ring));
+    if (!shard->ring) shard->cap = 0;
 }
 
 /* The i-th newest live span in a shard (0 = newest). Caller holds shard lock. */
-static struct ytelemetry_stored_span *ytelemetry_shard_nth(struct ytel_shard *sh, size_t i)
+static struct ytelemetry_stored_span *ytelemetry_shard_nth(struct ytel_shard *shard, size_t i)
 {
-    if (i >= sh->count) return NULL;
-    size_t idx = (sh->head + sh->cap - 1 - i) % sh->cap;
-    return &sh->ring[idx];
+    if (i >= shard->count) return NULL;
+    size_t idx = (shard->head + shard->cap - 1 - i) % shard->cap;
+    return &shard->ring[idx];
 }
 
 static int ytelemetry_store_fresh(uint64_t max_age_ns,
-                                  const struct ytelemetry_stored_span *sp, uint64_t now)
+                                  const struct ytelemetry_stored_span *span, uint64_t now)
 {
     if (!max_age_ns) return 1;
-    return sp->start_unix_ns + max_age_ns >= now;
+    return span->start_unix_ns + max_age_ns >= now;
 }
 
 /* Copy a parsed span into a stored_span (all strings interned, so the source
@@ -214,48 +214,48 @@ static void ytelemetry_fill_span(struct ytelemetry_stored_span *dst, const struc
     dst->used = 1;
 }
 
-/* Append one already-filled span into a shard's ring. Caller holds sh->mu. */
-static void ytelemetry_shard_put(struct ytel_shard *sh, size_t cap,
+/* Append one already-filled span into a shard's ring. Caller holds shard->mu. */
+static void ytelemetry_shard_put(struct ytel_shard *shard, size_t cap,
                                  const struct ytelemetry_stored_span *src)
 {
-    ytelemetry_shard_ensure_ring(sh, cap);
-    if (!sh->ring) { sh->malformed++; return; }
-    if (sh->count == sh->cap) {
+    ytelemetry_shard_ensure_ring(shard, cap);
+    if (!shard->ring) { shard->malformed++; return; }
+    if (shard->count == shard->cap) {
         /* Evicting ring[head] — drop it from its trace's index entry. */
-        struct ytelemetry_stored_span *old = &sh->ring[sh->head];
+        struct ytelemetry_stored_span *old = &shard->ring[shard->head];
         if (old->used) {
-            struct ytel_trace_idx *e = NULL;
-            HASH_FIND_STR(sh->index, old->trace_id, e);
-            if (e && e->live && --e->live == 0) { HASH_DEL(sh->index, e); free(e); }
+            struct ytel_trace_idx *entry = NULL;
+            HASH_FIND_STR(shard->index, old->trace_id, entry);
+            if (entry && entry->live && --entry->live == 0) { HASH_DEL(shard->index, entry); free(entry); }
         }
-        sh->evicted++;
+        shard->evicted++;
     }
-    sh->ring[sh->head] = *src;
-    sh->head = (sh->head + 1) % sh->cap;
-    if (sh->count < sh->cap) sh->count++;
-    sh->ingested++;
+    shard->ring[shard->head] = *src;
+    shard->head = (shard->head + 1) % shard->cap;
+    if (shard->count < shard->cap) shard->count++;
+    shard->ingested++;
 
     /* Maintain the per-trace summary so list/detail queries are O(1) lookups. */
-    struct ytel_trace_idx *e = NULL;
-    HASH_FIND_STR(sh->index, src->trace_id, e);
-    if (!e) {
-        e = calloc(1, sizeof(*e));
-        if (e) {
-            ytelemetry_store_copystr(e->trace_id, sizeof(e->trace_id), src->trace_id);
-            e->start = src->start_unix_ns;
-            e->end = src->start_unix_ns + src->duration_ns;
-            HASH_ADD_STR(sh->index, trace_id, e);
+    struct ytel_trace_idx *entry = NULL;
+    HASH_FIND_STR(shard->index, src->trace_id, entry);
+    if (!entry) {
+        entry = calloc(1, sizeof(*entry));
+        if (entry) {
+            ytelemetry_store_copystr(entry->trace_id, sizeof(entry->trace_id), src->trace_id);
+            entry->start = src->start_unix_ns;
+            entry->end = src->start_unix_ns + src->duration_ns;
+            HASH_ADD_STR(shard->index, trace_id, entry);
         }
     }
-    if (e) {
-        e->live++;
-        if (src->start_unix_ns < e->start) e->start = src->start_unix_ns;
+    if (entry) {
+        entry->live++;
+        if (src->start_unix_ns < entry->start) entry->start = src->start_unix_ns;
         uint64_t end = src->start_unix_ns + src->duration_ns;
-        if (end > e->end) e->end = end;
-        if (strcmp(src->status, "error") == 0) e->error = 1;
-        if (!e->root_name[0] || !src->parent_id[0]) { /* first span, or the real root */
-            ytelemetry_store_copystr(e->root_name, sizeof(e->root_name), src->name);
-            ytelemetry_store_copystr(e->root_service, sizeof(e->root_service), src->service);
+        if (end > entry->end) entry->end = end;
+        if (strcmp(src->status, "error") == 0) entry->error = 1;
+        if (!entry->root_name[0] || !src->parent_id[0]) { /* first span, or the real root */
+            ytelemetry_store_copystr(entry->root_name, sizeof(entry->root_name), src->name);
+            ytelemetry_store_copystr(entry->root_service, sizeof(entry->root_service), src->service);
         }
     }
 }
@@ -274,96 +274,100 @@ struct ytel_arena {
 
 static __thread struct ytel_arena ytel_tls_arena;
 
-static void ytelemetry_arena_flush_shard(struct ytelemetry_store *s, struct ytel_arena *a, unsigned k)
+static void ytelemetry_arena_flush_shard(struct ytelemetry_store *store, struct ytel_arena *arena,
+                                         unsigned shard_index)
 {
-    if (!a->fill[k]) return;
-    struct ytel_shard *sh = &s->shards[k];
-    struct ytelemetry_stored_span *bucket = &a->spans[(size_t)k * a->bucket_spans];
-    pthread_mutex_lock(&sh->mu);
-    for (size_t i = 0; i < a->fill[k]; ++i)
-        ytelemetry_shard_put(sh, s->shard_cap, &bucket[i]);
-    pthread_mutex_unlock(&sh->mu);
-    a->total -= a->fill[k];
-    a->fill[k] = 0;
+    if (!arena->fill[shard_index]) return;
+    struct ytel_shard *shard = &store->shards[shard_index];
+    struct ytelemetry_stored_span *bucket = &arena->spans[(size_t)shard_index * arena->bucket_spans];
+    pthread_mutex_lock(&shard->mu);
+    for (size_t i = 0; i < arena->fill[shard_index]; ++i)
+        ytelemetry_shard_put(shard, store->shard_cap, &bucket[i]);
+    pthread_mutex_unlock(&shard->mu);
+    arena->total -= arena->fill[shard_index];
+    arena->fill[shard_index] = 0;
 }
 
-static void ytelemetry_arena_flush_all(struct ytelemetry_store *s, struct ytel_arena *a, uint64_t now)
+static void ytelemetry_arena_flush_all(struct ytelemetry_store *store, struct ytel_arena *arena,
+                                       uint64_t now)
 {
-    for (unsigned k = 0; k < a->shard_count; ++k) ytelemetry_arena_flush_shard(s, a, k);
-    a->last_flush_ns = now;
+    for (unsigned k = 0; k < arena->shard_count; ++k) ytelemetry_arena_flush_shard(store, arena, k);
+    arena->last_flush_ns = now;
 }
 
 void ytelemetry_store_flush_local(void)
 {
-    struct ytel_arena *a = &ytel_tls_arena;
-    if (!a->spans || !a->total) return;
-    ytelemetry_arena_flush_all(ytelemetry_store_state(), a, ytelemetry_store_now_ns());
+    struct ytel_arena *arena = &ytel_tls_arena;
+    if (!arena->spans || !arena->total) return;
+    ytelemetry_arena_flush_all(ytelemetry_store_state(), arena, ytelemetry_store_now_ns());
 }
 
 /* Append one already-parsed span object into the calling thread's arena. The
  * lock-free hot path shared by the single and batch ingest entry points.
  * Returns 1 if accepted, 0 if the span is missing required fields. */
-static int ytelemetry_append_parsed(struct ytelemetry_store *s, const struct yjson_value *root)
+static int ytelemetry_append_parsed(struct ytelemetry_store *store, const struct yjson_value *root)
 {
     const char *trace = root ? yjson_as_string(yjson_object_get(root, "trace_id"), NULL) : NULL;
     const char *span = root ? yjson_as_string(yjson_object_get(root, "span_id"), NULL) : NULL;
     if (!trace || !span) {
-        struct ytel_shard *sh = &s->shards[0];
-        pthread_mutex_lock(&sh->mu); sh->malformed++; pthread_mutex_unlock(&sh->mu);
+        struct ytel_shard *shard = &store->shards[0];
+        pthread_mutex_lock(&shard->mu); shard->malformed++; pthread_mutex_unlock(&shard->mu);
         return 0;
     }
 
-    unsigned k = ytelemetry_shard_for(trace, s->shard_count);
+    unsigned shard_index = ytelemetry_shard_for(trace, store->shard_count);
 
-    struct ytel_arena *a = &ytel_tls_arena;
-    if (!a->spans) {
-        a->shard_count = s->shard_count;
-        a->bucket_spans = s->bucket_spans;
-        a->spans = calloc((size_t)a->shard_count * a->bucket_spans, sizeof(*a->spans));
-        a->fill = calloc(a->shard_count, sizeof(*a->fill));
-        if (!a->spans || !a->fill) {
+    struct ytel_arena *arena = &ytel_tls_arena;
+    if (!arena->spans) {
+        arena->shard_count = store->shard_count;
+        arena->bucket_spans = store->bucket_spans;
+        arena->spans = calloc((size_t)arena->shard_count * arena->bucket_spans, sizeof(*arena->spans));
+        arena->fill = calloc(arena->shard_count, sizeof(*arena->fill));
+        if (!arena->spans || !arena->fill) {
             /* No arena (allocation failed): fall back to a direct locked put. */
-            free(a->spans); free(a->fill); a->spans = NULL; a->fill = NULL;
+            free(arena->spans); free(arena->fill); arena->spans = NULL; arena->fill = NULL;
             struct ytelemetry_stored_span one;
             ytelemetry_fill_span(&one, root, trace, span);
-            struct ytel_shard *sh = &s->shards[k];
-            pthread_mutex_lock(&sh->mu);
-            ytelemetry_shard_put(sh, s->shard_cap, &one);
-            pthread_mutex_unlock(&sh->mu);
+            struct ytel_shard *shard = &store->shards[shard_index];
+            pthread_mutex_lock(&shard->mu);
+            ytelemetry_shard_put(shard, store->shard_cap, &one);
+            pthread_mutex_unlock(&shard->mu);
             return 1;
         }
     }
 
     /* Lock-free hot path: fill the parsed span into this worker's own bucket. */
-    struct ytelemetry_stored_span *slot = &a->spans[(size_t)k * a->bucket_spans + a->fill[k]];
+    struct ytelemetry_stored_span *slot =
+        &arena->spans[(size_t)shard_index * arena->bucket_spans + arena->fill[shard_index]];
     ytelemetry_fill_span(slot, root, trace, span);
-    a->fill[k]++;
-    a->total++;
+    arena->fill[shard_index]++;
+    arena->total++;
 
-    if (a->fill[k] == a->bucket_spans) {
-        ytelemetry_arena_flush_shard(s, a, k);
-    } else if ((a->total & 63) == 0) {
+    if (arena->fill[shard_index] == arena->bucket_spans) {
+        ytelemetry_arena_flush_shard(store, arena, shard_index);
+    } else if ((arena->total & 63) == 0) {
         uint64_t now = ytelemetry_store_now_ns();
-        if (now - a->last_flush_ns > s->flush_ns) ytelemetry_arena_flush_all(s, a, now);
+        if (now - arena->last_flush_ns > store->flush_ns)
+            ytelemetry_arena_flush_all(store, arena, now);
     }
     return 1;
 }
 
-static void ytelemetry_count_malformed(struct ytelemetry_store *s)
+static void ytelemetry_count_malformed(struct ytelemetry_store *store)
 {
-    struct ytel_shard *sh = &s->shards[0];
-    pthread_mutex_lock(&sh->mu); sh->malformed++; pthread_mutex_unlock(&sh->mu);
+    struct ytel_shard *shard = &store->shards[0];
+    pthread_mutex_lock(&shard->mu); shard->malformed++; pthread_mutex_unlock(&shard->mu);
 }
 
 int ytelemetry_store_ingest_json(const char *json, size_t len)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
     struct yjson_doc *doc = yjson_parse(json, len);
-    if (!doc) { ytelemetry_count_malformed(s); return 0; }
-    int r = ytelemetry_append_parsed(s, yjson_doc_root(doc));
+    if (!doc) { ytelemetry_count_malformed(store); return 0; }
+    int accepted = ytelemetry_append_parsed(store, yjson_doc_root(doc));
     yjson_doc_free(doc);
-    return r;
+    return accepted;
 }
 
 /* Ingest a batch: the payload may be a JSON array of span objects (the
@@ -371,138 +375,140 @@ int ytelemetry_store_ingest_json(const char *json, size_t len)
  * then each element flows through the lock-free arena append. */
 int ytelemetry_store_ingest_batch_json(const char *json, size_t len)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
     struct yjson_doc *doc = yjson_parse(json, len);
-    if (!doc) { ytelemetry_count_malformed(s); return 0; }
+    if (!doc) { ytelemetry_count_malformed(store); return 0; }
     const struct yjson_value *root = yjson_doc_root(doc);
-    int n = 0;
+    int accepted = 0;
     if (yjson_is_array(root)) {
-        size_t cnt = yjson_array_size(root);
-        for (size_t i = 0; i < cnt; ++i) n += ytelemetry_append_parsed(s, yjson_array_at(root, i));
+        size_t count = yjson_array_size(root);
+        for (size_t i = 0; i < count; ++i)
+            accepted += ytelemetry_append_parsed(store, yjson_array_at(root, i));
     } else {
-        n = ytelemetry_append_parsed(s, root);
+        accepted = ytelemetry_append_parsed(store, root);
     }
     yjson_doc_free(doc);
-    return n;
+    return accepted;
 }
 
 /* {ingested, malformed, evicted, stored, capacity, max_age_seconds} */
-void ytelemetry_store_write_stats(struct yjson_writer *w)
+void ytelemetry_store_write_stats(struct yjson_writer *writer)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
     uint64_t ingested = 0, malformed = 0, evicted = 0, stored = 0;
-    for (unsigned k = 0; k < s->shard_count; ++k) {
-        struct ytel_shard *sh = &s->shards[k];
-        pthread_mutex_lock(&sh->mu);
-        ingested += sh->ingested;
-        malformed += sh->malformed;
-        evicted += sh->evicted;
-        stored += sh->count;
-        pthread_mutex_unlock(&sh->mu);
+    for (unsigned k = 0; k < store->shard_count; ++k) {
+        struct ytel_shard *shard = &store->shards[k];
+        pthread_mutex_lock(&shard->mu);
+        ingested += shard->ingested;
+        malformed += shard->malformed;
+        evicted += shard->evicted;
+        stored += shard->count;
+        pthread_mutex_unlock(&shard->mu);
     }
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "ingested"); yjson_writer_int(w, (int64_t)ingested);
-    yjson_writer_key(w, "malformed"); yjson_writer_int(w, (int64_t)malformed);
-    yjson_writer_key(w, "evicted"); yjson_writer_int(w, (int64_t)evicted);
-    yjson_writer_key(w, "stored"); yjson_writer_int(w, (int64_t)stored);
-    yjson_writer_key(w, "capacity"); yjson_writer_int(w, (int64_t)(s->shard_cap * s->shard_count));
-    yjson_writer_key(w, "max_age_seconds"); yjson_writer_int(w, (int64_t)(s->max_age_ns / 1000000000ull));
-    yjson_writer_key(w, "shards"); yjson_writer_int(w, (int64_t)s->shard_count);
-    yjson_writer_end_object(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "ingested"); yjson_writer_int(writer, (int64_t)ingested);
+    yjson_writer_key(writer, "malformed"); yjson_writer_int(writer, (int64_t)malformed);
+    yjson_writer_key(writer, "evicted"); yjson_writer_int(writer, (int64_t)evicted);
+    yjson_writer_key(writer, "stored"); yjson_writer_int(writer, (int64_t)stored);
+    yjson_writer_key(writer, "capacity"); yjson_writer_int(writer, (int64_t)(store->shard_cap * store->shard_count));
+    yjson_writer_key(writer, "max_age_seconds"); yjson_writer_int(writer, (int64_t)(store->max_age_ns / 1000000000ull));
+    yjson_writer_key(writer, "shards"); yjson_writer_int(writer, (int64_t)store->shard_count);
+    yjson_writer_end_object(writer);
 }
 
 /* ---- query writers ---------------------------------------------------- */
 
 static int cmp_u64(const void *a, const void *b)
 {
-    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
-    return (x > y) - (x < y);
+    uint64_t left = *(const uint64_t *)a, right = *(const uint64_t *)b;
+    return (left > right) - (left < right);
 }
 
-static uint64_t pctl_u64(const uint64_t *sorted, size_t n, double p)
+static uint64_t pctl_u64(const uint64_t *sorted, size_t count, double percentile)
 {
-    if (!n) return 0;
-    size_t idx = (size_t)(p / 100.0 * (double)(n - 1) + 0.5);
-    if (idx >= n) idx = n - 1;
+    if (!count) return 0;
+    size_t idx = (size_t)(percentile / 100.0 * (double)(count - 1) + 0.5);
+    if (idx >= count) idx = count - 1;
     return sorted[idx];
 }
 
-static void emit_span(struct yjson_writer *w, const struct ytelemetry_stored_span *sp)
+static void emit_span(struct yjson_writer *writer, const struct ytelemetry_stored_span *span)
 {
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "span_id"); yjson_writer_string(w, sp->span_id);
-    yjson_writer_key(w, "parent_span_id"); yjson_writer_string(w, sp->parent_id);
-    yjson_writer_key(w, "trace_id"); yjson_writer_string(w, sp->trace_id);
-    yjson_writer_key(w, "name"); yjson_writer_string(w, sp->name);
-    yjson_writer_key(w, "kind"); yjson_writer_string(w, sp->kind);
-    yjson_writer_key(w, "service_name"); yjson_writer_string(w, sp->service);
-    yjson_writer_key(w, "node_id"); yjson_writer_string(w, sp->node);
-    yjson_writer_key(w, "start_time_ns"); yjson_writer_int(w, (int64_t)sp->start_unix_ns);
-    yjson_writer_key(w, "duration_ns"); yjson_writer_int(w, (int64_t)sp->duration_ns);
-    yjson_writer_key(w, "status"); yjson_writer_string(w, sp->status);
-    if (sp->err[0]) { yjson_writer_key(w, "error_message"); yjson_writer_string(w, sp->err); }
-    yjson_writer_key(w, "attributes");
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "picomesh.uid"); yjson_writer_int(w, (int64_t)sp->uid);
-    yjson_writer_end_object(w);
-    yjson_writer_end_object(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "span_id"); yjson_writer_string(writer, span->span_id);
+    yjson_writer_key(writer, "parent_span_id"); yjson_writer_string(writer, span->parent_id);
+    yjson_writer_key(writer, "trace_id"); yjson_writer_string(writer, span->trace_id);
+    yjson_writer_key(writer, "name"); yjson_writer_string(writer, span->name);
+    yjson_writer_key(writer, "kind"); yjson_writer_string(writer, span->kind);
+    yjson_writer_key(writer, "service_name"); yjson_writer_string(writer, span->service);
+    yjson_writer_key(writer, "node_id"); yjson_writer_string(writer, span->node);
+    yjson_writer_key(writer, "start_time_ns"); yjson_writer_int(writer, (int64_t)span->start_unix_ns);
+    yjson_writer_key(writer, "duration_ns"); yjson_writer_int(writer, (int64_t)span->duration_ns);
+    yjson_writer_key(writer, "status"); yjson_writer_string(writer, span->status);
+    if (span->err[0]) { yjson_writer_key(writer, "error_message"); yjson_writer_string(writer, span->err); }
+    yjson_writer_key(writer, "attributes");
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "picomesh.uid"); yjson_writer_int(writer, (int64_t)span->uid);
+    yjson_writer_end_object(writer);
+    yjson_writer_end_object(writer);
 }
 
 /* {trace_id, root_span_id, duration_ns, span_count, spans:[...]} — single
  * shard: every span of a trace hashes to the same shard. */
-void ytelemetry_store_write_trace(struct yjson_writer *w, const char *trace_id)
+void ytelemetry_store_write_trace(struct yjson_writer *writer, const char *trace_id)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
-    struct ytel_shard *sh = &s->shards[ytelemetry_shard_for(trace_id ? trace_id : "", s->shard_count)];
-    pthread_mutex_lock(&sh->mu);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
+    struct ytel_shard *shard =
+        &store->shards[ytelemetry_shard_for(trace_id ? trace_id : "", store->shard_count)];
+    pthread_mutex_lock(&shard->mu);
 
     /* The index tells us how many live spans to expect, so the scan stops as
      * soon as they are all found (recent traces sit near the ring front). */
-    struct ytel_trace_idx *idx = NULL;
-    if (trace_id) HASH_FIND_STR(sh->index, trace_id, idx);
-    size_t want = idx ? idx->live : 0;
+    struct ytel_trace_idx *trace_idx = NULL;
+    if (trace_id) HASH_FIND_STR(shard->index, trace_id, trace_idx);
+    size_t want = trace_idx ? trace_idx->live : 0;
 
     enum { CAP = 8192 };
     struct ytelemetry_stored_span *match[CAP];
-    size_t n = 0;
-    for (size_t i = 0; i < sh->count && n < CAP && n < want; ++i) {
-        struct ytelemetry_stored_span *sp = ytelemetry_shard_nth(sh, i); /* newest first */
-        if (sp->used && trace_id && strcmp(sp->trace_id, trace_id) == 0)
-            match[n++] = sp;
+    size_t match_count = 0;
+    for (size_t i = 0; i < shard->count && match_count < CAP && match_count < want; ++i) {
+        struct ytelemetry_stored_span *span = ytelemetry_shard_nth(shard, i); /* newest first */
+        if (span->used && trace_id && strcmp(span->trace_id, trace_id) == 0)
+            match[match_count++] = span;
     }
 
     uint64_t min_start = 0, max_end = 0;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < match_count; ++i) {
         uint64_t end = match[i]->start_unix_ns + match[i]->duration_ns;
         if (i == 0 || match[i]->start_unix_ns < min_start) min_start = match[i]->start_unix_ns;
         if (i == 0 || end > max_end) max_end = end;
     }
 
     const char *root_span = "";
-    for (size_t i = 0; i < n && !root_span[0]; ++i)
+    for (size_t i = 0; i < match_count && !root_span[0]; ++i)
         if (!match[i]->parent_id[0]) root_span = match[i]->span_id;
-    for (size_t i = 0; i < n && !root_span[0]; ++i) {
+    for (size_t i = 0; i < match_count && !root_span[0]; ++i) {
         int parent_in = 0;
-        for (size_t j = 0; j < n; ++j)
+        for (size_t j = 0; j < match_count; ++j)
             if (strcmp(match[j]->span_id, match[i]->parent_id) == 0) { parent_in = 1; break; }
         if (!parent_in) root_span = match[i]->span_id;
     }
 
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "trace_id"); yjson_writer_string(w, trace_id ? trace_id : "");
-    yjson_writer_key(w, "root_span_id"); yjson_writer_string(w, root_span);
-    yjson_writer_key(w, "span_count"); yjson_writer_int(w, (int64_t)n);
-    yjson_writer_key(w, "duration_ns"); yjson_writer_int(w, (int64_t)(n ? max_end - min_start : 0));
-    yjson_writer_key(w, "spans");
-    yjson_writer_begin_array(w);
-    for (size_t i = 0; i < n; ++i) emit_span(w, match[i]);
-    yjson_writer_end_array(w);
-    yjson_writer_end_object(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "trace_id"); yjson_writer_string(writer, trace_id ? trace_id : "");
+    yjson_writer_key(writer, "root_span_id"); yjson_writer_string(writer, root_span);
+    yjson_writer_key(writer, "span_count"); yjson_writer_int(writer, (int64_t)match_count);
+    yjson_writer_key(writer, "duration_ns"); yjson_writer_int(writer, (int64_t)(match_count ? max_end - min_start : 0));
+    yjson_writer_key(writer, "spans");
+    yjson_writer_begin_array(writer);
+    for (size_t i = 0; i < match_count; ++i) emit_span(writer, match[i]);
+    yjson_writer_end_array(writer);
+    yjson_writer_end_object(writer);
 
-    pthread_mutex_unlock(&sh->mu);
+    pthread_mutex_unlock(&shard->mu);
 }
 
 /* One summarised trace, copied out so the shard lock is released before merge. */
@@ -518,246 +524,246 @@ struct ytel_trace_sum {
 
 static int cmp_sum_newest(const void *a, const void *b)
 {
-    const struct ytel_trace_sum *x = a, *y = b;
-    return (x->start < y->start) - (x->start > y->start); /* newest first */
+    const struct ytel_trace_sum *left = a, *right = b;
+    return (left->start < right->start) - (left->start > right->start); /* newest first */
 }
 
-void ytelemetry_store_write_traces(struct yjson_writer *w, const char *service,
+void ytelemetry_store_write_traces(struct yjson_writer *writer, const char *service,
                              uint64_t since_ns, const char *status)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
     uint64_t now = ytelemetry_store_now_ns();
 
     enum { PER_SHARD = 64 };
-    struct ytel_trace_sum *cand = malloc((size_t)s->shard_count * PER_SHARD * sizeof(*cand));
+    struct ytel_trace_sum *cand = malloc((size_t)store->shard_count * PER_SHARD * sizeof(*cand));
     size_t ncand = 0;
 
     if (cand) {
-        for (unsigned k = 0; k < s->shard_count; ++k) {
-            struct ytel_shard *sh = &s->shards[k];
-            pthread_mutex_lock(&sh->mu);
+        for (unsigned k = 0; k < store->shard_count; ++k) {
+            struct ytel_shard *shard = &store->shards[k];
+            pthread_mutex_lock(&shard->mu);
 
             char seen[PER_SHARD][33];
             size_t nseen = 0;
-            for (size_t i = 0; i < sh->count && nseen < PER_SHARD; ++i) {
-                struct ytelemetry_stored_span *sp = ytelemetry_shard_nth(sh, i); /* newest→oldest */
-                if (!sp->used || !ytelemetry_store_fresh(s->max_age_ns, sp, now)) continue;
-                if (since_ns && sp->start_unix_ns < since_ns) continue;
-                if (service && service[0] && strcmp(sp->service, service) != 0) continue;
+            for (size_t i = 0; i < shard->count && nseen < PER_SHARD; ++i) {
+                struct ytelemetry_stored_span *span = ytelemetry_shard_nth(shard, i); /* newest→oldest */
+                if (!span->used || !ytelemetry_store_fresh(store->max_age_ns, span, now)) continue;
+                if (since_ns && span->start_unix_ns < since_ns) continue;
+                if (service && service[0] && strcmp(span->service, service) != 0) continue;
 
                 int dup = 0;
                 for (size_t j = 0; j < nseen; ++j)
-                    if (strcmp(seen[j], sp->trace_id) == 0) { dup = 1; break; }
+                    if (strcmp(seen[j], span->trace_id) == 0) { dup = 1; break; }
                 if (dup) continue;
 
                 /* Summary is precomputed in the index — no per-trace ring scan. */
-                struct ytel_trace_idx *e = NULL;
-                HASH_FIND_STR(sh->index, sp->trace_id, e);
-                if (!e) continue; /* span racing its own eviction — skip */
+                struct ytel_trace_idx *entry = NULL;
+                HASH_FIND_STR(shard->index, span->trace_id, entry);
+                if (!entry) continue; /* span racing its own eviction — skip */
 
                 struct ytel_trace_sum sum = {0};
-                ytelemetry_store_copystr(sum.trace_id, sizeof(sum.trace_id), sp->trace_id);
-                ytelemetry_store_copystr(sum.root_name, sizeof(sum.root_name), e->root_name);
-                ytelemetry_store_copystr(sum.root_service, sizeof(sum.root_service), e->root_service);
-                sum.start = e->start;
-                sum.end = e->end;
-                sum.span_count = e->live;
-                sum.error = e->error;
+                ytelemetry_store_copystr(sum.trace_id, sizeof(sum.trace_id), span->trace_id);
+                ytelemetry_store_copystr(sum.root_name, sizeof(sum.root_name), entry->root_name);
+                ytelemetry_store_copystr(sum.root_service, sizeof(sum.root_service), entry->root_service);
+                sum.start = entry->start;
+                sum.end = entry->end;
+                sum.span_count = entry->live;
+                sum.error = entry->error;
 
-                ytelemetry_store_copystr(seen[nseen], sizeof(seen[nseen]), sp->trace_id);
+                ytelemetry_store_copystr(seen[nseen], sizeof(seen[nseen]), span->trace_id);
                 nseen++;
                 cand[ncand++] = sum;
             }
-            pthread_mutex_unlock(&sh->mu);
+            pthread_mutex_unlock(&shard->mu);
         }
         qsort(cand, ncand, sizeof(*cand), cmp_sum_newest);
     }
 
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "traces");
-    yjson_writer_begin_array(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "traces");
+    yjson_writer_begin_array(writer);
     size_t emitted = 0;
     for (size_t i = 0; i < ncand && emitted < 256; ++i) {
         const char *tstatus = cand[i].error ? "error" : "ok";
         if (status && status[0] && strcmp(status, tstatus) != 0) continue;
-        yjson_writer_begin_object(w);
-        yjson_writer_key(w, "trace_id"); yjson_writer_string(w, cand[i].trace_id);
-        yjson_writer_key(w, "root_name"); yjson_writer_string(w, cand[i].root_name);
-        yjson_writer_key(w, "service_name"); yjson_writer_string(w, cand[i].root_service);
-        yjson_writer_key(w, "start_time_ns"); yjson_writer_int(w, (int64_t)cand[i].start);
-        yjson_writer_key(w, "duration_ns"); yjson_writer_int(w, (int64_t)(cand[i].end - cand[i].start));
-        yjson_writer_key(w, "span_count"); yjson_writer_int(w, (int64_t)cand[i].span_count);
-        yjson_writer_key(w, "status"); yjson_writer_string(w, tstatus);
-        yjson_writer_end_object(w);
+        yjson_writer_begin_object(writer);
+        yjson_writer_key(writer, "trace_id"); yjson_writer_string(writer, cand[i].trace_id);
+        yjson_writer_key(writer, "root_name"); yjson_writer_string(writer, cand[i].root_name);
+        yjson_writer_key(writer, "service_name"); yjson_writer_string(writer, cand[i].root_service);
+        yjson_writer_key(writer, "start_time_ns"); yjson_writer_int(writer, (int64_t)cand[i].start);
+        yjson_writer_key(writer, "duration_ns"); yjson_writer_int(writer, (int64_t)(cand[i].end - cand[i].start));
+        yjson_writer_key(writer, "span_count"); yjson_writer_int(writer, (int64_t)cand[i].span_count);
+        yjson_writer_key(writer, "status"); yjson_writer_string(writer, tstatus);
+        yjson_writer_end_object(writer);
         emitted++;
     }
-    yjson_writer_end_array(w);
-    yjson_writer_end_object(w);
+    yjson_writer_end_array(writer);
+    yjson_writer_end_object(writer);
     free(cand);
 }
 
-void ytelemetry_store_write_services(struct yjson_writer *w)
+void ytelemetry_store_write_services(struct yjson_writer *writer)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
 
     enum { MAX_SVC = 128 };
     char names[MAX_SVC][64];
     size_t counts[MAX_SVC] = {0};
-    size_t n = 0;
-    for (unsigned k = 0; k < s->shard_count; ++k) {
-        struct ytel_shard *sh = &s->shards[k];
-        pthread_mutex_lock(&sh->mu);
-        for (size_t i = 0; i < sh->count; ++i) {
-            struct ytelemetry_stored_span *sp = ytelemetry_shard_nth(sh, i);
-            if (!sp->used || !sp->service[0]) continue;
+    size_t name_count = 0;
+    for (unsigned k = 0; k < store->shard_count; ++k) {
+        struct ytel_shard *shard = &store->shards[k];
+        pthread_mutex_lock(&shard->mu);
+        for (size_t i = 0; i < shard->count; ++i) {
+            struct ytelemetry_stored_span *span = ytelemetry_shard_nth(shard, i);
+            if (!span->used || !span->service[0]) continue;
             size_t j = 0;
-            for (; j < n; ++j) if (strcmp(names[j], sp->service) == 0) break;
-            if (j == n && n < MAX_SVC) { ytelemetry_store_copystr(names[n], 64, sp->service); n++; }
+            for (; j < name_count; ++j) if (strcmp(names[j], span->service) == 0) break;
+            if (j == name_count && name_count < MAX_SVC) { ytelemetry_store_copystr(names[name_count], 64, span->service); name_count++; }
             if (j < MAX_SVC) counts[j]++;
         }
-        pthread_mutex_unlock(&sh->mu);
+        pthread_mutex_unlock(&shard->mu);
     }
 
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "services");
-    yjson_writer_begin_array(w);
-    for (size_t j = 0; j < n; ++j) {
-        yjson_writer_begin_object(w);
-        yjson_writer_key(w, "service_name"); yjson_writer_string(w, names[j]);
-        yjson_writer_key(w, "span_count"); yjson_writer_int(w, (int64_t)counts[j]);
-        yjson_writer_end_object(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "services");
+    yjson_writer_begin_array(writer);
+    for (size_t j = 0; j < name_count; ++j) {
+        yjson_writer_begin_object(writer);
+        yjson_writer_key(writer, "service_name"); yjson_writer_string(writer, names[j]);
+        yjson_writer_key(writer, "span_count"); yjson_writer_int(writer, (int64_t)counts[j]);
+        yjson_writer_end_object(writer);
     }
-    yjson_writer_end_array(w);
-    yjson_writer_end_object(w);
+    yjson_writer_end_array(writer);
+    yjson_writer_end_object(writer);
 }
 
-void ytelemetry_store_write_operations(struct yjson_writer *w, const char *service)
+void ytelemetry_store_write_operations(struct yjson_writer *writer, const char *service)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
 
     enum { MAX_OPS = 256 };
     char ops[MAX_OPS][64];
     size_t counts[MAX_OPS] = {0};
-    size_t n = 0;
-    for (unsigned k = 0; k < s->shard_count; ++k) {
-        struct ytel_shard *sh = &s->shards[k];
-        pthread_mutex_lock(&sh->mu);
-        for (size_t i = 0; i < sh->count; ++i) {
-            struct ytelemetry_stored_span *sp = ytelemetry_shard_nth(sh, i);
-            if (!sp->used || !sp->name[0]) continue;
-            if (service && service[0] && strcmp(sp->service, service) != 0) continue;
+    size_t op_count = 0;
+    for (unsigned k = 0; k < store->shard_count; ++k) {
+        struct ytel_shard *shard = &store->shards[k];
+        pthread_mutex_lock(&shard->mu);
+        for (size_t i = 0; i < shard->count; ++i) {
+            struct ytelemetry_stored_span *span = ytelemetry_shard_nth(shard, i);
+            if (!span->used || !span->name[0]) continue;
+            if (service && service[0] && strcmp(span->service, service) != 0) continue;
             size_t j = 0;
-            for (; j < n; ++j) if (strcmp(ops[j], sp->name) == 0) break;
-            if (j == n && n < MAX_OPS) { ytelemetry_store_copystr(ops[n], 64, sp->name); n++; }
+            for (; j < op_count; ++j) if (strcmp(ops[j], span->name) == 0) break;
+            if (j == op_count && op_count < MAX_OPS) { ytelemetry_store_copystr(ops[op_count], 64, span->name); op_count++; }
             if (j < MAX_OPS) counts[j]++;
         }
-        pthread_mutex_unlock(&sh->mu);
+        pthread_mutex_unlock(&shard->mu);
     }
 
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "service"); yjson_writer_string(w, service ? service : "");
-    yjson_writer_key(w, "operations");
-    yjson_writer_begin_array(w);
-    for (size_t j = 0; j < n; ++j) {
-        yjson_writer_begin_object(w);
-        yjson_writer_key(w, "name"); yjson_writer_string(w, ops[j]);
-        yjson_writer_key(w, "count"); yjson_writer_int(w, (int64_t)counts[j]);
-        yjson_writer_end_object(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "service"); yjson_writer_string(writer, service ? service : "");
+    yjson_writer_key(writer, "operations");
+    yjson_writer_begin_array(writer);
+    for (size_t j = 0; j < op_count; ++j) {
+        yjson_writer_begin_object(writer);
+        yjson_writer_key(writer, "name"); yjson_writer_string(writer, ops[j]);
+        yjson_writer_key(writer, "count"); yjson_writer_int(writer, (int64_t)counts[j]);
+        yjson_writer_end_object(writer);
     }
-    yjson_writer_end_array(w);
-    yjson_writer_end_object(w);
+    yjson_writer_end_array(writer);
+    yjson_writer_end_object(writer);
 }
 
-void ytelemetry_store_write_latency(struct yjson_writer *w, const char *service,
+void ytelemetry_store_write_latency(struct yjson_writer *writer, const char *service,
                              const char *operation, uint64_t window_ns)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
     uint64_t now = ytelemetry_store_now_ns();
     uint64_t floor = window_ns && now > window_ns ? now - window_ns : 0;
 
     size_t total = 0;
-    for (unsigned k = 0; k < s->shard_count; ++k) {
-        pthread_mutex_lock(&s->shards[k].mu);
-        total += s->shards[k].count;
-        pthread_mutex_unlock(&s->shards[k].mu);
+    for (unsigned k = 0; k < store->shard_count; ++k) {
+        pthread_mutex_lock(&store->shards[k].mu);
+        total += store->shards[k].count;
+        pthread_mutex_unlock(&store->shards[k].mu);
     }
 
     uint64_t *durs = malloc((total ? total : 1) * sizeof(uint64_t));
-    size_t n = 0;
+    size_t count = 0;
     if (durs) {
-        for (unsigned k = 0; k < s->shard_count; ++k) {
-            struct ytel_shard *sh = &s->shards[k];
-            pthread_mutex_lock(&sh->mu);
-            for (size_t i = 0; i < sh->count && n < total; ++i) {
-                struct ytelemetry_stored_span *sp = ytelemetry_shard_nth(sh, i);
-                if (!sp->used) continue;
-                if (floor && sp->start_unix_ns < floor) continue;
-                if (service && service[0] && strcmp(sp->service, service) != 0) continue;
-                if (operation && operation[0] && strcmp(sp->name, operation) != 0) continue;
-                durs[n++] = sp->duration_ns;
+        for (unsigned k = 0; k < store->shard_count; ++k) {
+            struct ytel_shard *shard = &store->shards[k];
+            pthread_mutex_lock(&shard->mu);
+            for (size_t i = 0; i < shard->count && count < total; ++i) {
+                struct ytelemetry_stored_span *span = ytelemetry_shard_nth(shard, i);
+                if (!span->used) continue;
+                if (floor && span->start_unix_ns < floor) continue;
+                if (service && service[0] && strcmp(span->service, service) != 0) continue;
+                if (operation && operation[0] && strcmp(span->name, operation) != 0) continue;
+                durs[count++] = span->duration_ns;
             }
-            pthread_mutex_unlock(&sh->mu);
+            pthread_mutex_unlock(&shard->mu);
         }
-        qsort(durs, n, sizeof(uint64_t), cmp_u64);
+        qsort(durs, count, sizeof(uint64_t), cmp_u64);
     }
 
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "service"); yjson_writer_string(w, service ? service : "");
-    yjson_writer_key(w, "operation"); yjson_writer_string(w, operation ? operation : "");
-    yjson_writer_key(w, "window_ns"); yjson_writer_int(w, (int64_t)window_ns);
-    yjson_writer_key(w, "count"); yjson_writer_int(w, (int64_t)n);
-    yjson_writer_key(w, "p50_ns"); yjson_writer_int(w, (int64_t)pctl_u64(durs, n, 50));
-    yjson_writer_key(w, "p90_ns"); yjson_writer_int(w, (int64_t)pctl_u64(durs, n, 90));
-    yjson_writer_key(w, "p99_ns"); yjson_writer_int(w, (int64_t)pctl_u64(durs, n, 99));
-    yjson_writer_key(w, "max_ns"); yjson_writer_int(w, (int64_t)(n ? durs[n - 1] : 0));
-    yjson_writer_end_object(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "service"); yjson_writer_string(writer, service ? service : "");
+    yjson_writer_key(writer, "operation"); yjson_writer_string(writer, operation ? operation : "");
+    yjson_writer_key(writer, "window_ns"); yjson_writer_int(writer, (int64_t)window_ns);
+    yjson_writer_key(writer, "count"); yjson_writer_int(writer, (int64_t)count);
+    yjson_writer_key(writer, "p50_ns"); yjson_writer_int(writer, (int64_t)pctl_u64(durs, count, 50));
+    yjson_writer_key(writer, "p90_ns"); yjson_writer_int(writer, (int64_t)pctl_u64(durs, count, 90));
+    yjson_writer_key(writer, "p99_ns"); yjson_writer_int(writer, (int64_t)pctl_u64(durs, count, 99));
+    yjson_writer_key(writer, "max_ns"); yjson_writer_int(writer, (int64_t)(count ? durs[count - 1] : 0));
+    yjson_writer_end_object(writer);
 
     free(durs);
 }
 
-void ytelemetry_store_write_errors(struct yjson_writer *w, uint64_t since_ns)
+void ytelemetry_store_write_errors(struct yjson_writer *writer, uint64_t since_ns)
 {
-    struct ytelemetry_store *s = ytelemetry_store_state();
-    ytelemetry_store_ensure(s);
+    struct ytelemetry_store *store = ytelemetry_store_state();
+    ytelemetry_store_ensure(store);
 
     enum { PER_SHARD = 64 };
-    struct ytelemetry_stored_span *errs = malloc((size_t)s->shard_count * PER_SHARD * sizeof(*errs));
+    struct ytelemetry_stored_span *errs = malloc((size_t)store->shard_count * PER_SHARD * sizeof(*errs));
     size_t nerr = 0;
     if (errs) {
-        for (unsigned k = 0; k < s->shard_count; ++k) {
-            struct ytel_shard *sh = &s->shards[k];
-            pthread_mutex_lock(&sh->mu);
+        for (unsigned k = 0; k < store->shard_count; ++k) {
+            struct ytel_shard *shard = &store->shards[k];
+            pthread_mutex_lock(&shard->mu);
             size_t taken = 0;
-            for (size_t i = 0; i < sh->count && taken < PER_SHARD; ++i) {
-                struct ytelemetry_stored_span *sp = ytelemetry_shard_nth(sh, i); /* newest first */
-                if (!sp->used || strcmp(sp->status, "error") != 0) continue;
-                if (since_ns && sp->start_unix_ns < since_ns) continue;
-                errs[nerr++] = *sp;
+            for (size_t i = 0; i < shard->count && taken < PER_SHARD; ++i) {
+                struct ytelemetry_stored_span *span = ytelemetry_shard_nth(shard, i); /* newest first */
+                if (!span->used || strcmp(span->status, "error") != 0) continue;
+                if (since_ns && span->start_unix_ns < since_ns) continue;
+                errs[nerr++] = *span;
                 taken++;
             }
-            pthread_mutex_unlock(&sh->mu);
+            pthread_mutex_unlock(&shard->mu);
         }
     }
 
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "errors");
-    yjson_writer_begin_array(w);
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "errors");
+    yjson_writer_begin_array(writer);
     if (errs) {
-        for (size_t a = 0; a + 1 < nerr; ++a)
-            for (size_t b = a + 1; b < nerr; ++b)
-                if (errs[b].start_unix_ns > errs[a].start_unix_ns) {
-                    struct ytelemetry_stored_span tmp = errs[a];
-                    errs[a] = errs[b];
-                    errs[b] = tmp;
+        for (size_t outer = 0; outer + 1 < nerr; ++outer)
+            for (size_t inner = outer + 1; inner < nerr; ++inner)
+                if (errs[inner].start_unix_ns > errs[outer].start_unix_ns) {
+                    struct ytelemetry_stored_span tmp = errs[outer];
+                    errs[outer] = errs[inner];
+                    errs[inner] = tmp;
                 }
         size_t emitted = 0;
-        for (size_t i = 0; i < nerr && emitted < 256; ++i) { emit_span(w, &errs[i]); emitted++; }
+        for (size_t i = 0; i < nerr && emitted < 256; ++i) { emit_span(writer, &errs[i]); emitted++; }
     }
-    yjson_writer_end_array(w);
-    yjson_writer_end_object(w);
+    yjson_writer_end_array(writer);
+    yjson_writer_end_object(writer);
     free(errs);
 }

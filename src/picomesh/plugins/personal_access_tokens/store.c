@@ -48,16 +48,16 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_mint
                                                                   uint32_t user_id)
 {
     (void)ctx;
-    struct personal_access_tokens_personal_access_tokens_data *d = pat(obj);
-    if (d->next_id == 0) d->next_id = 1;
+    struct personal_access_tokens_personal_access_tokens_data *data = pat(obj);
+    if (data->next_id == 0) data->next_id = 1;
     for (size_t i = 0; i < PAT_MAX; ++i) {
-        if (!d->entries[i].used) {
-            d->entries[i].pat_id = d->next_id++;
-            d->entries[i].user_id = user_id;
-            d->entries[i].used = 1;
-            d->count++;
-            yinfo("pat: minted pat=%u user=%u", d->entries[i].pat_id, user_id);
-            return PICOMESH_OK(picomesh_uint32, d->entries[i].pat_id);
+        if (!data->entries[i].used) {
+            data->entries[i].pat_id = data->next_id++;
+            data->entries[i].user_id = user_id;
+            data->entries[i].used = 1;
+            data->count++;
+            yinfo("pat: minted pat=%u user=%u", data->entries[i].pat_id, user_id);
+            return PICOMESH_OK(picomesh_uint32, data->entries[i].pat_id);
         }
     }
     return PICOMESH_ERR(picomesh_uint32, "pat_mint: table full");
@@ -70,10 +70,10 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_look
                                                                     uint32_t pat_id)
 {
     (void)ctx;
-    struct personal_access_tokens_personal_access_tokens_data *d = pat(obj);
+    struct personal_access_tokens_personal_access_tokens_data *data = pat(obj);
     for (size_t i = 0; i < PAT_MAX; ++i) {
-        if (d->entries[i].used && d->entries[i].pat_id == pat_id) {
-            return PICOMESH_OK(picomesh_uint32, d->entries[i].user_id);
+        if (data->entries[i].used && data->entries[i].pat_id == pat_id) {
+            return PICOMESH_OK(picomesh_uint32, data->entries[i].user_id);
         }
     }
     return PICOMESH_OK(picomesh_uint32, 0);
@@ -86,11 +86,11 @@ struct picomesh_int_result personal_access_tokens_personal_access_tokens_revoke_
                                                                  uint32_t pat_id)
 {
     (void)ctx;
-    struct personal_access_tokens_personal_access_tokens_data *d = pat(obj);
+    struct personal_access_tokens_personal_access_tokens_data *data = pat(obj);
     for (size_t i = 0; i < PAT_MAX; ++i) {
-        if (d->entries[i].used && d->entries[i].pat_id == pat_id) {
-            d->entries[i].used = 0;
-            d->count--;
+        if (data->entries[i].used && data->entries[i].pat_id == pat_id) {
+            data->entries[i].used = 0;
+            data->count--;
             return PICOMESH_OK(picomesh_int, 1);
         }
     }
@@ -102,12 +102,12 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_list_f
     struct ctx *ctx, struct object *obj, struct yheaders *hdrs, uint32_t user_id)
 {
     (void)ctx;
-    struct personal_access_tokens_personal_access_tokens_data *d = pat(obj);
-    size_t n = 0;
+    struct personal_access_tokens_personal_access_tokens_data *data = pat(obj);
+    size_t count = 0;
     for (size_t i = 0; i < PAT_MAX; ++i) {
-        if (d->entries[i].used && d->entries[i].user_id == user_id) n++;
+        if (data->entries[i].used && data->entries[i].user_id == user_id) count++;
     }
-    return PICOMESH_OK(picomesh_size, n);
+    return PICOMESH_OK(picomesh_size, count);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@personal_access_tokens:personal_access_tokens:personal_access_tokens_count_active")
@@ -126,25 +126,25 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_count_
  * (< 0 == unbounded). Shared by the paginated list + list_all. */
 static struct picomesh_json_result pat_list_window(struct object *obj, int64_t offset, int64_t limit)
 {
-    struct personal_access_tokens_personal_access_tokens_data *d = pat(obj);
-    struct yjson_writer *w = yjson_writer_new();
-    if (!w) return PICOMESH_ERR(picomesh_json, "pat_list: writer alloc failed");
-    yjson_writer_begin_array(w);
+    struct personal_access_tokens_personal_access_tokens_data *data = pat(obj);
+    struct yjson_writer *writer = yjson_writer_new();
+    if (!writer) return PICOMESH_ERR(picomesh_json, "pat_list: writer alloc failed");
+    yjson_writer_begin_array(writer);
     int64_t skip = offset > 0 ? offset : 0, emitted = 0;
     for (size_t i = 0; i < PAT_MAX && (limit < 0 || emitted < limit); ++i) {
-        if (!d->entries[i].used) continue;
+        if (!data->entries[i].used) continue;
         if (skip > 0) { --skip; continue; }
-        yjson_writer_begin_object(w);
-        yjson_writer_key(w, "pat_id");  yjson_writer_int(w, (int64_t)d->entries[i].pat_id);
-        yjson_writer_key(w, "user_id"); yjson_writer_int(w, (int64_t)d->entries[i].user_id);
-        yjson_writer_end_object(w);
+        yjson_writer_begin_object(writer);
+        yjson_writer_key(writer, "pat_id");  yjson_writer_int(writer, (int64_t)data->entries[i].pat_id);
+        yjson_writer_key(writer, "user_id"); yjson_writer_int(writer, (int64_t)data->entries[i].user_id);
+        yjson_writer_end_object(writer);
         ++emitted;
     }
-    yjson_writer_end_array(w);
+    yjson_writer_end_array(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(w, &len);
-    char *out = strdup(data ? data : "[]");
-    yjson_writer_free(w);
+    const char *json_data = yjson_writer_data(writer, &len);
+    char *out = strdup(json_data ? json_data : "[]");
+    yjson_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "pat_list: strdup failed");
     return PICOMESH_OK(picomesh_json, out);
 }

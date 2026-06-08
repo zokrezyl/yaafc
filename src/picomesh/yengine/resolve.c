@@ -95,10 +95,10 @@ static bool service_is_active(struct picomesh_engine *engine, const char *servic
         return true;
     /* Otherwise active iff this process registered at least one class for it. */
     char prefix[80];
-    int n = snprintf(prefix, sizeof(prefix), "%s_", service);
-    if (n <= 0 || (size_t)n >= sizeof(prefix))
+    int prefix_len = snprintf(prefix, sizeof(prefix), "%s_", service);
+    if (prefix_len <= 0 || (size_t)prefix_len >= sizeof(prefix))
         return false;
-    struct prefix_scan scan = {.prefix = prefix, .prefix_len = (size_t)n, .found = false};
+    struct prefix_scan scan = {.prefix = prefix, .prefix_len = (size_t)prefix_len, .found = false};
     class_for_each(prefix_scan_cb, &scan);
     return scan.found;
 }
@@ -143,13 +143,13 @@ struct picomesh_string_result
 picomesh_engine_invoke_json(struct picomesh_engine *engine, const char *path,
                             const char *args_json, struct yheaders *hdrs)
 {
-    struct picomesh_service_call_result call_r = picomesh_resolve_service_call(engine, path);
-    if (PICOMESH_IS_ERR(call_r))
-        return PICOMESH_ERR(picomesh_string, "engine_invoke: resolve failed", call_r);
-    struct picomesh_service_call call = call_r.value;
+    struct picomesh_service_call_result call_res = picomesh_resolve_service_call(engine, path);
+    if (PICOMESH_IS_ERR(call_res))
+        return PICOMESH_ERR(picomesh_string, "engine_invoke: resolve failed", call_res);
+    struct picomesh_service_call call = call_res.value;
 
-    jinvoke_fn fn = jinvoke_for(call.method_qname);
-    if (!fn) {
+    jinvoke_fn invoke_fn = jinvoke_for(call.method_qname);
+    if (!invoke_fn) {
         picomesh_service_call_release(&call);
         return PICOMESH_ERR(picomesh_string, "engine_invoke: no such method");
     }
@@ -177,7 +177,7 @@ picomesh_engine_invoke_json(struct picomesh_engine *engine, const char *path,
     yjson_writer_begin_object(writer);
     yjson_writer_key(writer, "result");
     char err[8192] = {0};
-    int rc = fn(&call.ctx, call.obj, hdrs, args, writer, err, sizeof(err));
+    int rc = invoke_fn(&call.ctx, call.obj, hdrs, args, writer, err, sizeof(err));
     picomesh_service_call_release(&call);
     if (args_doc) yjson_doc_free(args_doc);
     if (rc != 0) {

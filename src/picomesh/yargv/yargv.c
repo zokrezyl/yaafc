@@ -37,56 +37,56 @@ struct yargv_chain {
     char **sub_argv;    /* borrows pointers from the original argv */
 };
 
-static const char *def_dest(const struct yargv_option_def *d, char *scratch, size_t scratch_len)
+static const char *def_dest(const struct yargv_option_def *def, char *scratch, size_t scratch_len)
 {
-    if (d->dest) return d->dest;
-    if (d->long_name && strncmp(d->long_name, "--", 2) == 0) {
-        size_t l = strlen(d->long_name + 2);
-        if (l + 1 > scratch_len) return d->long_name + 2;
-        memcpy(scratch, d->long_name + 2, l + 1);
-        for (size_t i = 0; i < l; ++i) if (scratch[i] == '-') scratch[i] = '_';
+    if (def->dest) return def->dest;
+    if (def->long_name && strncmp(def->long_name, "--", 2) == 0) {
+        size_t len = strlen(def->long_name + 2);
+        if (len + 1 > scratch_len) return def->long_name + 2;
+        memcpy(scratch, def->long_name + 2, len + 1);
+        for (size_t i = 0; i < len; ++i) if (scratch[i] == '-') scratch[i] = '_';
         return scratch;
     }
-    return d->long_name ? d->long_name : (d->short_name ? d->short_name : "");
+    return def->long_name ? def->long_name : (def->short_name ? def->short_name : "");
 }
 
-static struct yargv_value_slot *slot_by_dest(struct yargv_chain *c, const char *dest)
+static struct yargv_value_slot *slot_by_dest(struct yargv_chain *chain, const char *dest)
 {
-    for (size_t i = 0; i < c->def_count; ++i) {
+    for (size_t i = 0; i < chain->def_count; ++i) {
         char scratch[64];
-        const char *d = def_dest(&c->defs[i], scratch, sizeof(scratch));
-        if (strcmp(d, dest) == 0) return &c->slots[i];
+        const char *candidate = def_dest(&chain->defs[i], scratch, sizeof(scratch));
+        if (strcmp(candidate, dest) == 0) return &chain->slots[i];
     }
     return NULL;
 }
 
-static const struct yargv_value_slot *slot_by_dest_const(const struct yargv_chain *c, const char *dest)
+static const struct yargv_value_slot *slot_by_dest_const(const struct yargv_chain *chain, const char *dest)
 {
-    return slot_by_dest((struct yargv_chain *)c, dest);
+    return slot_by_dest((struct yargv_chain *)chain, dest);
 }
 
-static int kv_push(struct yargv_value_slot *s, const char *kv)
+static int kv_push(struct yargv_value_slot *slot, const char *kv)
 {
-    if (s->kv_count == s->kv_cap) {
-        size_t nc = s->kv_cap ? s->kv_cap * 2 : 4;
-        char **na = realloc(s->kv_list, nc * sizeof(*na));
-        if (!na) return -1;
-        s->kv_list = na;
-        s->kv_cap = nc;
+    if (slot->kv_count == slot->kv_cap) {
+        size_t new_cap = slot->kv_cap ? slot->kv_cap * 2 : 4;
+        char **new_list = realloc(slot->kv_list, new_cap * sizeof(*new_list));
+        if (!new_list) return -1;
+        slot->kv_list = new_list;
+        slot->kv_cap = new_cap;
     }
-    s->kv_list[s->kv_count] = strdup(kv);
-    if (!s->kv_list[s->kv_count]) return -1;
-    s->kv_count++;
+    slot->kv_list[slot->kv_count] = strdup(kv);
+    if (!slot->kv_list[slot->kv_count]) return -1;
+    slot->kv_count++;
     return 0;
 }
 
-static struct yargv_value_slot *match(struct yargv_chain *c, const char *tok)
+static struct yargv_value_slot *match(struct yargv_chain *chain, const char *tok)
 {
     if (!tok) return NULL;
-    for (size_t i = 0; i < c->def_count; ++i) {
-        const struct yargv_option_def *d = &c->defs[i];
-        if (d->long_name && strcmp(d->long_name, tok) == 0) return &c->slots[i];
-        if (d->short_name && strcmp(d->short_name, tok) == 0) return &c->slots[i];
+    for (size_t i = 0; i < chain->def_count; ++i) {
+        const struct yargv_option_def *def = &chain->defs[i];
+        if (def->long_name && strcmp(def->long_name, tok) == 0) return &chain->slots[i];
+        if (def->short_name && strcmp(def->short_name, tok) == 0) return &chain->slots[i];
     }
     return NULL;
 }
@@ -94,16 +94,16 @@ static struct yargv_value_slot *match(struct yargv_chain *c, const char *tok)
 struct yargv_chain_ptr_result yargv_parse(const struct yargv_option_def *defs,
                                           size_t def_count, int argc, char **argv)
 {
-    struct yargv_chain *c = calloc(1, sizeof(*c));
-    if (!c) return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: calloc failed");
-    c->defs = defs;
-    c->def_count = def_count;
-    c->slots = calloc(def_count ? def_count : 1, sizeof(*c->slots));
-    if (def_count && !c->slots) {
-        free(c);
+    struct yargv_chain *chain = calloc(1, sizeof(*chain));
+    if (!chain) return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: calloc failed");
+    chain->defs = defs;
+    chain->def_count = def_count;
+    chain->slots = calloc(def_count ? def_count : 1, sizeof(*chain->slots));
+    if (def_count && !chain->slots) {
+        free(chain);
         return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: slots alloc failed");
     }
-    for (size_t i = 0; i < def_count; ++i) c->slots[i].def = &defs[i];
+    for (size_t i = 0; i < def_count; ++i) chain->slots[i].def = &defs[i];
 
     /* argv[0] is the program name. Start at 1. */
     int i = 1;
@@ -116,39 +116,39 @@ struct yargv_chain_ptr_result yargv_parse(const struct yargv_option_def *defs,
             continue;
         }
         if (!options_ended && tok[0] == '-' && tok[1] != '\0') {
-            struct yargv_value_slot *s = match(c, tok);
-            if (!s) {
+            struct yargv_value_slot *slot = match(chain, tok);
+            if (!slot) {
                 /* Unknown option — stop parsing, leave for subcommand. */
                 break;
             }
-            switch (s->def->kind) {
+            switch (slot->def->kind) {
             case YARGV_BOOL:
-                s->present = 1;
-                s->bool_val = 1;
+                slot->present = 1;
+                slot->bool_val = 1;
                 ++i;
                 break;
             case YARGV_VALUE:
                 if (i + 1 >= argc) {
-                    yargv_chain_destroy(c);
+                    yargv_chain_destroy(chain);
                     return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: missing value for option");
                 }
-                s->present = 1;
-                free(s->string_val);
-                s->string_val = strdup(argv[i + 1]);
-                if (!s->string_val) {
-                    yargv_chain_destroy(c);
+                slot->present = 1;
+                free(slot->string_val);
+                slot->string_val = strdup(argv[i + 1]);
+                if (!slot->string_val) {
+                    yargv_chain_destroy(chain);
                     return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: strdup failed");
                 }
                 i += 2;
                 break;
             case YARGV_KEY_VALUE:
                 if (i + 1 >= argc) {
-                    yargv_chain_destroy(c);
+                    yargv_chain_destroy(chain);
                     return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: missing key=value for option");
                 }
-                s->present = 1;
-                if (kv_push(s, argv[i + 1]) < 0) {
-                    yargv_chain_destroy(c);
+                slot->present = 1;
+                if (kv_push(slot, argv[i + 1]) < 0) {
+                    yargv_chain_destroy(chain);
                     return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: kv push failed");
                 }
                 i += 2;
@@ -158,79 +158,79 @@ struct yargv_chain_ptr_result yargv_parse(const struct yargv_option_def *defs,
         }
         /* First operand becomes the subcommand. The rest is the
          * subcommand's own argv (raw — no further option parsing here). */
-        if (!c->subcommand) {
-            c->subcommand = strdup(tok);
-            if (!c->subcommand) {
-                yargv_chain_destroy(c);
+        if (!chain->subcommand) {
+            chain->subcommand = strdup(tok);
+            if (!chain->subcommand) {
+                yargv_chain_destroy(chain);
                 return PICOMESH_ERR(yargv_chain_ptr, "yargv_parse: strdup failed");
             }
             ++i;
-            c->sub_argc = argc - i;
-            c->sub_argv = (char **)(argv + i);
+            chain->sub_argc = argc - i;
+            chain->sub_argv = (char **)(argv + i);
             break;
         }
         ++i;
     }
-    return PICOMESH_OK(yargv_chain_ptr, c);
+    return PICOMESH_OK(yargv_chain_ptr, chain);
 }
 
-void yargv_chain_destroy(struct yargv_chain *c)
+void yargv_chain_destroy(struct yargv_chain *chain)
 {
-    if (!c) return;
-    for (size_t i = 0; i < c->def_count; ++i) {
-        free(c->slots[i].string_val);
-        for (size_t j = 0; j < c->slots[i].kv_count; ++j) free(c->slots[i].kv_list[j]);
-        free(c->slots[i].kv_list);
+    if (!chain) return;
+    for (size_t i = 0; i < chain->def_count; ++i) {
+        free(chain->slots[i].string_val);
+        for (size_t j = 0; j < chain->slots[i].kv_count; ++j) free(chain->slots[i].kv_list[j]);
+        free(chain->slots[i].kv_list);
     }
-    free(c->slots);
-    free(c->subcommand);
-    free(c);
+    free(chain->slots);
+    free(chain->subcommand);
+    free(chain);
 }
 
-const char *yargv_get_string(const struct yargv_chain *c, const char *dest, const char *fallback)
+const char *yargv_get_string(const struct yargv_chain *chain, const char *dest, const char *fallback)
 {
-    const struct yargv_value_slot *s = slot_by_dest_const(c, dest);
-    if (s && s->present && s->string_val) return s->string_val;
+    const struct yargv_value_slot *slot = slot_by_dest_const(chain, dest);
+    if (slot && slot->present && slot->string_val) return slot->string_val;
     return fallback;
 }
 
-int yargv_get_bool(const struct yargv_chain *c, const char *dest, int fallback)
+int yargv_get_bool(const struct yargv_chain *chain, const char *dest, int fallback)
 {
-    const struct yargv_value_slot *s = slot_by_dest_const(c, dest);
-    if (s && s->present) return s->bool_val;
+    const struct yargv_value_slot *slot = slot_by_dest_const(chain, dest);
+    if (slot && slot->present) return slot->bool_val;
     return fallback;
 }
 
-int64_t yargv_get_int(const struct yargv_chain *c, const char *dest, int64_t fallback)
+int64_t yargv_get_int(const struct yargv_chain *chain, const char *dest, int64_t fallback)
 {
-    const struct yargv_value_slot *s = slot_by_dest_const(c, dest);
-    if (s && s->present && s->string_val) return strtoll(s->string_val, NULL, 10);
+    const struct yargv_value_slot *slot = slot_by_dest_const(chain, dest);
+    if (slot && slot->present && slot->string_val) return strtoll(slot->string_val, NULL, 10);
     return fallback;
 }
 
-size_t yargv_get_kv_list(const struct yargv_chain *c, const char *dest,
+size_t yargv_get_kv_list(const struct yargv_chain *chain, const char *dest,
                          const char **out, size_t out_cap)
 {
-    const struct yargv_value_slot *s = slot_by_dest_const(c, dest);
-    if (!s || !s->kv_count) return 0;
-    size_t n = s->kv_count < out_cap ? s->kv_count : out_cap;
-    for (size_t i = 0; i < n; ++i) out[i] = s->kv_list[i];
-    return n;
+    const struct yargv_value_slot *slot = slot_by_dest_const(chain, dest);
+    if (!slot || !slot->kv_count) return 0;
+    size_t copy_count = slot->kv_count < out_cap ? slot->kv_count : out_cap;
+    for (size_t i = 0; i < copy_count; ++i) out[i] = slot->kv_list[i];
+    return copy_count;
 }
 
-const char *yargv_subcommand(const struct yargv_chain *c)
+const char *yargv_subcommand(const struct yargv_chain *chain)
 {
-    return c ? c->subcommand : NULL;
+    return chain ? chain->subcommand : NULL;
 }
 
-int yargv_sub_argc(const struct yargv_chain *c)
+int yargv_sub_argc(const struct yargv_chain *chain)
 {
-    return c ? c->sub_argc : 0;
+    return chain ? chain->sub_argc : 0;
 }
 
-char *const *yargv_sub_argv(const struct yargv_chain *c)
+char *const *yargv_sub_argv(const struct yargv_chain *chain)
 {
-    return c ? c->sub_argv : NULL;
+    return chain ? chain->sub_argv : NULL;
 }
 
 /* Build the left "  --long, -short <ARG>" column for one option. */
@@ -258,8 +258,8 @@ void yargv_print_options(const struct yargv_option_def *defs, size_t def_count, 
     int width = 0;
     for (size_t i = 0; i < def_count; ++i) {
         char buf[96];
-        int n = yargv_opt_synopsis(&defs[i], buf, sizeof(buf));
-        if (n > width) width = n;
+        int synopsis_len = yargv_opt_synopsis(&defs[i], buf, sizeof(buf));
+        if (synopsis_len > width) width = synopsis_len;
     }
     for (size_t i = 0; i < def_count; ++i) {
         char buf[96];

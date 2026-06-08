@@ -97,121 +97,121 @@ struct yloop_stream {
     int closing;
 };
 
-static void on_reaper_check(uv_check_t *h)
+static void on_reaper_check(uv_check_t *handle)
 {
-    struct yloop *l = h->data;
-    struct coro_zombie *z = l->zombies;
-    l->zombies = NULL;
-    while (z) {
-        struct coro_zombie *next = z->next;
-        if (picomesh_coro_is_finished(z->coro)) {
-            picomesh_coro_destroy(z->coro);
-            free(z);
+    struct yloop *loop = handle->data;
+    struct coro_zombie *zombie = loop->zombies;
+    loop->zombies = NULL;
+    while (zombie) {
+        struct coro_zombie *next = zombie->next;
+        if (picomesh_coro_is_finished(zombie->coro)) {
+            picomesh_coro_destroy(zombie->coro);
+            free(zombie);
         } else {
             /* Not finished yet — keep it for the next iteration. */
-            z->next = l->zombies;
-            l->zombies = z;
+            zombie->next = loop->zombies;
+            loop->zombies = zombie;
         }
-        z = next;
+        zombie = next;
     }
 }
 
-void yloop_reap_coro(struct yloop *l, struct picomesh_coro *coro)
+void yloop_reap_coro(struct yloop *loop, struct picomesh_coro *coro)
 {
-    if (!l || !coro) return;
-    struct coro_zombie *z = calloc(1, sizeof(*z));
-    if (!z) {
+    if (!loop || !coro) return;
+    struct coro_zombie *zombie = calloc(1, sizeof(*zombie));
+    if (!zombie) {
         ywarn("yloop_reap_coro: calloc failed — coro id=%u leaked",
               picomesh_coro_id(coro));
         return;
     }
-    z->coro = coro;
-    z->next = l->zombies;
-    l->zombies = z;
+    zombie->coro = coro;
+    zombie->next = loop->zombies;
+    loop->zombies = zombie;
 }
 
-static void on_alloc(uv_handle_t *h, size_t suggested, uv_buf_t *out)
+static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *out)
 {
-    (void)h;
+    (void)handle;
     out->base = malloc(suggested);
     out->len  = out->base ? suggested : 0;
 }
 
-static void ring_append(struct yloop_stream *s, const uint8_t *data, size_t n)
+static void ring_append(struct yloop_stream *stream, const uint8_t *data, size_t len)
 {
-    if (!s->rbuf) {
-        s->rcap = RING_INIT_CAP;
-        s->rbuf = malloc(s->rcap);
+    if (!stream->rbuf) {
+        stream->rcap = RING_INIT_CAP;
+        stream->rbuf = malloc(stream->rcap);
     }
-    if (s->rlen + n > s->rcap) {
-        size_t ncap = s->rcap ? s->rcap : RING_INIT_CAP;
-        while (s->rlen + n > ncap) ncap *= 2;
-        uint8_t *nb = realloc(s->rbuf, ncap);
-        if (!nb) {
+    if (stream->rlen + len > stream->rcap) {
+        size_t new_cap = stream->rcap ? stream->rcap : RING_INIT_CAP;
+        while (stream->rlen + len > new_cap) new_cap *= 2;
+        uint8_t *new_buf = realloc(stream->rbuf, new_cap);
+        if (!new_buf) {
             ywarn("yloop: ring realloc failed");
             return;
         }
-        s->rbuf = nb;
-        s->rcap = ncap;
+        stream->rbuf = new_buf;
+        stream->rcap = new_cap;
     }
-    memcpy(s->rbuf + s->rlen, data, n);
-    s->rlen += n;
+    memcpy(stream->rbuf + stream->rlen, data, len);
+    stream->rlen += len;
 }
 
-static void on_read(uv_stream_t *st, ssize_t nread, const uv_buf_t *buf)
+static void on_read(uv_stream_t *uv_stream, ssize_t nread, const uv_buf_t *buf)
 {
-    struct yloop_stream *s = st->data;
+    struct yloop_stream *stream = uv_stream->data;
     if (nread > 0) {
-        ring_append(s, (const uint8_t *)buf->base, (size_t)nread);
+        ring_append(stream, (const uint8_t *)buf->base, (size_t)nread);
     } else if (nread < 0) {
         /* UV_EOF or any other read error → terminal. */
-        s->eof = 1;
+        stream->eof = 1;
     }
     free(buf->base);
-    if (s->read_blocked && (s->rlen >= s->want || s->eof)) {
-        s->read_blocked = 0;
-        picomesh_coro_resume(s->coro);
+    if (stream->read_blocked && (stream->rlen >= stream->want || stream->eof)) {
+        stream->read_blocked = 0;
+        picomesh_coro_resume(stream->coro);
     }
 }
 
-size_t yloop_read_some(struct yloop_stream *s, void *buf, size_t cap)
+size_t yloop_read_some(struct yloop_stream *stream, void *buf, size_t cap)
 {
-    if (!s || !buf || cap == 0) return 0;
+    if (!stream || !buf || cap == 0) return 0;
     /* Resume whoever is calling now — a stream may be driven by
      * different coroutines over its lifetime (e.g. a pooled/cached
      * outbound RPC connection). Callers must serialise access to one
      * stream; this just makes the wakeup target correct. */
-    s->coro = picomesh_coro_current();
-    while (s->rlen == 0 && !s->eof) {
-        s->want = 1;
-        s->read_blocked = 1;
+    stream->coro = picomesh_coro_current();
+    while (stream->rlen == 0 && !stream->eof) {
+        stream->want = 1;
+        stream->read_blocked = 1;
         picomesh_coro_yield();
     }
-    if (s->rlen == 0) return 0; /* EOF */
-    size_t take = s->rlen < cap ? s->rlen : cap;
-    memcpy(buf, s->rbuf, take);
-    if (take < s->rlen) {
-        memmove(s->rbuf, s->rbuf + take, s->rlen - take);
+    if (stream->rlen == 0) return 0; /* EOF */
+    size_t take = stream->rlen < cap ? stream->rlen : cap;
+    memcpy(buf, stream->rbuf, take);
+    if (take < stream->rlen) {
+        memmove(stream->rbuf, stream->rbuf + take, stream->rlen - take);
     }
-    s->rlen -= take;
+    stream->rlen -= take;
     return take;
 }
 
-size_t yloop_read(struct yloop_stream *s, void *buf, size_t n)
+size_t yloop_read(struct yloop_stream *stream, void *buf, size_t n)
 {
-    if (!s || !buf || n == 0) return 0;
-    s->coro = picomesh_coro_current(); /* resume the current caller (see yloop_read_some) */
-    while (s->rlen < n && !s->eof) {
-        s->want = n;
-        s->read_blocked = 1;
+    if (!stream || !buf || n == 0) return 0;
+    stream->coro = picomesh_coro_current(); /* resume the current caller (see yloop_read_some) */
+    while (stream->rlen < n && !stream->eof) {
+        stream->want = n;
+        stream->read_blocked = 1;
         picomesh_coro_yield();
     }
-    size_t take = s->rlen < n ? s->rlen : n;
-    memcpy(buf, s->rbuf, take);
-    if (take < s->rlen) {
-        memmove(s->rbuf, s->rbuf + take, s->rlen - take);
+    size_t take = stream->rlen < n ? stream->rlen : n;
+    memcpy(buf, stream->rbuf, take);
+    if (take < stream->rlen) {
+        memmove(stream->rbuf, stream->rbuf + take, stream->rlen - take);
     }
-    s->rlen -= take;
+    stream->rlen -= take;
     return take;
 }
 
@@ -230,66 +230,66 @@ struct write_req {
 
 static void on_write(uv_write_t *req, int status)
 {
-    struct write_req *wr = (struct write_req *)req;
-    struct picomesh_coro *coro = wr->coro;
-    if (wr->status_out) *wr->status_out = status;
-    free(wr->data);
-    free(wr);
+    struct write_req *write_request = (struct write_req *)req;
+    struct picomesh_coro *coro = write_request->coro;
+    if (write_request->status_out) *write_request->status_out = status;
+    free(write_request->data);
+    free(write_request);
     picomesh_coro_resume(coro);
 }
 
-size_t yloop_write(struct yloop_stream *s, const void *buf, size_t n)
+size_t yloop_write(struct yloop_stream *stream, const void *buf, size_t n)
 {
-    if (!s || !buf || n == 0) return 0;
-    struct write_req *wr = calloc(1, sizeof(*wr));
-    if (!wr) return 0;
+    if (!stream || !buf || n == 0) return 0;
+    struct write_req *write_request = calloc(1, sizeof(*write_request));
+    if (!write_request) return 0;
     int status = -1; /* lives on this coro's stack until on_write resumes us */
-    wr->coro = picomesh_coro_current();
-    wr->status_out = &status;
-    wr->data = malloc(n);
-    if (!wr->data) { free(wr); return 0; }
-    memcpy(wr->data, buf, n);
-    uv_buf_t b = uv_buf_init(wr->data, (unsigned)n);
-    int rc = uv_write(&wr->req, (uv_stream_t *)&s->tcp, &b, 1, on_write);
+    write_request->coro = picomesh_coro_current();
+    write_request->status_out = &status;
+    write_request->data = malloc(n);
+    if (!write_request->data) { free(write_request); return 0; }
+    memcpy(write_request->data, buf, n);
+    uv_buf_t uv_buf = uv_buf_init(write_request->data, (unsigned)n);
+    int rc = uv_write(&write_request->req, (uv_stream_t *)&stream->tcp, &uv_buf, 1, on_write);
     if (rc < 0) {
-        free(wr->data);
-        free(wr);
+        free(write_request->data);
+        free(write_request);
         return 0;
     }
     picomesh_coro_yield();
     return status == 0 ? n : 0;
 }
 
-static void on_handle_close(uv_handle_t *h)
+static void on_handle_close(uv_handle_t *handle)
 {
     /* uv_close completion: the handle is detached but we still own
      * the surrounding struct. Free the stream wrapper here. */
-    struct yloop_stream *s = h->data;
-    if (!s) return;
+    struct yloop_stream *stream = handle->data;
+    if (!stream) return;
     /* Only the stream that OWNS the coroutine destroys it. A borrowed
      * coro (outbound yloop_connect_tcp stream) must not — the owning
      * serve stream will, and a second destroy here is a double free. */
-    if (s->owns_coro && s->coro && picomesh_coro_is_finished(s->coro)) {
-        picomesh_coro_destroy(s->coro);
+    if (stream->owns_coro && stream->coro && picomesh_coro_is_finished(stream->coro)) {
+        picomesh_coro_destroy(stream->coro);
     }
-    free(s->rbuf);
-    free(s);
+    free(stream->rbuf);
+    free(stream);
 }
 
 /* uv_close completion for a listener handle: the embedded uv_tcp_t is now off
  * the loop, so the surrounding listener struct can be freed. */
-static void on_listener_close(uv_handle_t *h)
+static void on_listener_close(uv_handle_t *handle)
 {
-    struct yloop_listener *L = h->data;
-    free(L);
+    struct yloop_listener *listener = handle->data;
+    free(listener);
 }
 
-void yloop_close(struct yloop_stream *s)
+void yloop_close(struct yloop_stream *stream)
 {
-    if (!s || s->closing) return;
-    s->closing = 1;
-    uv_read_stop((uv_stream_t *)&s->tcp);
-    uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+    if (!stream || stream->closing) return;
+    stream->closing = 1;
+    uv_read_stop((uv_stream_t *)&stream->tcp);
+    uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
 }
 
 /* The serve function and ud aren't available inside a static entry —
@@ -302,16 +302,16 @@ struct serve_closure {
 
 static void serve_trampoline(void *arg)
 {
-    struct yloop_stream *s = arg;
-    struct serve_closure *cl = (struct serve_closure *)((char *)s + sizeof(*s));
-    cl->fn(s->owner, s, cl->ud);
+    struct yloop_stream *stream = arg;
+    struct serve_closure *closure = (struct serve_closure *)((char *)stream + sizeof(*stream));
+    closure->fn(stream->owner, stream, closure->ud);
     /* If the handler forgot to close, close now so libuv can clean up. */
-    yloop_close(s);
+    yloop_close(stream);
 }
 
 static void on_connection(uv_stream_t *server, int status)
 {
-    struct yloop_listener *L = server->data;
+    struct yloop_listener *listener = server->data;
     if (status < 0) {
         ywarn("yloop: accept failed: %s", uv_strerror(status));
         return;
@@ -319,145 +319,145 @@ static void on_connection(uv_stream_t *server, int status)
 
     /* Stream + closure laid out back-to-back so the trampoline can find
      * the closure with a single offset. */
-    struct yloop_stream *s = calloc(1, sizeof(*s) + sizeof(struct serve_closure));
-    if (!s) return;
-    s->owner = L->owner;
-    struct serve_closure *cl = (struct serve_closure *)((char *)s + sizeof(*s));
-    cl->fn = L->serve;
-    cl->ud = L->ud;
+    struct yloop_stream *stream = calloc(1, sizeof(*stream) + sizeof(struct serve_closure));
+    if (!stream) return;
+    stream->owner = listener->owner;
+    struct serve_closure *closure = (struct serve_closure *)((char *)stream + sizeof(*stream));
+    closure->fn = listener->serve;
+    closure->ud = listener->ud;
 
-    int rc = uv_tcp_init(&L->owner->loop, &s->tcp);
+    int rc = uv_tcp_init(&listener->owner->loop, &stream->tcp);
     if (rc < 0) {
         ywarn("yloop: uv_tcp_init failed: %s", uv_strerror(rc));
-        free(s);
+        free(stream);
         return;
     }
-    s->tcp.data = s;
+    stream->tcp.data = stream;
 
-    rc = uv_accept(server, (uv_stream_t *)&s->tcp);
+    rc = uv_accept(server, (uv_stream_t *)&stream->tcp);
     if (rc < 0) {
         ywarn("yloop: uv_accept failed: %s", uv_strerror(rc));
-        uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+        uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
         return;
     }
     /* Kill Nagle on every accepted peer. Without this, request/response
      * traffic on loopback eats a ~40 ms delayed-ACK timer per RTT. */
-    uv_tcp_nodelay(&s->tcp, 1);
+    uv_tcp_nodelay(&stream->tcp, 1);
 
-    rc = uv_read_start((uv_stream_t *)&s->tcp, on_alloc, on_read);
+    rc = uv_read_start((uv_stream_t *)&stream->tcp, on_alloc, on_read);
     if (rc < 0) {
         ywarn("yloop: uv_read_start failed: %s", uv_strerror(rc));
-        uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+        uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
         return;
     }
 
-    struct picomesh_coro_ptr_result sr =
-        picomesh_coro_spawn(serve_trampoline, s, 0, "yloop-serve");
-    if (PICOMESH_IS_ERR(sr)) {
+    struct picomesh_coro_ptr_result spawn_res =
+        picomesh_coro_spawn(serve_trampoline, stream, 0, "yloop-serve");
+    if (PICOMESH_IS_ERR(spawn_res)) {
         ywarn("yloop: coro spawn failed");
-        picomesh_error_destroy(sr.error);
-        uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+        picomesh_error_destroy(spawn_res.error);
+        uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
         return;
     }
-    s->coro = sr.value;
-    s->owns_coro = 1; /* the accepted stream owns the serve coro */
-    picomesh_coro_resume(s->coro);
+    stream->coro = spawn_res.value;
+    stream->owns_coro = 1; /* the accepted stream owns the serve coro */
+    picomesh_coro_resume(stream->coro);
 }
 
 /* Runs on the loop thread when another thread posts a resume. Drain the queue
  * under the lock, then resume each coro OUTSIDE the lock (resume can run
  * arbitrary coroutine code, including another yloop_post_resume). */
-static void on_resume_async(uv_async_t *h)
+static void on_resume_async(uv_async_t *handle)
 {
-    struct yloop *l = h->data;
-    uv_mutex_lock(&l->resume_mu);
-    struct resume_node *n = l->resume_head;
-    l->resume_head = l->resume_tail = NULL;
-    uv_mutex_unlock(&l->resume_mu);
-    while (n) {
-        struct resume_node *next = n->next;
-        struct picomesh_coro *coro = n->coro;
-        free(n);
+    struct yloop *loop = handle->data;
+    uv_mutex_lock(&loop->resume_mu);
+    struct resume_node *node = loop->resume_head;
+    loop->resume_head = loop->resume_tail = NULL;
+    uv_mutex_unlock(&loop->resume_mu);
+    while (node) {
+        struct resume_node *next = node->next;
+        struct picomesh_coro *coro = node->coro;
+        free(node);
         picomesh_coro_resume(coro);
-        n = next;
+        node = next;
     }
 }
 
-void yloop_post_resume(struct yloop *l, struct picomesh_coro *coro)
+void yloop_post_resume(struct yloop *loop, struct picomesh_coro *coro)
 {
-    if (!l || !l->resume_ready || !coro) return;
-    struct resume_node *n = calloc(1, sizeof(*n));
-    if (!n) return; /* OOM: the coro will not be resumed — fatal-ish, but we
+    if (!loop || !loop->resume_ready || !coro) return;
+    struct resume_node *node = calloc(1, sizeof(*node));
+    if (!node) return; /* OOM: the coro will not be resumed — fatal-ish, but we
                      * cannot recover here; the offloading path treats a
                      * never-resumed coro as a hung request. */
-    n->coro = coro;
-    uv_mutex_lock(&l->resume_mu);
-    if (l->resume_tail) l->resume_tail->next = n;
-    else l->resume_head = n;
-    l->resume_tail = n;
-    uv_mutex_unlock(&l->resume_mu);
-    uv_async_send(&l->resume_async);
+    node->coro = coro;
+    uv_mutex_lock(&loop->resume_mu);
+    if (loop->resume_tail) loop->resume_tail->next = node;
+    else loop->resume_head = node;
+    loop->resume_tail = node;
+    uv_mutex_unlock(&loop->resume_mu);
+    uv_async_send(&loop->resume_async);
 }
 
 struct yloop_ptr_result yloop_create(void)
 {
-    struct yloop *l = calloc(1, sizeof(*l));
-    if (!l) return PICOMESH_ERR(yloop_ptr, "yloop_create: calloc failed");
-    int rc = uv_loop_init(&l->loop);
+    struct yloop *loop = calloc(1, sizeof(*loop));
+    if (!loop) return PICOMESH_ERR(yloop_ptr, "yloop_create: calloc failed");
+    int rc = uv_loop_init(&loop->loop);
     if (rc < 0) {
-        free(l);
+        free(loop);
         return PICOMESH_ERR(yloop_ptr, "yloop_create: uv_loop_init failed");
     }
     /* Zombie-coro reaper: runs at the tail of every loop iteration but
      * is unref'd so it never by itself keeps uv_run alive. */
-    uv_check_init(&l->loop, &l->reaper);
-    l->reaper.data = l;
-    uv_check_start(&l->reaper, on_reaper_check);
-    uv_unref((uv_handle_t *)&l->reaper);
+    uv_check_init(&loop->loop, &loop->reaper);
+    loop->reaper.data = loop;
+    uv_check_start(&loop->reaper, on_reaper_check);
+    uv_unref((uv_handle_t *)&loop->reaper);
     /* Cross-thread resume channel (unref'd: it never keeps the loop alive on
      * its own, but uv_async_send still wakes it to deliver a resume). */
-    if (uv_async_init(&l->loop, &l->resume_async, on_resume_async) == 0) {
-        l->resume_async.data = l;
-        uv_unref((uv_handle_t *)&l->resume_async);
-        uv_mutex_init(&l->resume_mu);
-        l->resume_ready = 1;
+    if (uv_async_init(&loop->loop, &loop->resume_async, on_resume_async) == 0) {
+        loop->resume_async.data = loop;
+        uv_unref((uv_handle_t *)&loop->resume_async);
+        uv_mutex_init(&loop->resume_mu);
+        loop->resume_ready = 1;
     }
-    return PICOMESH_OK(yloop_ptr, l);
+    return PICOMESH_OK(yloop_ptr, loop);
 }
 
-void yloop_destroy(struct yloop *l)
+void yloop_destroy(struct yloop *loop)
 {
-    if (!l) return;
+    if (!loop) return;
     /* Final sweep: destroy any coro still queued for reaping. */
-    on_reaper_check(&l->reaper);
-    struct coro_zombie *z = l->zombies;
-    while (z) {
-        struct coro_zombie *next = z->next;
-        free(z);
-        z = next;
+    on_reaper_check(&loop->reaper);
+    struct coro_zombie *zombie = loop->zombies;
+    while (zombie) {
+        struct coro_zombie *next = zombie->next;
+        free(zombie);
+        zombie = next;
     }
-    uv_check_stop(&l->reaper);
-    if (l->resume_ready) {
-        uv_close((uv_handle_t *)&l->resume_async, NULL);
-        struct resume_node *n = l->resume_head;
-        while (n) { struct resume_node *next = n->next; free(n); n = next; }
-        uv_mutex_destroy(&l->resume_mu);
+    uv_check_stop(&loop->reaper);
+    if (loop->resume_ready) {
+        uv_close((uv_handle_t *)&loop->resume_async, NULL);
+        struct resume_node *node = loop->resume_head;
+        while (node) { struct resume_node *next = node->next; free(node); node = next; }
+        uv_mutex_destroy(&loop->resume_mu);
     }
-    uv_loop_close(&l->loop);
-    free(l);
+    uv_loop_close(&loop->loop);
+    free(loop);
 }
 
-struct picomesh_void_result yloop_run(struct yloop *l)
+struct picomesh_void_result yloop_run(struct yloop *loop)
 {
-    if (!l) return PICOMESH_ERR(picomesh_void, "yloop_run: NULL loop");
-    uv_run(&l->loop, UV_RUN_DEFAULT);
+    if (!loop) return PICOMESH_ERR(picomesh_void, "yloop_run: NULL loop");
+    uv_run(&loop->loop, UV_RUN_DEFAULT);
     return PICOMESH_OK_VOID();
 }
 
-void yloop_stop(struct yloop *l)
+void yloop_stop(struct yloop *loop)
 {
-    if (!l) return;
-    uv_stop(&l->loop);
+    if (!loop) return;
+    uv_stop(&loop->loop);
 }
 
 struct sleep_state {
@@ -472,8 +472,8 @@ static void on_sleep_closed(uv_handle_t *handle)
 
 static void on_sleep_timer(uv_timer_t *handle)
 {
-    struct sleep_state *ss = handle->data;
-    struct picomesh_coro *coro = ss->coro;
+    struct sleep_state *sleep = handle->data;
+    struct picomesh_coro *coro = sleep->coro;
     uv_timer_stop(handle);
     /* Close the handle and free its state in the close callback — never
      * inline, never on the caller's stack. A coro that sleeps in a tight
@@ -485,20 +485,20 @@ static void on_sleep_timer(uv_timer_t *handle)
     picomesh_coro_resume(coro);
 }
 
-void yloop_sleep_ms(struct yloop *l, unsigned int ms)
+void yloop_sleep_ms(struct yloop *loop, unsigned int ms)
 {
-    if (!l) return;
+    if (!loop) return;
     struct picomesh_coro *self = picomesh_coro_current();
     if (!self) {
         ywarn("yloop_sleep_ms: not in a coroutine — refusing to block");
         return;
     }
-    struct sleep_state *ss = calloc(1, sizeof(*ss));
-    if (!ss) return;
-    ss->coro = self;
-    uv_timer_init(&l->loop, &ss->timer);
-    ss->timer.data = ss;
-    uv_timer_start(&ss->timer, on_sleep_timer, ms, 0);
+    struct sleep_state *sleep = calloc(1, sizeof(*sleep));
+    if (!sleep) return;
+    sleep->coro = self;
+    uv_timer_init(&loop->loop, &sleep->timer);
+    sleep->timer.data = sleep;
+    uv_timer_start(&sleep->timer, on_sleep_timer, ms, 0);
     picomesh_coro_yield();
 }
 
@@ -512,23 +512,23 @@ struct yloop_timer {
 
 static void on_repeating_timer(uv_timer_t *handle)
 {
-    struct yloop_timer *t = handle->data;
-    if (t->cb) t->cb(t->ud);
+    struct yloop_timer *timer = handle->data;
+    if (timer->cb) timer->cb(timer->ud);
 }
 
-struct yloop_timer_ptr_result yloop_timer_start(struct yloop *l, unsigned int interval_ms,
+struct yloop_timer_ptr_result yloop_timer_start(struct yloop *loop, unsigned int interval_ms,
                                                 yloop_timer_cb cb, void *ud)
 {
-    if (!l) return PICOMESH_ERR(yloop_timer_ptr, "yloop_timer_start: NULL loop");
+    if (!loop) return PICOMESH_ERR(yloop_timer_ptr, "yloop_timer_start: NULL loop");
     if (!cb) return PICOMESH_ERR(yloop_timer_ptr, "yloop_timer_start: NULL callback");
-    struct yloop_timer *t = calloc(1, sizeof(*t));
-    if (!t) return PICOMESH_ERR(yloop_timer_ptr, "yloop_timer_start: calloc failed");
-    t->cb = cb;
-    t->ud = ud;
-    uv_timer_init(&l->loop, &t->timer);
-    t->timer.data = t;
-    uv_timer_start(&t->timer, on_repeating_timer, interval_ms, interval_ms);
-    return PICOMESH_OK(yloop_timer_ptr, t);
+    struct yloop_timer *timer = calloc(1, sizeof(*timer));
+    if (!timer) return PICOMESH_ERR(yloop_timer_ptr, "yloop_timer_start: calloc failed");
+    timer->cb = cb;
+    timer->ud = ud;
+    uv_timer_init(&loop->loop, &timer->timer);
+    timer->timer.data = timer;
+    uv_timer_start(&timer->timer, on_repeating_timer, interval_ms, interval_ms);
+    return PICOMESH_OK(yloop_timer_ptr, timer);
 }
 
 /* uv_close completion: the handle (embedded in `t`) is now off the loop,
@@ -538,12 +538,12 @@ static void on_timer_closed(uv_handle_t *handle)
     free(handle->data);
 }
 
-void yloop_timer_stop(struct yloop_timer *t)
+void yloop_timer_stop(struct yloop_timer *timer)
 {
-    if (!t) return;
-    t->cb = NULL; /* belt-and-braces: no callback even if a tick is mid-flight */
-    uv_timer_stop(&t->timer);
-    uv_close((uv_handle_t *)&t->timer, on_timer_closed);
+    if (!timer) return;
+    timer->cb = NULL; /* belt-and-braces: no callback even if a tick is mid-flight */
+    uv_timer_stop(&timer->timer);
+    uv_close((uv_handle_t *)&timer->timer, on_timer_closed);
 }
 
 /* ---- subprocess (uv_spawn) ----------------------------------- */
@@ -555,13 +555,13 @@ struct yloop_process {
     int pid;
 };
 
-static void on_proc_exit(uv_process_t *p, int64_t exit_status, int term_signal)
+static void on_proc_exit(uv_process_t *process, int64_t exit_status, int term_signal)
 {
-    struct yloop_process *self = p->data;
+    struct yloop_process *self = process->data;
     if (self->cb) {
         self->cb(self, exit_status, term_signal, self->ud);
     }
-    uv_close((uv_handle_t *)p, NULL);
+    uv_close((uv_handle_t *)process, NULL);
     /* Defer free via the loop tick: uv_close completion can run
      * after the close cb, so we can't free self immediately without
      * potentially racing with libuv's internal state. The runtime
@@ -569,10 +569,10 @@ static void on_proc_exit(uv_process_t *p, int64_t exit_status, int term_signal)
      * now. A close-cb-driven free is the right cleanup. */
 }
 
-int yloop_spawn(struct yloop *l, const char *file, char *const argv[],
+int yloop_spawn(struct yloop *loop, const char *file, char *const argv[],
                 yloop_process_exit_cb on_exit, void *ud)
 {
-    if (!l || !file || !argv) return 0;
+    if (!loop || !file || !argv) return 0;
 
     struct yloop_process *self = calloc(1, sizeof(*self));
     if (!self) return 0;
@@ -595,7 +595,7 @@ int yloop_spawn(struct yloop *l, const char *file, char *const argv[],
     opts.stdio = io;
     /* Inherit env (NULL → libuv defaults to parent env). */
 
-    int rc = uv_spawn(&l->loop, &self->proc, &opts);
+    int rc = uv_spawn(&loop->loop, &self->proc, &opts);
     if (rc < 0) {
         ywarn("yloop_spawn: uv_spawn failed: %s", uv_strerror(rc));
         free(self);
@@ -606,9 +606,9 @@ int yloop_spawn(struct yloop *l, const char *file, char *const argv[],
     return self->pid;
 }
 
-int yloop_kill(struct yloop *l, int pid, int signum)
+int yloop_kill(struct yloop *loop, int pid, int signum)
 {
-    if (!l || pid <= 0) return -1;
+    if (!loop || pid <= 0) return -1;
     return uv_kill(pid, signum);
 }
 
@@ -622,9 +622,9 @@ struct connect_state {
 
 static void on_connect(uv_connect_t *req, int status)
 {
-    struct connect_state *cs = req->data;
-    cs->status = status;
-    picomesh_coro_resume(cs->coro);
+    struct connect_state *connect = req->data;
+    connect->status = status;
+    picomesh_coro_resume(connect->coro);
 }
 
 struct resolve_state {
@@ -637,43 +637,43 @@ struct resolve_state {
 
 static void on_resolve(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
 {
-    struct resolve_state *rs = req->data;
-    rs->status = status;
+    struct resolve_state *resolve = req->data;
+    resolve->status = status;
     if (status == 0 && res) {
         /* Take the first IPv4 result; ignore everything else. */
-        for (struct addrinfo *p = res; p; p = p->ai_next) {
-            if (p->ai_family == AF_INET && p->ai_addrlen >= sizeof(rs->addr)) {
-                memcpy(&rs->addr, p->ai_addr, sizeof(rs->addr));
-                rs->got_addr = 1;
+        for (struct addrinfo *addr = res; addr; addr = addr->ai_next) {
+            if (addr->ai_family == AF_INET && addr->ai_addrlen >= sizeof(resolve->addr)) {
+                memcpy(&resolve->addr, addr->ai_addr, sizeof(resolve->addr));
+                resolve->got_addr = 1;
                 break;
             }
         }
         uv_freeaddrinfo(res);
     }
-    picomesh_coro_resume(rs->coro);
+    picomesh_coro_resume(resolve->coro);
 }
 
-struct yloop_stream_ptr_result yloop_connect_tcp(struct yloop *l,
+struct yloop_stream_ptr_result yloop_connect_tcp(struct yloop *loop,
                                                  const char *host, int port)
 {
-    if (!l || !host || port <= 0)
+    if (!loop || !host || port <= 0)
         return PICOMESH_ERR(yloop_stream_ptr, "yloop_connect_tcp: bad args");
     struct picomesh_coro *self = picomesh_coro_current();
     if (!self)
         return PICOMESH_ERR(yloop_stream_ptr,
                          "yloop_connect_tcp: must be called from a coroutine");
 
-    struct yloop_stream *s = calloc(1, sizeof(*s));
-    if (!s) return PICOMESH_ERR(yloop_stream_ptr, "yloop_connect_tcp: calloc failed");
-    s->owner = l;
-    s->coro  = self;
+    struct yloop_stream *stream = calloc(1, sizeof(*stream));
+    if (!stream) return PICOMESH_ERR(yloop_stream_ptr, "yloop_connect_tcp: calloc failed");
+    stream->owner = loop;
+    stream->coro  = self;
 
-    int rc = uv_tcp_init(&l->loop, &s->tcp);
+    int rc = uv_tcp_init(&loop->loop, &stream->tcp);
     if (rc < 0) {
-        free(s);
+        free(stream);
         return PICOMESH_ERR(yloop_stream_ptr, "yloop_connect_tcp: uv_tcp_init failed");
     }
-    s->tcp.data = s;
+    stream->tcp.data = stream;
 
     struct sockaddr_in addr;
     rc = uv_ip4_addr(host, port, &addr);
@@ -684,51 +684,51 @@ struct yloop_stream_ptr_result yloop_connect_tcp(struct yloop *l,
          * here would freeze every other connection on the loop while
          * the resolver waits — even a misconfigured local DNS turns
          * one slow lookup into a full event-loop stall. */
-        struct resolve_state rs = {0};
-        rs.coro = self;
-        rs.req.data = &rs;
+        struct resolve_state resolve = {0};
+        resolve.coro = self;
+        resolve.req.data = &resolve;
         struct addrinfo hints = {0};
         hints.ai_family   = AF_INET;
         hints.ai_socktype = SOCK_STREAM;
         char portbuf[16];
         snprintf(portbuf, sizeof(portbuf), "%d", port);
-        int dr = uv_getaddrinfo(&l->loop, &rs.req, on_resolve,
+        int dispatch_rc = uv_getaddrinfo(&loop->loop, &resolve.req, on_resolve,
                                 host, portbuf, &hints);
-        if (dr < 0) {
-            uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+        if (dispatch_rc < 0) {
+            uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
             return PICOMESH_ERR(yloop_stream_ptr,
                              "yloop_connect_tcp: uv_getaddrinfo dispatch failed");
         }
         picomesh_coro_yield();
-        if (rs.status < 0 || !rs.got_addr) {
-            uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+        if (resolve.status < 0 || !resolve.got_addr) {
+            uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
             return PICOMESH_ERR(yloop_stream_ptr,
                              "yloop_connect_tcp: getaddrinfo failed");
         }
-        addr = rs.addr;
+        addr = resolve.addr;
     }
 
-    struct connect_state cs = {0};
-    cs.coro = self;
-    cs.req.data = &cs;
-    rc = uv_tcp_connect(&cs.req, &s->tcp, (const struct sockaddr *)&addr, on_connect);
+    struct connect_state connect = {0};
+    connect.coro = self;
+    connect.req.data = &connect;
+    rc = uv_tcp_connect(&connect.req, &stream->tcp, (const struct sockaddr *)&addr, on_connect);
     if (rc < 0) {
-        uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+        uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
         return PICOMESH_ERR(yloop_stream_ptr, "yloop_connect_tcp: uv_tcp_connect dispatch failed");
     }
     picomesh_coro_yield();
-    if (cs.status < 0) {
-        uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+    if (connect.status < 0) {
+        uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
         return PICOMESH_ERR(yloop_stream_ptr, "yloop_connect_tcp: connect failed");
     }
-    uv_tcp_nodelay(&s->tcp, 1);
+    uv_tcp_nodelay(&stream->tcp, 1);
 
-    rc = uv_read_start((uv_stream_t *)&s->tcp, on_alloc, on_read);
+    rc = uv_read_start((uv_stream_t *)&stream->tcp, on_alloc, on_read);
     if (rc < 0) {
-        uv_close((uv_handle_t *)&s->tcp, on_handle_close);
+        uv_close((uv_handle_t *)&stream->tcp, on_handle_close);
         return PICOMESH_ERR(yloop_stream_ptr, "yloop_connect_tcp: uv_read_start failed");
     }
-    return PICOMESH_OK(yloop_stream_ptr, s);
+    return PICOMESH_OK(yloop_stream_ptr, stream);
 }
 
 /* ---- blocking-work executor (libuv thread pool) --------------------
@@ -753,20 +753,20 @@ struct blocking_work {
 
 static void on_blocking_work(uv_work_t *req)
 {
-    struct blocking_work *bw = req->data;
-    bw->work(bw->arg);
+    struct blocking_work *blocking = req->data;
+    blocking->work(blocking->arg);
 }
 
 static void on_blocking_done(uv_work_t *req, int status)
 {
     (void)status;
-    struct blocking_work *bw = req->data;
-    picomesh_coro_resume(bw->coro);
+    struct blocking_work *blocking = req->data;
+    picomesh_coro_resume(blocking->coro);
 }
 
-struct picomesh_void_result yloop_run_blocking(struct yloop *l, void (*work)(void *), void *arg)
+struct picomesh_void_result yloop_run_blocking(struct yloop *loop, void (*work)(void *), void *arg)
 {
-    if (!l || !work)
+    if (!loop || !work)
         return PICOMESH_ERR(picomesh_void, "yloop_run_blocking: bad args");
 
     struct picomesh_coro *self = picomesh_coro_current();
@@ -776,9 +776,9 @@ struct picomesh_void_result yloop_run_blocking(struct yloop *l, void (*work)(voi
         return PICOMESH_OK_VOID();
     }
 
-    struct blocking_work bw = {.coro = self, .work = work, .arg = arg};
-    bw.req.data = &bw; /* lives on the suspended coro's stack until resume */
-    int rc = uv_queue_work(&l->loop, &bw.req, on_blocking_work, on_blocking_done);
+    struct blocking_work blocking = {.coro = self, .work = work, .arg = arg};
+    blocking.req.data = &blocking; /* lives on the suspended coro's stack until resume */
+    int rc = uv_queue_work(&loop->loop, &blocking.req, on_blocking_work, on_blocking_done);
     if (rc < 0) {
         /* Pool refused the job — fall back to inline rather than fail. */
         work(arg);
@@ -788,10 +788,10 @@ struct picomesh_void_result yloop_run_blocking(struct yloop *l, void (*work)(voi
     return PICOMESH_OK_VOID();
 }
 
-struct picomesh_void_result yloop_listen_tcp(struct yloop *l, const char *host, int port,
+struct picomesh_void_result yloop_listen_tcp(struct yloop *loop, const char *host, int port,
                                           yloop_serve_fn serve, void *ud)
 {
-    if (!l || !host || !serve) {
+    if (!loop || !host || !serve) {
         return PICOMESH_ERR(picomesh_void, "yloop_listen_tcp: bad args");
     }
     /* Validate the address and bind the socket BEFORE allocating/initializing
@@ -819,34 +819,35 @@ struct picomesh_void_result yloop_listen_tcp(struct yloop *l, const char *host, 
         return PICOMESH_ERR(picomesh_void, "yloop_listen_tcp: bind failed");
     }
 
-    struct yloop_listener *L = calloc(1, sizeof(*L));
-    if (!L) {
+    struct yloop_listener *listener = calloc(1, sizeof(*listener));
+    if (!listener) {
         close(fd);
         return PICOMESH_ERR(picomesh_void, "yloop_listen_tcp: calloc failed");
     }
-    L->owner = l;
-    L->serve = serve;
-    L->ud = ud;
+    listener->owner = loop;
+    listener->serve = serve;
+    listener->ud = ud;
 
-    rc = uv_tcp_init(&l->loop, &L->tcp);
+    rc = uv_tcp_init(&loop->loop, &listener->tcp);
     if (rc < 0) {
         close(fd);
-        free(L);
+        free(listener);
         return PICOMESH_ERR(picomesh_void, "yloop_listen_tcp: uv_tcp_init failed");
     }
-    L->tcp.data = L;
+    listener->tcp.data = listener;
 
     /* From here the handle is initialized: every failure must close it via
-     * uv_close (which frees L in on_listener_close), not free L directly. */
-    rc = uv_tcp_open(&L->tcp, fd);
+     * uv_close (which frees the listener in on_listener_close), not free it
+     * directly. */
+    rc = uv_tcp_open(&listener->tcp, fd);
     if (rc < 0) {
         close(fd); /* fd not adopted by the handle on failure */
-        uv_close((uv_handle_t *)&L->tcp, on_listener_close);
+        uv_close((uv_handle_t *)&listener->tcp, on_listener_close);
         return PICOMESH_ERR(picomesh_void, "yloop_listen_tcp: uv_tcp_open failed");
     }
-    rc = uv_listen((uv_stream_t *)&L->tcp, 128, on_connection);
+    rc = uv_listen((uv_stream_t *)&listener->tcp, 128, on_connection);
     if (rc < 0) {
-        uv_close((uv_handle_t *)&L->tcp, on_listener_close);
+        uv_close((uv_handle_t *)&listener->tcp, on_listener_close);
         return PICOMESH_ERR(picomesh_void, "yloop_listen_tcp: uv_listen failed");
     }
     yinfo("yloop: listening on %s:%d", host, port);

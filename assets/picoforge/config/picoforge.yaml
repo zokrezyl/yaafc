@@ -249,9 +249,17 @@ mesh:
             CREATE TABLE IF NOT EXISTS pipeline_runs(
               id INTEGER PRIMARY KEY,
               repo_id INTEGER NOT NULL,
-              status TEXT NOT NULL DEFAULT 'pending',
-              created_by_uid INTEGER NOT NULL,
+              runner_id INTEGER NOT NULL DEFAULT 0,
+              status INTEGER NOT NULL DEFAULT 0,
+              ref TEXT NOT NULL DEFAULT '',
+              pipeline_path TEXT NOT NULL DEFAULT '',
+              timeout INTEGER NOT NULL DEFAULT 300,
+              lease_expiry INTEGER NOT NULL DEFAULT 0,
+              log TEXT NOT NULL DEFAULT '',
+              summary TEXT NOT NULL DEFAULT '',
+              created_by_uid INTEGER NOT NULL DEFAULT 0,
               created_at INTEGER NOT NULL DEFAULT 0);
+            CREATE INDEX IF NOT EXISTS ix_runs_status ON pipeline_runs(status);
             CREATE INDEX IF NOT EXISTS ix_repos_owner ON repos(owner_uid);
             CREATE INDEX IF NOT EXISTS ix_issues_repo ON issues(repo_id);
             CREATE INDEX IF NOT EXISTS ix_runs_repo   ON pipeline_runs(repo_id);
@@ -330,6 +338,20 @@ mesh:
           # `site` namespace, are unaffected — they always work). Mirrors
           # GitLab's "Users can create top-level groups" setting.
           allow_user_root_groups: true
+          # Pluggable external-directory group resolution (issue #31). When
+          # `enabled`, accounts.groups(uid) merges the local namespace_members
+          # grants with roles mapped from an external directory's groups, with
+          # the highest role winning per namespace. Disabled here → local-only
+          # behavior (the default). `members` is the first-pass directory source
+          # (uid={username}); a real LDAP/AD backend replaces only that lookup.
+          external_groups:
+            enabled: false
+            fail_closed: true
+            # members:
+            #   alice: [acme-platform-devs, picoforge-admins]
+            # mappings:
+            #   - { external_group: acme-platform-devs, namespace: acme/platform, role: developer }
+            #   - { external_group: picoforge-admins,   namespace: site,          role: maintainer }
         remotes:
           - service: sharded_storage
             port: auto
@@ -402,7 +424,9 @@ mesh:
       plugins: [issues]
       config:
         remotes:
-          - service: sharded_storage
+          # issues are RELATIONAL ROWS in the rstore_uid cluster's `issues`
+          # table (issue #18) — no longer KV in sharded_storage.
+          - service: rstore_uid
             port: auto
           - service: trace_collector
             port: auto
@@ -451,7 +475,10 @@ mesh:
       plugins: [git_pipeline]
       config:
         remotes:
-          - service: sharded_storage
+          # pipeline jobs are RELATIONAL ROWS in rstore_uid's pipeline_runs
+          # table (issue #18) — FIFO lease, counts and transitions are SQL, no
+          # longer hand-kept KV counters/CAS in sharded_storage.
+          - service: rstore_uid
             port: auto
           - service: trace_collector
             port: auto

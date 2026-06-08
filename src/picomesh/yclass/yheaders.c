@@ -23,114 +23,114 @@ struct yheaders *yheaders_new(void)
     return calloc(1, sizeof(struct yheaders));
 }
 
-void yheaders_free(struct yheaders *h)
+void yheaders_free(struct yheaders *headers)
 {
-    if (!h) return;
-    for (size_t i = 0; i < h->len; ++i) {
-        free(h->items[i].key);
-        free(h->items[i].value);
+    if (!headers) return;
+    for (size_t i = 0; i < headers->len; ++i) {
+        free(headers->items[i].key);
+        free(headers->items[i].value);
     }
-    free(h->items);
-    free(h);
+    free(headers->items);
+    free(headers);
 }
 
-static struct yheaders_pair *find(const struct yheaders *h, const char *key)
+static struct yheaders_pair *find(const struct yheaders *headers, const char *key)
 {
-    if (!h || !key) return NULL;
-    for (size_t i = 0; i < h->len; ++i)
-        if (strcmp(h->items[i].key, key) == 0)
-            return &h->items[i];
+    if (!headers || !key) return NULL;
+    for (size_t i = 0; i < headers->len; ++i)
+        if (strcmp(headers->items[i].key, key) == 0)
+            return &headers->items[i];
     return NULL;
 }
 
-int yheaders_set(struct yheaders *h, const char *key, const char *value)
+int yheaders_set(struct yheaders *headers, const char *key, const char *value)
 {
-    if (!h || !key) return -1;
+    if (!headers || !key) return -1;
     if (!value) value = "";
 
-    struct yheaders_pair *p = find(h, key);
-    if (p) {
-        char *nv = strdup(value);
-        if (!nv) return -1;
-        free(p->value);
-        p->value = nv;
+    struct yheaders_pair *pair = find(headers, key);
+    if (pair) {
+        char *new_value = strdup(value);
+        if (!new_value) return -1;
+        free(pair->value);
+        pair->value = new_value;
         return 0;
     }
 
-    if (h->len == h->cap) {
-        size_t nc = h->cap ? h->cap * 2 : 8;
-        struct yheaders_pair *ni = realloc(h->items, nc * sizeof(*ni));
-        if (!ni) return -1;
-        h->items = ni;
-        h->cap = nc;
+    if (headers->len == headers->cap) {
+        size_t new_cap = headers->cap ? headers->cap * 2 : 8;
+        struct yheaders_pair *new_items = realloc(headers->items, new_cap * sizeof(*new_items));
+        if (!new_items) return -1;
+        headers->items = new_items;
+        headers->cap = new_cap;
     }
-    char *k = strdup(key);
-    char *v = strdup(value);
-    if (!k || !v) { free(k); free(v); return -1; }
-    h->items[h->len].key = k;
-    h->items[h->len].value = v;
-    h->len++;
+    char *key_copy = strdup(key);
+    char *value_copy = strdup(value);
+    if (!key_copy || !value_copy) { free(key_copy); free(value_copy); return -1; }
+    headers->items[headers->len].key = key_copy;
+    headers->items[headers->len].value = value_copy;
+    headers->len++;
     return 0;
 }
 
-const char *yheaders_get(const struct yheaders *h, const char *key)
+const char *yheaders_get(const struct yheaders *headers, const char *key)
 {
-    struct yheaders_pair *p = find(h, key);
-    return p ? p->value : NULL;
+    struct yheaders_pair *pair = find(headers, key);
+    return pair ? pair->value : NULL;
 }
 
-int yheaders_set_u32(struct yheaders *h, const char *key, uint32_t v)
+int yheaders_set_u32(struct yheaders *headers, const char *key, uint32_t value)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%" PRIu32, v);
-    return yheaders_set(h, key, buf);
+    snprintf(buf, sizeof(buf), "%" PRIu32, value);
+    return yheaders_set(headers, key, buf);
 }
 
-uint32_t yheaders_get_u32(const struct yheaders *h, const char *key, uint32_t fallback)
+uint32_t yheaders_get_u32(const struct yheaders *headers, const char *key, uint32_t fallback)
 {
-    const char *v = yheaders_get(h, key);
-    if (!v || !*v) return fallback;
+    const char *value = yheaders_get(headers, key);
+    if (!value || !*value) return fallback;
     char *end = NULL;
-    unsigned long n = strtoul(v, &end, 10);
-    return (end && *end == 0) ? (uint32_t)n : fallback;
+    unsigned long parsed = strtoul(value, &end, 10);
+    return (end && *end == 0) ? (uint32_t)parsed : fallback;
 }
 
-int yheaders_set_u64(struct yheaders *h, const char *key, uint64_t v)
+int yheaders_set_u64(struct yheaders *headers, const char *key, uint64_t value)
 {
     char buf[24];
-    snprintf(buf, sizeof(buf), "%" PRIu64, v);
-    return yheaders_set(h, key, buf);
+    snprintf(buf, sizeof(buf), "%" PRIu64, value);
+    return yheaders_set(headers, key, buf);
 }
 
-uint64_t yheaders_get_u64(const struct yheaders *h, const char *key, uint64_t fallback)
+uint64_t yheaders_get_u64(const struct yheaders *headers, const char *key, uint64_t fallback)
 {
-    const char *v = yheaders_get(h, key);
-    if (!v || !*v) return fallback;
+    const char *value = yheaders_get(headers, key);
+    if (!value || !*value) return fallback;
     char *end = NULL;
-    unsigned long long n = strtoull(v, &end, 10);
-    return (end && *end == 0) ? (uint64_t)n : fallback;
+    unsigned long long parsed = strtoull(value, &end, 10);
+    return (end && *end == 0) ? (uint64_t)parsed : fallback;
 }
 
-size_t yheaders_count(const struct yheaders *h)
+size_t yheaders_count(const struct yheaders *headers)
 {
-    return h ? h->len : 0;
+    return headers ? headers->len : 0;
 }
 
-void yheaders_for_each(const struct yheaders *h,
+void yheaders_for_each(const struct yheaders *headers,
                        void (*cb)(const char *key, const char *value, void *ud),
-                       void *ud)
+                       void *userdata)
 {
-    if (!h || !cb) return;
-    for (size_t i = 0; i < h->len; ++i)
-        cb(h->items[i].key, h->items[i].value, ud);
+    if (!headers || !cb) return;
+    for (size_t i = 0; i < headers->len; ++i)
+        cb(headers->items[i].key, headers->items[i].value, userdata);
 }
 
-struct yheaders *yheaders_copy(const struct yheaders *h)
+struct yheaders *yheaders_copy(const struct yheaders *headers)
 {
     struct yheaders *out = yheaders_new();
-    if (!out || !h) return out;
-    for (size_t i = 0; i < h->len; ++i) {
-        if (yheaders_set(out, h->items[i].key, h->items[i].value) != 0) {
+    if (!out || !headers) return out;
+    for (size_t i = 0; i < headers->len; ++i) {
+        if (yheaders_set(out, headers->items[i].key, headers->items[i].value) != 0) {
             yheaders_free(out);
             return NULL;
         }
@@ -141,76 +141,76 @@ struct yheaders *yheaders_copy(const struct yheaders *h)
 /* ---- wire (de)serialization --------------------------------------- */
 /* u16 count, then per pair: u16 klen, key, u32 vlen, val. */
 
-size_t yheaders_serialized_size(const struct yheaders *h)
+size_t yheaders_serialized_size(const struct yheaders *headers)
 {
-    size_t n = 2; /* count */
-    if (!h) return n;
-    for (size_t i = 0; i < h->len; ++i) {
-        n += 2 + strlen(h->items[i].key);
-        n += 4 + strlen(h->items[i].value);
+    size_t total = 2; /* count */
+    if (!headers) return total;
+    for (size_t i = 0; i < headers->len; ++i) {
+        total += 2 + strlen(headers->items[i].key);
+        total += 4 + strlen(headers->items[i].value);
     }
-    return n;
+    return total;
 }
 
-size_t yheaders_serialize(const struct yheaders *h, void *buf, size_t cap)
+size_t yheaders_serialize(const struct yheaders *headers, void *buf, size_t cap)
 {
-    size_t need = yheaders_serialized_size(h);
+    size_t need = yheaders_serialized_size(headers);
     if (cap < need) return 0;
 
-    uint8_t *p = buf;
-    size_t off = 0;
-    uint16_t count = h ? (uint16_t)h->len : 0;
-    memcpy(p + off, &count, 2); off += 2;
-    if (!h) return off;
+    uint8_t *bytes = buf;
+    size_t offset = 0;
+    uint16_t count = headers ? (uint16_t)headers->len : 0;
+    memcpy(bytes + offset, &count, 2); offset += 2;
+    if (!headers) return offset;
 
-    for (size_t i = 0; i < h->len; ++i) {
-        uint16_t klen = (uint16_t)strlen(h->items[i].key);
-        uint32_t vlen = (uint32_t)strlen(h->items[i].value);
-        memcpy(p + off, &klen, 2); off += 2;
-        memcpy(p + off, h->items[i].key, klen); off += klen;
-        memcpy(p + off, &vlen, 4); off += 4;
-        memcpy(p + off, h->items[i].value, vlen); off += vlen;
+    for (size_t i = 0; i < headers->len; ++i) {
+        uint16_t klen = (uint16_t)strlen(headers->items[i].key);
+        uint32_t vlen = (uint32_t)strlen(headers->items[i].value);
+        memcpy(bytes + offset, &klen, 2); offset += 2;
+        memcpy(bytes + offset, headers->items[i].key, klen); offset += klen;
+        memcpy(bytes + offset, &vlen, 4); offset += 4;
+        memcpy(bytes + offset, headers->items[i].value, vlen); offset += vlen;
     }
-    return off;
+    return offset;
 }
 
 struct yheaders *yheaders_parse(const void *buf, size_t len, size_t *consumed)
 {
-    const uint8_t *p = buf;
-    size_t off = 0;
+    const uint8_t *bytes = buf;
+    size_t offset = 0;
     if (len < 2) return NULL;
     uint16_t count;
-    memcpy(&count, p + off, 2); off += 2;
+    memcpy(&count, bytes + offset, 2); offset += 2;
 
-    struct yheaders *h = yheaders_new();
-    if (!h) return NULL;
+    struct yheaders *headers = yheaders_new();
+    if (!headers) return NULL;
 
     for (uint16_t i = 0; i < count; ++i) {
-        if (off + 2 > len) goto bad;
+        if (offset + 2 > len) goto bad;
         uint16_t klen;
-        memcpy(&klen, p + off, 2); off += 2;
-        if (off + klen > len) goto bad;
+        memcpy(&klen, bytes + offset, 2); offset += 2;
+        if (offset + klen > len) goto bad;
         char *key = malloc((size_t)klen + 1);
         if (!key) goto bad;
-        memcpy(key, p + off, klen); key[klen] = 0; off += klen;
+        memcpy(key, bytes + offset, klen); key[klen] = 0; offset += klen;
 
-        if (off + 4 > len) { free(key); goto bad; }
+        if (offset + 4 > len) { free(key); goto bad; }
         uint32_t vlen;
-        memcpy(&vlen, p + off, 4); off += 4;
-        if (off + vlen > len) { free(key); goto bad; }
+        memcpy(&vlen, bytes + offset, 4); offset += 4;
+        if (offset + vlen > len) { free(key); goto bad; }
         char *val = malloc((size_t)vlen + 1);
         if (!val) { free(key); goto bad; }
-        memcpy(val, p + off, vlen); val[vlen] = 0; off += vlen;
+        memcpy(val, bytes + offset, vlen); val[vlen] = 0; offset += vlen;
 
-        int rc = yheaders_set(h, key, val);
+        int set_rc = yheaders_set(headers, key, val);
         free(key);
         free(val);
-        if (rc != 0) goto bad;
+        if (set_rc != 0) goto bad;
     }
 
-    if (consumed) *consumed = off;
-    return h;
+    if (consumed) *consumed = offset;
+    return headers;
 bad:
-    yheaders_free(h);
+    yheaders_free(headers);
     return NULL;
 }

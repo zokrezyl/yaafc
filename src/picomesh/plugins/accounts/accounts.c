@@ -422,11 +422,221 @@ struct picomesh_int_result accounts_accounts_set_groups_impl(struct ctx *ctx, st
     return PICOMESH_OK(picomesh_int, 1);
 }
 
+/* --- pluggable external group resolution (issue #31) ----------------------
+ *
+ * `accounts.accounts.groups(uid)` stays the single facade the rest of the mesh
+ * (token_issuer → JWT, repo/namespace authz) consumes. To let a customer's
+ * external directory (LDAP/AD, …) grant Picoforge roles WITHOUT replacing the
+ * whole accounts plugin, the local `namespace_members` result is merged with an
+ * optional external provider's groups, mapped to `namespace:role` by config, with
+ * the highest role winning per namespace.
+ *
+ * Config shape (all optional; absent/disabled == today's local-only behavior):
+ *
+ *   accounts:
+ *     external_groups:
+ *       enabled: true
+ *       fail_closed: true          # provider/config error → fail groups() (default)
+ *       members:                   # FIRST-PASS directory source: uid -> [group].
+ *         "1001": [acme-platform-devs, picoforge-admins]   # a real LDAP backend
+ *                                  # replaces ONLY this membership lookup.
+ *       mappings:                  # external group -> Picoforge namespace:role
+ *         - { external_group: acme-platform-devs, namespace: acme/platform, role: developer }
+ *         - { external_group: picoforge-admins,   namespace: site,          role: maintainer }
+ */
+struct accounts_ns_role {
+    char namespace_path[160];
+    int rank;
+};
+
+/* Keep the highest role rank per namespace. Returns -1 on OOM, else 1. */
+static int accounts_ns_role_upsert(struct accounts_ns_role **arr, size_t *count, size_t *cap,
+                                   const char *namespace_path, int rank)
+{
+    if (rank < 0 || !namespace_path || !*namespace_path) return 1;
+    for (size_t i = 0; i < *count; ++i) {
+        if (strcmp((*arr)[i].namespace_path, namespace_path) == 0) {
+            if (rank > (*arr)[i].rank) (*arr)[i].rank = rank;
+            return 1;
+        }
+    }
+    if (*count == *cap) {
+        size_t new_cap = *cap ? *cap * 2 : 8;
+        struct accounts_ns_role *grown = realloc(*arr, new_cap * sizeof(**arr));
+        if (!grown) return -1;
+        *arr = grown;
+        *cap = new_cap;
+    }
+    snprintf((*arr)[*count].namespace_path, sizeof((*arr)[*count].namespace_path), "%s",
+             namespace_path);
+    (*arr)[*count].rank = rank;
+    (*count)++;
+    return 1;
+}
+
+/* Fold a "<path>:<role>,..." CSV into the per-namespace highest-role map. */
+static int accounts_ns_role_add_csv(struct accounts_ns_role **arr, size_t *count, size_t *cap,
+                                    const char *csv)
+{
+    for (const char *cursor = csv; cursor && *cursor;) {
+        const char *comma = strchr(cursor, ',');
+        size_t seg = comma ? (size_t)(comma - cursor) : strlen(cursor);
+        const char *colon = memchr(cursor, ':', seg);
+        if (colon) {
+            size_t path_len = (size_t)(colon - cursor);
+            size_t role_len = seg - path_len - 1;
+            char namespace_path[160], role[32];
+            if (path_len < sizeof(namespace_path) && role_len < sizeof(role)) {
+                memcpy(namespace_path, cursor, path_len);
+                namespace_path[path_len] = 0;
+                memcpy(role, colon + 1, role_len);
+                role[role_len] = 0;
+                if (accounts_ns_role_upsert(arr, count, cap, namespace_path,
+                                            picomesh_role_rank(role)) < 0)
+                    return -1;
+            }
+        }
+        if (!comma) break;
+        cursor = comma + 1;
+    }
+    return 0;
+}
+
+/* Merge `local_csv` (direct namespace_members grants) with an optional external
+ * directory provider's mapped roles, highest-role-wins per namespace, and return
+ * the flattened CSV. When `accounts.external_groups` is absent/disabled this is
+ * exactly `strdup(local_csv)` — local-only behavior is unchanged. */
+static struct picomesh_string_result accounts_merge_external_groups(uint32_t uid,
+                                                                    const char *username,
+                                                                    const char *local_csv)
+{
+    struct picomesh_engine *engine = picomesh_active_engine();
+    const struct yconfig *cfg = engine ? picomesh_engine_config(engine) : NULL;
+    const struct yconfig_node *root = NULL;
+    if (cfg) {
+        struct yconfig_node_ptr_result config_node_res =
+            yconfig_get(cfg, "accounts.external_groups");
+        if (PICOMESH_IS_ERR(config_node_res)) {
+            yerror("accounts: reading 'accounts.external_groups' failed: %s",
+                   config_node_res.error.msg ? config_node_res.error.msg : "?");
+            picomesh_error_destroy(config_node_res.error);
+        } else {
+            root = config_node_res.value;
+        }
+    }
+    int enabled = root && yconfig_node_as_bool(yconfig_node_get(root, "enabled"), 0);
+    if (!enabled) {
+        char *copy = strdup(local_csv ? local_csv : "");
+        if (!copy) return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
+        return PICOMESH_OK(picomesh_string, copy);
+    }
+    int fail_closed = yconfig_node_as_bool(yconfig_node_get(root, "fail_closed"), 1);
+
+    struct accounts_ns_role *roles = NULL;
+    size_t count = 0, cap = 0;
+    if (accounts_ns_role_add_csv(&roles, &count, &cap, local_csv) < 0) {
+        free(roles);
+        return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
+    }
+
+    /* Resolve THIS user's external group names. First-pass directory source: a
+     * config map keyed by username (LDAP's `uid={username}`), with a uid-string
+     * fallback. A real LDAP/AD provider replaces only this lookup (bind + group
+     * search) — the mapping + merge below is unchanged. */
+    const struct yconfig_node *members = yconfig_node_get(root, "members");
+    const struct yconfig_node *user_external_groups = NULL;
+    if (members) {
+        if (username && *username)
+            user_external_groups = yconfig_node_get(members, username);
+        if (!user_external_groups) {
+            char uid_key[16];
+            snprintf(uid_key, sizeof(uid_key), "%u", uid);
+            user_external_groups = yconfig_node_get(members, uid_key);
+        }
+    }
+    const struct yconfig_node *mappings = yconfig_node_get(root, "mappings");
+
+    int provider_ok = 1;
+    if (user_external_groups && yconfig_node_kind(user_external_groups) == YCONFIG_LIST &&
+        mappings && yconfig_node_kind(mappings) == YCONFIG_LIST) {
+        size_t group_count = yconfig_node_size(user_external_groups);
+        size_t mapping_count = yconfig_node_size(mappings);
+        for (size_t group_idx = 0; group_idx < group_count; ++group_idx) {
+            const char *external_group =
+                yconfig_node_as_string(yconfig_node_at(user_external_groups, group_idx), NULL);
+            if (!external_group || !*external_group) continue;
+            for (size_t mapping_idx = 0; mapping_idx < mapping_count; ++mapping_idx) {
+                const struct yconfig_node *mapping_node = yconfig_node_at(mappings, mapping_idx);
+                const char *mapped_external_group =
+                    yconfig_node_as_string(yconfig_node_get(mapping_node, "external_group"), NULL);
+                const char *namespace_path =
+                    yconfig_node_as_string(yconfig_node_get(mapping_node, "namespace"), NULL);
+                const char *role =
+                    yconfig_node_as_string(yconfig_node_get(mapping_node, "role"), NULL);
+                if (!mapped_external_group || strcmp(mapped_external_group, external_group) != 0)
+                    continue;
+                if (!namespace_path || !role) {
+                    yerror("accounts: external_groups mapping for '%s' missing namespace/role",
+                           external_group);
+                    provider_ok = 0;
+                    continue;
+                }
+                int rank = picomesh_role_rank(role);
+                if (rank < 0) {
+                    yerror("accounts: external_groups mapping has unknown role '%s'", role);
+                    provider_ok = 0;
+                    continue;
+                }
+                if (accounts_ns_role_upsert(&roles, &count, &cap, namespace_path, rank) < 0) {
+                    free(roles);
+                    return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
+                }
+            }
+        }
+    }
+    if (!provider_ok && fail_closed) {
+        free(roles);
+        return PICOMESH_ERR(picomesh_string,
+                            "accounts_groups: external group provider error (fail-closed)");
+    }
+
+    size_t out_cap = 64, len = 0;
+    char *out = malloc(out_cap);
+    if (!out) {
+        free(roles);
+        return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
+    }
+    out[0] = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const char *role_name = picomesh_role_name(roles[i].rank);
+        if (!role_name) continue;
+        size_t need = len + (len ? 1 : 0) + strlen(roles[i].namespace_path) + 1 +
+                      strlen(role_name) + 1;
+        if (need > out_cap) {
+            while (out_cap < need) out_cap *= 2;
+            char *grown = realloc(out, out_cap);
+            if (!grown) {
+                free(out);
+                free(roles);
+                return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
+            }
+            out = grown;
+        }
+        len += (size_t)snprintf(out + len, out_cap - len, "%s%s:%s", len ? "," : "",
+                                roles[i].namespace_path, role_name);
+    }
+    free(roles);
+    return PICOMESH_OK(picomesh_string, out);
+}
+
 /* The user's namespace memberships, flattened to the "<path>:<role>,..." CSV
  * the token issuer mints into the JWT `groups` claim. Sourced from the canonical
  * `namespace_members` table (issue #30) — NOT the legacy `users.groups` column,
  * which is no longer the authority. Inheritance through parent namespaces is
- * applied later, at authorization time; this returns only direct grants. */
+ * applied later, at authorization time; this returns only direct grants.
+ *
+ * When `accounts.external_groups` is configured, the local grants are merged
+ * with an external directory provider's mapped roles (issue #31). */
 PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_groups")
 struct picomesh_string_result accounts_accounts_groups_impl(struct ctx *ctx, struct object *obj,
                                                             struct yheaders *hdrs, uint32_t uid)
@@ -468,7 +678,19 @@ struct picomesh_string_result accounts_accounts_groups_impl(struct ctx *ctx, str
         len += (size_t)snprintf(out + len, cap - len, "%s%s:%s", len ? "," : "", path, role);
     }
     yjson_doc_free(doc);
-    return PICOMESH_OK(picomesh_string, out);
+
+    /* Merge in any configured external directory provider's roles (issue #31).
+     * No-op (returns a copy of `out`) when no external provider is configured.
+     * The username keys the external directory (LDAP `uid={username}`); read it
+     * from the same uid cluster handle. */
+    char *uname_args = rel_args1i((int64_t)uid);
+    char *username = rel_query_str(&h, hdrs, "SELECT username FROM users WHERE uid=?", uname_args,
+                                   "username");
+    free(uname_args);
+    struct picomesh_string_result merged = accounts_merge_external_groups(uid, username, out);
+    free(username);
+    free(out);
+    return merged;
 }
 
 /* Read a boolean from this service's own yconfig (e.g. "accounts.<key>"),

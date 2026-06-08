@@ -61,8 +61,8 @@ static struct picomesh_authz_decision decide(int allowed, int status, const char
 static int groups_contains(const struct yjson_value *groups, const char *group)
 {
     if (!groups || !yjson_is_array(groups) || !group) return 0;
-    size_t n = yjson_array_size(groups);
-    for (size_t i = 0; i < n; ++i) {
+    size_t count = yjson_array_size(groups);
+    for (size_t i = 0; i < count; ++i) {
         const char *entry = yjson_as_string(yjson_array_at(groups, i), NULL);
         if (entry && strcmp(entry, group) == 0) return 1;
     }
@@ -74,9 +74,9 @@ static int groups_best_rank(const struct yjson_value *groups, const char *accoun
 {
     if (!groups || !yjson_is_array(groups) || !account) return -1;
     size_t account_len = strlen(account);
-    size_t n = yjson_array_size(groups);
+    size_t count = yjson_array_size(groups);
     int best = -1;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < count; ++i) {
         const char *entry = yjson_as_string(yjson_array_at(groups, i), NULL);
         if (!entry) continue;
         const char *colon = strchr(entry, ':');
@@ -188,14 +188,14 @@ static int resolve_account(const char *account_from, const char *endpoint,
  * metadata, like owner_of. */
 static int resolve_repo_namespace(struct policy_state *state, uint32_t repo_id, char *out, size_t cap)
 {
-    struct ctx c = picomesh_engine_service_ctx(state->engine, "git_repo");
-    struct object_ptr_result o = git_repo_git_repo_create(&c);
-    if (PICOMESH_IS_ERR(o)) { picomesh_error_destroy(o.error); return 0; }
-    struct picomesh_string_result r = git_repo_git_repo_namespace_of(&c, o.value, NULL, repo_id);
-    if (PICOMESH_IS_ERR(r)) { picomesh_error_destroy(r.error); return 0; }
-    int ok = (r.value && r.value[0]) ? 1 : 0;
-    if (ok) snprintf(out, cap, "%s", r.value);
-    free(r.value);
+    struct ctx ctx = picomesh_engine_service_ctx(state->engine, "git_repo");
+    struct object_ptr_result create_res = git_repo_git_repo_create(&ctx);
+    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return 0; }
+    struct picomesh_string_result namespace_res = git_repo_git_repo_namespace_of(&ctx, create_res.value, NULL, repo_id);
+    if (PICOMESH_IS_ERR(namespace_res)) { picomesh_error_destroy(namespace_res.error); return 0; }
+    int ok = (namespace_res.value && namespace_res.value[0]) ? 1 : 0;
+    if (ok) snprintf(out, cap, "%s", namespace_res.value);
+    free(namespace_res.value);
     return ok;
 }
 
@@ -204,12 +204,12 @@ static int resolve_repo_namespace(struct policy_state *state, uint32_t repo_id, 
  * treats -1 as not-public, i.e. fails closed to the role check). */
 static int resolve_repo_public(struct policy_state *state, uint32_t repo_id)
 {
-    struct ctx c = picomesh_engine_service_ctx(state->engine, "git_repo");
-    struct object_ptr_result o = git_repo_git_repo_create(&c);
-    if (PICOMESH_IS_ERR(o)) { picomesh_error_destroy(o.error); return -1; }
-    struct picomesh_int_result r = git_repo_git_repo_is_public(&c, o.value, NULL, repo_id);
-    if (PICOMESH_IS_ERR(r)) { picomesh_error_destroy(r.error); return -1; }
-    return r.value ? 1 : 0;
+    struct ctx ctx = picomesh_engine_service_ctx(state->engine, "git_repo");
+    struct object_ptr_result create_res = git_repo_git_repo_create(&ctx);
+    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return -1; }
+    struct picomesh_int_result public_res = git_repo_git_repo_is_public(&ctx, create_res.value, NULL, repo_id);
+    if (PICOMESH_IS_ERR(public_res)) { picomesh_error_destroy(public_res.error); return -1; }
+    return public_res.value ? 1 : 0;
 }
 
 /* Resolve an issue_id to the namespace path of its repo by chaining
@@ -217,13 +217,13 @@ static int resolve_repo_public(struct policy_state *state, uint32_t repo_id)
  * on success; 0 on any failure (caller fails closed). */
 static int resolve_issue_namespace(struct policy_state *state, uint32_t issue_id, char *out, size_t cap)
 {
-    struct ctx c = picomesh_engine_service_ctx(state->engine, "issues");
-    struct object_ptr_result o = issues_issues_create(&c);
-    if (PICOMESH_IS_ERR(o)) { picomesh_error_destroy(o.error); return 0; }
-    struct picomesh_uint32_result r = issues_issues_repo_of(&c, o.value, NULL, issue_id);
-    if (PICOMESH_IS_ERR(r)) { picomesh_error_destroy(r.error); return 0; }
-    if (r.value == 0) return 0;
-    return resolve_repo_namespace(state, r.value, out, cap);
+    struct ctx ctx = picomesh_engine_service_ctx(state->engine, "issues");
+    struct object_ptr_result create_res = issues_issues_create(&ctx);
+    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return 0; }
+    struct picomesh_uint32_result repo_of_res = issues_issues_repo_of(&ctx, create_res.value, NULL, issue_id);
+    if (PICOMESH_IS_ERR(repo_of_res)) { picomesh_error_destroy(repo_of_res.error); return 0; }
+    if (repo_of_res.value == 0) return 0;
+    return resolve_repo_namespace(state, repo_of_res.value, out, cap);
 }
 
 static struct picomesh_authz_decision policy_authorize(void *state_ptr, const char *endpoint,
@@ -233,12 +233,12 @@ static struct picomesh_authz_decision policy_authorize(void *state_ptr, const ch
 
     /* Schema reads collapse to a single policy entry regardless of depth. */
     const char *lookup_key = endpoint;
-    size_t elen = strlen(endpoint);
+    size_t endpoint_len = strlen(endpoint);
     if (strcmp(endpoint, "_describe") == 0 ||
-        (elen >= 10 && strcmp(endpoint + elen - 10, "._describe") == 0))
+        (endpoint_len >= 10 && strcmp(endpoint + endpoint_len - 10, "._describe") == 0))
         lookup_key = "_describe";
     else if (strcmp(endpoint, "_describe_tree") == 0 ||
-             (elen >= 15 && strcmp(endpoint + elen - 15, "._describe_tree") == 0))
+             (endpoint_len >= 15 && strcmp(endpoint + endpoint_len - 15, "._describe_tree") == 0))
         lookup_key = "_describe_tree";
 
     const struct yconfig_node *rule = state->policy ? yconfig_node_get(state->policy, lookup_key) : NULL;

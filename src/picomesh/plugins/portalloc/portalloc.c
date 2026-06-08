@@ -87,16 +87,16 @@ static void portalloc_range(uint32_t *lo, uint32_t *hi)
 {
     *lo = PORTALLOC_DEFAULT_LO;
     *hi = PORTALLOC_DEFAULT_HI;
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return;
-    struct yconfig_node_ptr_result r =
-        yconfig_get(picomesh_engine_config(e), "portalloc.port_range");
-    if (PICOMESH_IS_OK(r) && r.value) {
-        const char *s = yconfig_node_as_string(r.value, NULL);
-        unsigned a = 0, b = 0;
-        if (s && sscanf(s, "%u-%u", &a, &b) == 2 && a > 0 && b >= a) {
-            *lo = a;
-            *hi = b;
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return;
+    struct yconfig_node_ptr_result config_res =
+        yconfig_get(picomesh_engine_config(engine), "portalloc.port_range");
+    if (PICOMESH_IS_OK(config_res) && config_res.value) {
+        const char *range_str = yconfig_node_as_string(config_res.value, NULL);
+        unsigned range_lo = 0, range_hi = 0;
+        if (range_str && sscanf(range_str, "%u-%u", &range_lo, &range_hi) == 2 && range_lo > 0 && range_hi >= range_lo) {
+            *lo = range_lo;
+            *hi = range_hi;
         }
     }
 }
@@ -111,18 +111,18 @@ static void portalloc_range(uint32_t *lo, uint32_t *hi)
 static int portalloc_port_free(const char *host, uint32_t port)
 {
     if (!host || !*host) host = "127.0.0.1";
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return 0;
+    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_fd < 0) return 0;
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        close(fd);
+        close(sock_fd);
         return 0;
     }
-    int rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
-    close(fd);
-    return rc == 0;
+    int bind_rc = bind(sock_fd, (struct sockaddr *)&addr, sizeof(addr));
+    close(sock_fd);
+    return bind_rc == 0;
 }
 
 PICOMESH_CLASS_ANNOTATE("override@portalloc:portalloc:portalloc_allocate")
@@ -156,22 +156,22 @@ struct picomesh_uint32_result portalloc_portalloc_allocate_impl(struct ctx *ctx,
     }
 
     /* First-fit: skip ports leased here OR currently held on the host. */
-    for (uint32_t p = lo; p <= hi; ++p) {
+    for (uint32_t candidate_port = lo; candidate_port <= hi; ++candidate_port) {
         int taken = 0;
         for (size_t i = 0; i < PORTALLOC_MAX_ENTRIES; ++i) {
-            if (state->entries[i].used && state->entries[i].port == p) { taken = 1; break; }
+            if (state->entries[i].used && state->entries[i].port == candidate_port) { taken = 1; break; }
         }
         if (taken) continue;
-        if (!portalloc_port_free(host, p)) continue;
+        if (!portalloc_port_free(host, candidate_port)) continue;
         for (size_t i = 0; i < PORTALLOC_MAX_ENTRIES; ++i) {
             if (!state->entries[i].used) {
                 snprintf(state->entries[i].service_name, sizeof(state->entries[i].service_name), "%s", service_name);
-                state->entries[i].port = p;
+                state->entries[i].port = candidate_port;
                 state->entries[i].used = 1;
                 state->count++;
                 pthread_mutex_unlock(&state->mu);
-                yinfo("portalloc: '%s' → port %u (host %s)", service_name, p, host);
-                return PICOMESH_OK(picomesh_uint32, p);
+                yinfo("portalloc: '%s' → port %u (host %s)", service_name, candidate_port, host);
+                return PICOMESH_OK(picomesh_uint32, candidate_port);
             }
         }
         pthread_mutex_unlock(&state->mu);
@@ -217,24 +217,24 @@ struct picomesh_size_result portalloc_portalloc_count_used_impl(struct ctx *ctx,
 static struct picomesh_json_result portalloc_list_window(struct portalloc_state *state,
                                                          int64_t offset, int64_t limit)
 {
-    struct yjson_writer *w = yjson_writer_new();
-    if (!w) return PICOMESH_ERR(picomesh_json, "portalloc_list: writer alloc failed");
-    yjson_writer_begin_array(w);
+    struct yjson_writer *writer = yjson_writer_new();
+    if (!writer) return PICOMESH_ERR(picomesh_json, "portalloc_list: writer alloc failed");
+    yjson_writer_begin_array(writer);
     int64_t skip = offset > 0 ? offset : 0, emitted = 0;
     for (size_t i = 0; i < PORTALLOC_MAX_ENTRIES && (limit < 0 || emitted < limit); ++i) {
         if (!state->entries[i].used) continue;
         if (skip > 0) { --skip; continue; }
-        yjson_writer_begin_object(w);
-        yjson_writer_key(w, "service"); yjson_writer_string(w, state->entries[i].service_name);
-        yjson_writer_key(w, "port");    yjson_writer_int(w, (int64_t)state->entries[i].port);
-        yjson_writer_end_object(w);
+        yjson_writer_begin_object(writer);
+        yjson_writer_key(writer, "service"); yjson_writer_string(writer, state->entries[i].service_name);
+        yjson_writer_key(writer, "port");    yjson_writer_int(writer, (int64_t)state->entries[i].port);
+        yjson_writer_end_object(writer);
         ++emitted;
     }
-    yjson_writer_end_array(w);
+    yjson_writer_end_array(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(w, &len);
+    const char *data = yjson_writer_data(writer, &len);
     char *out = strdup(data ? data : "[]");
-    yjson_writer_free(w);
+    yjson_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "portalloc_list: strdup failed");
     return PICOMESH_OK(picomesh_json, out);
 }
@@ -249,9 +249,9 @@ struct picomesh_json_result portalloc_portalloc_list_impl(struct ctx *ctx, struc
     if (limit <= 0) limit = 100;
     struct portalloc_state *state = portalloc_state();
     pthread_mutex_lock(&state->mu);
-    struct picomesh_json_result r = portalloc_list_window(state, offset, limit);
+    struct picomesh_json_result list_res = portalloc_list_window(state, offset, limit);
     pthread_mutex_unlock(&state->mu);
-    return r;
+    return list_res;
 }
 
 /* Unbounded variant — every allocation. */
@@ -262,9 +262,9 @@ struct picomesh_json_result portalloc_portalloc_list_all_impl(struct ctx *ctx, s
     (void)ctx; (void)obj; (void)hdrs;
     struct portalloc_state *state = portalloc_state();
     pthread_mutex_lock(&state->mu);
-    struct picomesh_json_result r = portalloc_list_window(state, 0, -1);
+    struct picomesh_json_result list_res = portalloc_list_window(state, 0, -1);
     pthread_mutex_unlock(&state->mu);
-    return r;
+    return list_res;
 }
 
 #include "portalloc.gen.c"

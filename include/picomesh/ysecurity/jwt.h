@@ -60,6 +60,10 @@ int picomesh_groups_contains(const char *groups_csv, const char *group);
 /* Role ladder: rank of a role name, or -1 if unknown. */
 int picomesh_role_rank(const char *role);
 
+/* Inverse of picomesh_role_rank: the role name for a ladder rank, or NULL if
+ * the rank is out of range. */
+const char *picomesh_role_name(int rank);
+
 /* Highest role rank held for `account` within a comma-separated groups list
  * ("<account>:<role>,..."). Returns -1 if the account is absent. */
 int picomesh_groups_max_role(const char *groups_csv, const char *account);

@@ -354,16 +354,16 @@ static void shard_work_fn(void *arg)
                 return;
             }
             MDBX_dbi dbi = 0;
-            int dr = mdbx_dbi_open(txn, w->ns, 0, &dbi);
-            if (dr == MDBX_SUCCESS) {
-                MDBX_stat st;
-                if (mdbx_dbi_stat(txn, dbi, &st, sizeof(st)) != MDBX_SUCCESS) {
+            int dbi_open_rc = mdbx_dbi_open(txn, w->ns, 0, &dbi);
+            if (dbi_open_rc == MDBX_SUCCESS) {
+                MDBX_stat dbi_stat;
+                if (mdbx_dbi_stat(txn, dbi, &dbi_stat, sizeof(dbi_stat)) != MDBX_SUCCESS) {
                     mdbx_txn_abort(txn);
                     w->rc = SHARD_INTERNAL;
                     return;
                 }
-                total += (size_t)st.ms_entries;
-            } else if (dr != MDBX_NOTFOUND) {
+                total += (size_t)dbi_stat.ms_entries;
+            } else if (dbi_open_rc != MDBX_NOTFOUND) {
                 /* NOTFOUND == this shard simply has no rows for the namespace
                  * (counts as 0); any other open error is a real failure. */
                 mdbx_txn_abort(txn);
@@ -405,8 +405,8 @@ static void shard_work_fn(void *arg)
             }
             MDBX_dbi dbi = 0;
             MDBX_cursor *cur = NULL;
-            int dr = mdbx_dbi_open(txn, w->ns, 0, &dbi);
-            if (dr != MDBX_SUCCESS && dr != MDBX_NOTFOUND) {
+            int dbi_open_rc = mdbx_dbi_open(txn, w->ns, 0, &dbi);
+            if (dbi_open_rc != MDBX_SUCCESS && dbi_open_rc != MDBX_NOTFOUND) {
                 /* NOTFOUND == no rows for this namespace on this shard (skip);
                  * any other open error is a real backend failure. */
                 mdbx_txn_abort(txn);
@@ -414,7 +414,7 @@ static void shard_work_fn(void *arg)
                 w->rc = SHARD_INTERNAL;
                 return;
             }
-            if (dr == MDBX_SUCCESS && mdbx_cursor_open(txn, dbi, &cur) != MDBX_SUCCESS) {
+            if (dbi_open_rc == MDBX_SUCCESS && mdbx_cursor_open(txn, dbi, &cur) != MDBX_SUCCESS) {
                 mdbx_txn_abort(txn);
                 yjson_writer_free(jw);
                 w->rc = SHARD_INTERNAL;
@@ -508,12 +508,12 @@ static void shard_work_fn(void *arg)
         return;
     }
     case OP_EXISTS: {
-        MDBX_val v = {0};
-        int r = mdbx_get(txn, dbi, &k, &v);
-        if (r == MDBX_SUCCESS) {
+        MDBX_val found_value = {0};
+        int get_rc = mdbx_get(txn, dbi, &k, &found_value);
+        if (get_rc == MDBX_SUCCESS) {
             w->out_i = 1;
             w->rc = SHARD_OK;
-        } else if (r == MDBX_NOTFOUND) {
+        } else if (get_rc == MDBX_NOTFOUND) {
             w->out_i = 0;
             w->rc = SHARD_OK;
         } else {

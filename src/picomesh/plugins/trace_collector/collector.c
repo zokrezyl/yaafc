@@ -39,42 +39,42 @@ static uint64_t collector_now_ns(void)
  * the collector's worker threads — same value, idempotent init. */
 static int64_t collector_cfg_int(const struct yconfig *cfg, const char *key)
 {
-    struct yconfig_node_ptr_result r = yconfig_get(cfg, key);
-    return (PICOMESH_IS_OK(r) && r.value) ? yconfig_node_as_int(r.value, 0) : 0;
+    struct yconfig_node_ptr_result config_res = yconfig_get(cfg, key);
+    return (PICOMESH_IS_OK(config_res) && config_res.value) ? yconfig_node_as_int(config_res.value, 0) : 0;
 }
 
 static void collector_ensure_store(void)
 {
     static int done = 0;
     if (done) return;
-    struct ytelemetry_store_config sc = {0};
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (e) {
-        const struct yconfig *cfg = picomesh_engine_config(e);
-        int64_t v;
-        if ((v = collector_cfg_int(cfg, "telemetry.max_spans")) > 0) sc.max_spans = (size_t)v;
-        if ((v = collector_cfg_int(cfg, "telemetry.max_age_seconds")) > 0) sc.max_age_seconds = (uint64_t)v;
-        if ((v = collector_cfg_int(cfg, "telemetry.shards")) > 0) sc.shards = (unsigned)v;
-        if ((v = collector_cfg_int(cfg, "telemetry.bucket_spans")) > 0) sc.bucket_spans = (size_t)v;
-        if ((v = collector_cfg_int(cfg, "telemetry.flush_ms")) > 0) sc.flush_ms = (uint64_t)v;
+    struct ytelemetry_store_config store_cfg = {0};
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (engine) {
+        const struct yconfig *cfg = picomesh_engine_config(engine);
+        int64_t config_value;
+        if ((config_value = collector_cfg_int(cfg, "telemetry.max_spans")) > 0) store_cfg.max_spans = (size_t)config_value;
+        if ((config_value = collector_cfg_int(cfg, "telemetry.max_age_seconds")) > 0) store_cfg.max_age_seconds = (uint64_t)config_value;
+        if ((config_value = collector_cfg_int(cfg, "telemetry.shards")) > 0) store_cfg.shards = (unsigned)config_value;
+        if ((config_value = collector_cfg_int(cfg, "telemetry.bucket_spans")) > 0) store_cfg.bucket_spans = (size_t)config_value;
+        if ((config_value = collector_cfg_int(cfg, "telemetry.flush_ms")) > 0) store_cfg.flush_ms = (uint64_t)config_value;
     }
-    ytelemetry_store_init_config(&sc); /* any field left 0 takes its built-in default */
+    ytelemetry_store_init_config(&store_cfg); /* any field left 0 takes its built-in default */
     done = 1;
 }
 
 /* Render a query-writer's JSON into an owned heap string the caller frees. */
 static struct picomesh_string_result render(void (*emit)(struct yjson_writer *, void *),
-                                            void *ud)
+                                            void *user_data)
 {
     collector_ensure_store(); /* config applies on first query too, not only ingest */
-    struct yjson_writer *w = yjson_writer_new();
-    if (!w) return PICOMESH_ERR(picomesh_string, "trace_collector: writer alloc failed");
-    emit(w, ud);
+    struct yjson_writer *writer = yjson_writer_new();
+    if (!writer) return PICOMESH_ERR(picomesh_string, "trace_collector: writer alloc failed");
+    emit(writer, user_data);
     size_t len = 0;
-    const char *data = yjson_writer_data(w, &len);
+    const char *data = yjson_writer_data(writer, &len);
     char *out = malloc(len + 1);
     if (out) { memcpy(out, data, len); out[len] = 0; }
-    yjson_writer_free(w);
+    yjson_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_string, "trace_collector: out of memory");
     return PICOMESH_OK(picomesh_string, out);
 }
@@ -101,9 +101,9 @@ struct picomesh_void_result trace_collector_trace_collector_ingest_impl(
 
 struct trace_arg { const char *a; const char *b; uint64_t n; };
 
-static void emit_trace(struct yjson_writer *w, void *ud)
+static void emit_trace(struct yjson_writer *writer, void *user_data)
 {
-    ytelemetry_store_write_trace(w, ((struct trace_arg *)ud)->a);
+    ytelemetry_store_write_trace(writer, ((struct trace_arg *)user_data)->a);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@trace_collector:trace_collector:trace_collector_get_trace")
@@ -111,16 +111,16 @@ struct picomesh_string_result trace_collector_trace_collector_get_trace_impl(
     struct ctx *ctx, struct object *obj, struct yheaders *hdrs, const char *trace_id)
 {
     (void)ctx; (void)obj; (void)hdrs;
-    struct trace_arg t = {.a = trace_id};
-    return render(emit_trace, &t);
+    struct trace_arg arg = {.a = trace_id};
+    return render(emit_trace, &arg);
 }
 
-static void emit_traces(struct yjson_writer *w, void *ud)
+static void emit_traces(struct yjson_writer *writer, void *user_data)
 {
-    struct trace_arg *t = ud;
-    ytelemetry_store_write_traces(w, (t->a && *t->a) ? t->a : NULL,
-                                  t->n,
-                                  (t->b && *t->b) ? t->b : NULL);
+    struct trace_arg *arg = user_data;
+    ytelemetry_store_write_traces(writer, (arg->a && *arg->a) ? arg->a : NULL,
+                                  arg->n,
+                                  (arg->b && *arg->b) ? arg->b : NULL);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@trace_collector:trace_collector:trace_collector_traces")
@@ -135,14 +135,14 @@ struct picomesh_string_result trace_collector_trace_collector_traces_impl(
         uint64_t now = collector_now_ns();
         floor = now > window ? now - window : 0;
     }
-    struct trace_arg t = {.a = service, .b = status, .n = floor};
-    return render(emit_traces, &t);
+    struct trace_arg arg = {.a = service, .b = status, .n = floor};
+    return render(emit_traces, &arg);
 }
 
-static void emit_services(struct yjson_writer *w, void *ud)
+static void emit_services(struct yjson_writer *writer, void *user_data)
 {
-    (void)ud;
-    ytelemetry_store_write_services(w);
+    (void)user_data;
+    ytelemetry_store_write_services(writer);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@trace_collector:trace_collector:trace_collector_services")
@@ -153,10 +153,10 @@ struct picomesh_string_result trace_collector_trace_collector_services_impl(
     return render(emit_services, NULL);
 }
 
-static void emit_operations(struct yjson_writer *w, void *ud)
+static void emit_operations(struct yjson_writer *writer, void *user_data)
 {
-    const char *svc = ((struct trace_arg *)ud)->a;
-    ytelemetry_store_write_operations(w, (svc && *svc) ? svc : NULL);
+    const char *service = ((struct trace_arg *)user_data)->a;
+    ytelemetry_store_write_operations(writer, (service && *service) ? service : NULL);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@trace_collector:trace_collector:trace_collector_operations")
@@ -164,15 +164,15 @@ struct picomesh_string_result trace_collector_trace_collector_operations_impl(
     struct ctx *ctx, struct object *obj, struct yheaders *hdrs, const char *service)
 {
     (void)ctx; (void)obj; (void)hdrs;
-    struct trace_arg t = {.a = service};
-    return render(emit_operations, &t);
+    struct trace_arg arg = {.a = service};
+    return render(emit_operations, &arg);
 }
 
-static void emit_latency(struct yjson_writer *w, void *ud)
+static void emit_latency(struct yjson_writer *writer, void *user_data)
 {
-    struct trace_arg *t = ud;
-    ytelemetry_store_write_latency(w, (t->a && *t->a) ? t->a : NULL,
-                                   (t->b && *t->b) ? t->b : NULL, t->n);
+    struct trace_arg *arg = user_data;
+    ytelemetry_store_write_latency(writer, (arg->a && *arg->a) ? arg->a : NULL,
+                                   (arg->b && *arg->b) ? arg->b : NULL, arg->n);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@trace_collector:trace_collector:trace_collector_latency")
@@ -181,15 +181,15 @@ struct picomesh_string_result trace_collector_trace_collector_latency_impl(
     const char *service, const char *operation, uint32_t window_secs)
 {
     (void)ctx; (void)obj; (void)hdrs;
-    struct trace_arg t = {.a = service, .b = operation,
+    struct trace_arg arg = {.a = service, .b = operation,
                           .n = (uint64_t)window_secs * 1000000000ull};
-    return render(emit_latency, &t);
+    return render(emit_latency, &arg);
 }
 
-static void emit_stats(struct yjson_writer *w, void *ud)
+static void emit_stats(struct yjson_writer *writer, void *user_data)
 {
-    (void)ud;
-    ytelemetry_store_write_stats(w);
+    (void)user_data;
+    ytelemetry_store_write_stats(writer);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@trace_collector:trace_collector:trace_collector_stats")
@@ -201,9 +201,9 @@ struct picomesh_string_result trace_collector_trace_collector_stats_impl(
     return render(emit_stats, NULL);
 }
 
-static void emit_errors(struct yjson_writer *w, void *ud)
+static void emit_errors(struct yjson_writer *writer, void *user_data)
 {
-    ytelemetry_store_write_errors(w, ((struct trace_arg *)ud)->n);
+    ytelemetry_store_write_errors(writer, ((struct trace_arg *)user_data)->n);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@trace_collector:trace_collector:trace_collector_errors")
@@ -217,8 +217,8 @@ struct picomesh_string_result trace_collector_trace_collector_errors_impl(
         uint64_t now = collector_now_ns();
         floor = now > window ? now - window : 0;
     }
-    struct trace_arg t = {.n = floor};
-    return render(emit_errors, &t);
+    struct trace_arg arg = {.n = floor};
+    return render(emit_errors, &arg);
 }
 
 #include "collector.gen.c"

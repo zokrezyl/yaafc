@@ -151,24 +151,24 @@ static struct picomesh_authn_outcome session_cookie_authenticate(void *state_ptr
      * than reuse any pre-RPC pointer: a concurrent coroutine may have inserted
      * this sid while we were parked on the lookup RPC. */
     if (state->cache_ttl > 0 && strlen(sid) < sizeof(((struct sid_cache_entry *)0)->sid)) {
-        struct sid_cache_entry *e = NULL;
-        HASH_FIND_STR(state->cache, sid, e);
-        if (e) {
-            char *dup = strdup(jwt);
-            if (dup) { free(e->jwt); e->jwt = dup; e->inserted = now; e->jwt_exp = jwt_exp; }
+        struct sid_cache_entry *entry = NULL;
+        HASH_FIND_STR(state->cache, sid, entry);
+        if (entry) {
+            char *jwt_copy = strdup(jwt);
+            if (jwt_copy) { free(entry->jwt); entry->jwt = jwt_copy; entry->inserted = now; entry->jwt_exp = jwt_exp; }
         } else {
-            e = calloc(1, sizeof(*e));
-            char *dup = e ? strdup(jwt) : NULL;
-            if (e && dup) {
-                snprintf(e->sid, sizeof(e->sid), "%s", sid);
-                e->jwt = dup; e->inserted = now; e->jwt_exp = jwt_exp;
-                HASH_ADD_STR(state->cache, sid, e);
+            entry = calloc(1, sizeof(*entry));
+            char *jwt_copy = entry ? strdup(jwt) : NULL;
+            if (entry && jwt_copy) {
+                snprintf(entry->sid, sizeof(entry->sid), "%s", sid);
+                entry->jwt = jwt_copy; entry->inserted = now; entry->jwt_exp = jwt_exp;
+                HASH_ADD_STR(state->cache, sid, entry);
                 /* FIFO memory backstop: over the cap, evict the oldest (head). */
                 if (state->cache_max && HASH_COUNT(state->cache) > state->cache_max) {
                     struct sid_cache_entry *oldest = state->cache;
                     HASH_DEL(state->cache, oldest); free(oldest->jwt); free(oldest);
                 }
-            } else { free(dup); free(e); }
+            } else { free(jwt_copy); free(entry); }
         }
     }
 
@@ -181,9 +181,9 @@ static void session_cookie_destroy(void *state_ptr)
 {
     struct session_cookie_state *state = state_ptr;
     if (!state) return;
-    struct sid_cache_entry *e, *tmp;
-    HASH_ITER(hh, state->cache, e, tmp) {
-        HASH_DEL(state->cache, e); free(e->jwt); free(e);
+    struct sid_cache_entry *entry, *tmp;
+    HASH_ITER(hh, state->cache, entry, tmp) {
+        HASH_DEL(state->cache, entry); free(entry->jwt); free(entry);
     }
     picomesh_jwt_verifier_destroy(state->verifier);
     free(state);

@@ -39,8 +39,8 @@ static struct picomesh_void_ptr_result bearer_jwt_create(struct picomesh_engine 
 
     const struct yconfig_node *rejects = yconfig_node_get(config, "reject_prefixes");
     if (rejects && yconfig_node_kind(rejects) == YCONFIG_LIST) {
-        size_t n = yconfig_node_size(rejects);
-        for (size_t i = 0; i < n && state->reject_count < BEARER_JWT_MAX_PREFIXES; ++i) {
+        size_t count = yconfig_node_size(rejects);
+        for (size_t i = 0; i < count && state->reject_count < BEARER_JWT_MAX_PREFIXES; ++i) {
             const char *prefix = yconfig_node_as_string(yconfig_node_at(rejects, i), NULL);
             if (prefix && *prefix) state->reject_prefixes[state->reject_count++] = prefix;
         }
@@ -63,8 +63,8 @@ static struct picomesh_authn_outcome bearer_jwt_authenticate(void *state_ptr,
         return outcome; /* no bearer → no match */
 
     for (size_t i = 0; i < state->reject_count; ++i) {
-        size_t plen = strlen(state->reject_prefixes[i]);
-        if (strncmp(token, state->reject_prefixes[i], plen) == 0)
+        size_t prefix_len = strlen(state->reject_prefixes[i]);
+        if (strncmp(token, state->reject_prefixes[i], prefix_len) == 0)
             return outcome; /* belongs to an opaque scheme → not our shape */
     }
 

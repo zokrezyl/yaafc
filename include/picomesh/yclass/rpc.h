@@ -179,6 +179,20 @@ typedef void (*rpc_async_oneway_fn)(void *ctx, enum rpc_op op, uint32_t id,
                                     const void *body, size_t body_len);
 void peer_channel_set_async_oneway(struct peer_channel *s, rpc_async_oneway_fn oneway);
 
+/* Install an async, yloop-aware I/O backend for a MSGPACK channel (issue #22).
+ * peer_channel_msgpack_call builds/parses the envelope as usual but, when this
+ * is set, hands the framed request bytes to `io` instead of doing blocking fd
+ * I/O — so a C service on the event loop can call a foreign msgpack service via
+ * a `transport: msgpack` config remote without blocking the loop. `io` writes
+ * the length-prefixed `env` and reads one length-prefixed response into a
+ * malloc'd buffer it returns via `*resp`/`*resp_len` (caller frees); returns 1
+ * on success, 0 with `err` filled on failure. rpc.c stays yloop-free — the
+ * engine supplies the implementation. */
+typedef int (*rpc_msgpack_io_fn)(void *ctx, const uint8_t *env, size_t env_len, uint8_t **resp,
+                                 size_t *resp_len, char *err, size_t err_cap);
+void peer_channel_set_msgpack_async(struct peer_channel *s, void *ctx, rpc_msgpack_io_fn io,
+                                    void (*destroy)(void *ctx));
+
 size_t rpc_call(struct peer_channel *s, enum rpc_op op, uint32_t id, const void *body,
                 size_t body_len, void *resp, size_t resp_max);
 

@@ -79,6 +79,18 @@ enum mixed_op {
     OP__COUNT,
 };
 
+/* One pre-established user in the multiplexed population (issue #12). The
+ * pool-setup phase registers + logs in M of these once; during the timed run
+ * each connection picks a random pool entry per request and acts as that user,
+ * so C connections drive load on behalf of M users with C ≪ M. Read-only after
+ * setup (every connection reads it; nobody writes during the load phase). */
+struct perf_user {
+    uint32_t uid;
+    char uname[40];
+    char sid[64];
+    int ok;             /* 1 once register+login succeeded for this entry */
+};
+
 struct perf_config {
     const char *host;
     int port;
@@ -92,6 +104,13 @@ struct perf_config {
     long run_nonce;
     long seed_users;
     int repos_per_conn;
+    /* --users M: user POPULATION multiplexed across the --connections (issue
+     * #12). 0 == off (legacy 1 connection = 1 user). When > 0 the load phase
+     * runs a multiplexed read workload attributed across `users` distinct
+     * accounts held in `user_pool`, decoupling population size from the
+     * connection-concurrency knob. */
+    long users;
+    struct perf_user *user_pool; /* [users]; filled by the pool-setup phase */
     int emulate;            /* --emulate: run the client machinery, skip the
                              * network + server (synthetic success responses).
                              * Measures the load generator's own ceiling. */
@@ -218,49 +237,55 @@ struct vconn {
     uint64_t status_hist[7];
 };
 
-static int vconn_connect(struct vconn *vc)
+static int vconn_connect(struct vconn *conn)
 {
-    if (vc->stream) return 0;
-    if (vc->cfg->emulate) return 0; /* no server in emulate mode: stream stays NULL */
-    struct yloop_stream_ptr_result r = yloop_connect_tcp(vc->loop, vc->cfg->host, vc->cfg->port);
-    if (PICOMESH_IS_ERR(r)) { picomesh_error_destroy(r.error); vc->stream = NULL; return -1; }
-    vc->stream = r.value;
+    if (conn->stream) return 0;
+    if (conn->cfg->emulate) return 0; /* no server in emulate mode: stream stays NULL */
+    struct yloop_stream_ptr_result connect_res =
+        yloop_connect_tcp(conn->loop, conn->cfg->host, conn->cfg->port);
+    if (PICOMESH_IS_ERR(connect_res)) {
+        picomesh_error_destroy(connect_res.error);
+        conn->stream = NULL;
+        return -1;
+    }
+    conn->stream = connect_res.value;
     return 0;
 }
 
-static void vconn_close(struct vconn *vc)
+static void vconn_close(struct vconn *conn)
 {
-    if (vc->stream) { yloop_close(vc->stream); vc->stream = NULL; }
+    if (conn->stream) { yloop_close(conn->stream); conn->stream = NULL; }
 }
 
 /* Issue one HTTP request on the keep-alive coroutine connection and consume
  * the full response (headers + Content-Length body). Returns the HTTP status
  * code, or -1 on transport failure. */
-static int http_request(struct vconn *vc, const char *method, const char *path,
+static int http_request(struct vconn *conn, const char *method, const char *path,
                         const char *content_type, const char *cookie_sid,
                         const char *body, size_t body_len,
                         char *out_sid, size_t out_sid_cap)
 {
     char hdr[1024];
-    int n = snprintf(hdr, sizeof(hdr),
+    int hdr_len = snprintf(hdr, sizeof(hdr),
         "%s %s HTTP/1.1\r\n"
         "Host: %s:%d\r\n"
         "Connection: keep-alive\r\n",
-        method, path, vc->cfg->host, vc->cfg->port);
-    if (n <= 0 || (size_t)n >= sizeof(hdr)) return -1;
+        method, path, conn->cfg->host, conn->cfg->port);
+    if (hdr_len <= 0 || (size_t)hdr_len >= sizeof(hdr)) return -1;
     if (content_type && body_len) {
-        n += snprintf(hdr + n, sizeof(hdr) - n,
+        hdr_len += snprintf(hdr + hdr_len, sizeof(hdr) - hdr_len,
                       "Content-Type: %s\r\nContent-Length: %zu\r\n",
                       content_type, body_len);
     } else {
-        n += snprintf(hdr + n, sizeof(hdr) - n, "Content-Length: 0\r\n");
+        hdr_len += snprintf(hdr + hdr_len, sizeof(hdr) - hdr_len, "Content-Length: 0\r\n");
     }
     if (cookie_sid && *cookie_sid)
-        n += snprintf(hdr + n, sizeof(hdr) - n, "Cookie: picomesh-sid=%s\r\n", cookie_sid);
-    n += snprintf(hdr + n, sizeof(hdr) - n, "\r\n");
-    if (n <= 0 || (size_t)n >= sizeof(hdr)) return -1;
+        hdr_len += snprintf(hdr + hdr_len, sizeof(hdr) - hdr_len,
+                            "Cookie: picomesh-sid=%s\r\n", cookie_sid);
+    hdr_len += snprintf(hdr + hdr_len, sizeof(hdr) - hdr_len, "\r\n");
+    if (hdr_len <= 0 || (size_t)hdr_len >= sizeof(hdr)) return -1;
 
-    if (vc->cfg->emulate) {
+    if (conn->cfg->emulate) {
         /* --emulate: everything the client does per request EXCEPT the network
          * and a real server. The request line/headers were just built and the
          * caller built the body, so all client-side CPU (op selection, string
@@ -271,9 +296,9 @@ static int http_request(struct vconn *vc, const char *method, const char *path,
          * load generator's OWN ceiling: how many ops/s its threads+coroutines
          * can push on this host with a zero-cost peer, so a real run's numbers
          * can be read against the harness's own limit. */
-        yloop_sleep_ms(vc->loop, 0);
+        yloop_sleep_ms(conn->loop, 0);
         if (out_sid && out_sid_cap)
-            snprintf(out_sid, out_sid_cap, "emu%08xsid", (unsigned)vc->id);
+            snprintf(out_sid, out_sid_cap, "emu%08xsid", (unsigned)conn->id);
         /* Match the status the real route returns on success so ok/err
          * accounting and the n_repos bookkeeping behave identically: the
          * form-POST routes redirect (303), everything else is 200. */
@@ -283,36 +308,39 @@ static int http_request(struct vconn *vc, const char *method, const char *path,
         return redirect ? 303 : 200;
     }
 
-    if (yloop_write(vc->stream, hdr, (size_t)n) != (size_t)n) return -1;
-    if (body_len && yloop_write(vc->stream, body, body_len) != body_len) return -1;
+    if (yloop_write(conn->stream, hdr, (size_t)hdr_len) != (size_t)hdr_len) return -1;
+    if (body_len && yloop_write(conn->stream, body, body_len) != body_len) return -1;
 
     /* Read until the header terminator is in. */
     size_t total = 0;
     char *hdr_end = NULL;
     while (total < RBUF_CAP - 1) {
-        size_t r = yloop_read_some(vc->stream, vc->rbuf + total, RBUF_CAP - 1 - total);
-        if (r == 0) return -1; /* EOF / error */
-        total += r;
-        vc->rbuf[total] = 0;
-        hdr_end = strstr(vc->rbuf, "\r\n\r\n");
+        size_t read_n = yloop_read_some(conn->stream, conn->rbuf + total, RBUF_CAP - 1 - total);
+        if (read_n == 0) return -1; /* EOF / error */
+        total += read_n;
+        conn->rbuf[total] = 0;
+        hdr_end = strstr(conn->rbuf, "\r\n\r\n");
         if (hdr_end) break;
     }
     if (!hdr_end) return -1;
 
     int status = 0;
-    if (sscanf(vc->rbuf, "HTTP/1.%*d %d", &status) != 1) return -1;
+    if (sscanf(conn->rbuf, "HTTP/1.%*d %d", &status) != 1) return -1;
 
     if (out_sid && out_sid_cap) {
         out_sid[0] = 0;
-        for (char *p = vc->rbuf; p < hdr_end; ++p) {
-            if ((p == vc->rbuf || p[-1] == '\n') &&
+        for (char *p = conn->rbuf; p < hdr_end; ++p) {
+            if ((p == conn->rbuf || p[-1] == '\n') &&
                 strncasecmp(p, "set-cookie:", 11) == 0) {
-                char *v = strstr(p, "picomesh-sid=");
-                if (v && v < hdr_end) {
-                    v = strchr(v, '=') + 1;
+                char *cookie_val = strstr(p, "picomesh-sid=");
+                if (cookie_val && cookie_val < hdr_end) {
+                    cookie_val = strchr(cookie_val, '=') + 1;
                     size_t i = 0;
-                    while (v[i] && v[i] != ';' && v[i] != '\r' && v[i] != '\n'
-                           && i < out_sid_cap - 1) { out_sid[i] = v[i]; i++; }
+                    while (cookie_val[i] && cookie_val[i] != ';' && cookie_val[i] != '\r'
+                           && cookie_val[i] != '\n' && i < out_sid_cap - 1) {
+                        out_sid[i] = cookie_val[i];
+                        i++;
+                    }
                     out_sid[i] = 0;
                 }
                 break;
@@ -321,37 +349,37 @@ static int http_request(struct vconn *vc, const char *method, const char *path,
     }
 
     long content_length = 0;
-    for (char *p = vc->rbuf; p < hdr_end; ++p) {
-        if ((p == vc->rbuf || p[-1] == '\n') &&
+    for (char *p = conn->rbuf; p < hdr_end; ++p) {
+        if ((p == conn->rbuf || p[-1] == '\n') &&
             strncasecmp(p, "content-length:", 15) == 0) {
             content_length = strtol(p + 15, NULL, 10);
             break;
         }
     }
-    size_t header_len = (size_t)(hdr_end - vc->rbuf) + 4;
+    size_t header_len = (size_t)(hdr_end - conn->rbuf) + 4;
     size_t body_have = total - header_len;
     long remaining = content_length - (long)body_have;
     while (remaining > 0) {
         size_t want = (size_t)remaining < RBUF_CAP ? (size_t)remaining : RBUF_CAP;
-        size_t r = yloop_read_some(vc->stream, vc->rbuf, want);
-        if (r == 0) return -1;
-        remaining -= (long)r;
+        size_t read_n = yloop_read_some(conn->stream, conn->rbuf, want);
+        if (read_n == 0) return -1;
+        remaining -= (long)read_n;
     }
     return status;
 }
 
 /* A request with one transparent reconnect on transport failure. */
-static int http_try(struct vconn *vc, const char *method, const char *path,
+static int http_try(struct vconn *conn, const char *method, const char *path,
                     const char *ctype, const char *sid,
                     const char *body, size_t body_len,
                     char *out_sid, size_t out_sid_cap)
 {
-    int st = http_request(vc, method, path, ctype, sid, body, body_len,
-                          out_sid, out_sid_cap);
-    if (st >= 0) return st;
-    vconn_close(vc);
-    if (vconn_connect(vc) != 0) return -1;
-    return http_request(vc, method, path, ctype, sid, body, body_len,
+    int status = http_request(conn, method, path, ctype, sid, body, body_len,
+                              out_sid, out_sid_cap);
+    if (status >= 0) return status;
+    vconn_close(conn);
+    if (vconn_connect(conn) != 0) return -1;
+    return http_request(conn, method, path, ctype, sid, body, body_len,
                         out_sid, out_sid_cap);
 }
 
@@ -365,185 +393,185 @@ static void make_user(char *out, size_t cap, long nonce, int conn, long counter)
         snprintf(out, cap, "p%ldw%dn%ld", nonce % 100000, conn, counter);
 }
 
-static int establish_session(struct vconn *vc)
+static int establish_session(struct vconn *conn)
 {
     char user[40];
-    make_user(user, sizeof(user), vc->cfg->run_nonce, vc->id, -1);
-    snprintf(vc->uname, sizeof(vc->uname), "%s", user);
+    make_user(user, sizeof(user), conn->cfg->run_nonce, conn->id, -1);
+    snprintf(conn->uname, sizeof(conn->uname), "%s", user);
     char body[128];
-    int bn = snprintf(body, sizeof(body), "username=%s&password=x", user);
+    int body_len = snprintf(body, sizeof(body), "username=%s&password=x", user);
 
-    http_try(vc, "POST", "/register",
-             "application/x-www-form-urlencoded", NULL, body, (size_t)bn, NULL, 0);
+    http_try(conn, "POST", "/register",
+             "application/x-www-form-urlencoded", NULL, body, (size_t)body_len, NULL, 0);
     for (int attempt = 0; attempt < 3; ++attempt) {
-        vc->sid[0] = 0;
-        int st = http_try(vc, "POST", "/login",
+        conn->sid[0] = 0;
+        int status = http_try(conn, "POST", "/login",
                           "application/x-www-form-urlencoded", NULL,
-                          body, (size_t)bn, vc->sid, sizeof(vc->sid));
-        if ((st == 303 || st == 200) && vc->sid[0]) return 1;
+                          body, (size_t)body_len, conn->sid, sizeof(conn->sid));
+        if ((status == 303 || status == 200) && conn->sid[0]) return 1;
     }
     return 0;
 }
 
-static int scenario_step(struct vconn *vc, long counter)
+static int scenario_step(struct vconn *conn, long counter)
 {
-    switch (vc->cfg->scenario) {
+    switch (conn->cfg->scenario) {
     case SCENARIO_RPC_COUNT: {
         static const char body[] = "{\"path\":\"git_repo.git_repo.count_total\",\"args\":[]}";
-        return http_try(vc, "POST", "/_rpc", "application/json", vc->sid,
+        return http_try(conn, "POST", "/_rpc", "application/json", conn->sid,
                         body, sizeof(body) - 1, NULL, 0) == 200;
     }
     case SCENARIO_LOGIN: {
         char user[40], body[128];
-        make_user(user, sizeof(user), vc->cfg->run_nonce, vc->id, -1);
-        int bn = snprintf(body, sizeof(body), "username=%s&password=x", user);
+        make_user(user, sizeof(user), conn->cfg->run_nonce, conn->id, -1);
+        int body_len = snprintf(body, sizeof(body), "username=%s&password=x", user);
         char sid[64];
-        int st = http_try(vc, "POST", "/login",
+        int status = http_try(conn, "POST", "/login",
                           "application/x-www-form-urlencoded", NULL,
-                          body, (size_t)bn, sid, sizeof(sid));
-        return st == 303 || st == 200;
+                          body, (size_t)body_len, sid, sizeof(sid));
+        return status == 303 || status == 200;
     }
     case SCENARIO_REPO_CREATE: {
-        if (!vc->sid[0] || !vc->uname[0]) return 0;
+        if (!conn->sid[0] || !conn->uname[0]) return 0;
         char body[64];
-        int bn = snprintf(body, sizeof(body), "name=r%ld", counter);
+        int body_len = snprintf(body, sizeof(body), "name=r%ld", counter);
         char cookie[128];
-        snprintf(cookie, sizeof(cookie), "%s; picomesh-uname=%s", vc->sid, vc->uname);
-        return http_try(vc, "POST", "/repos/new",
+        snprintf(cookie, sizeof(cookie), "%s; picomesh-uname=%s", conn->sid, conn->uname);
+        return http_try(conn, "POST", "/repos/new",
                         "application/x-www-form-urlencoded", cookie,
-                        body, (size_t)bn, NULL, 0) == 303;
+                        body, (size_t)body_len, NULL, 0) == 303;
     }
     case SCENARIO_REGISTER: {
         char user[40], body[128];
-        make_user(user, sizeof(user), vc->cfg->run_nonce, vc->id, counter);
-        int bn = snprintf(body, sizeof(body), "username=%s&password=x", user);
-        int st = http_try(vc, "POST", "/register",
+        make_user(user, sizeof(user), conn->cfg->run_nonce, conn->id, counter);
+        int body_len = snprintf(body, sizeof(body), "username=%s&password=x", user);
+        int status = http_try(conn, "POST", "/register",
                           "application/x-www-form-urlencoded", NULL,
-                          body, (size_t)bn, NULL, 0);
-        return st == 303 || st == 200;
+                          body, (size_t)body_len, NULL, 0);
+        return status == 303 || status == 200;
     }
     case SCENARIO_FULL: {
         char user[40], body[128], sid[64];
-        make_user(user, sizeof(user), vc->cfg->run_nonce, vc->id, counter);
-        int bn = snprintf(body, sizeof(body), "username=%s&password=x", user);
-        if (http_try(vc, "POST", "/register", "application/x-www-form-urlencoded",
-                     NULL, body, (size_t)bn, NULL, 0) < 0) return 0;
+        make_user(user, sizeof(user), conn->cfg->run_nonce, conn->id, counter);
+        int body_len = snprintf(body, sizeof(body), "username=%s&password=x", user);
+        if (http_try(conn, "POST", "/register", "application/x-www-form-urlencoded",
+                     NULL, body, (size_t)body_len, NULL, 0) < 0) return 0;
         sid[0] = 0;
-        int st = http_try(vc, "POST", "/login", "application/x-www-form-urlencoded",
-                          NULL, body, (size_t)bn, sid, sizeof(sid));
-        if (!(st == 303 || st == 200) || !sid[0]) return 0;
+        int status = http_try(conn, "POST", "/login", "application/x-www-form-urlencoded",
+                          NULL, body, (size_t)body_len, sid, sizeof(sid));
+        if (!(status == 303 || status == 200) || !sid[0]) return 0;
         char rbody[64];
-        int rn = snprintf(rbody, sizeof(rbody), "name=r%ld", counter);
+        int rbody_len = snprintf(rbody, sizeof(rbody), "name=r%ld", counter);
         char cookie[128];
         snprintf(cookie, sizeof(cookie), "%s; picomesh-uname=%s", sid, user);
-        if (http_try(vc, "POST", "/repos/new", "application/x-www-form-urlencoded",
-                     cookie, rbody, (size_t)rn, NULL, 0) < 0) return 0;
-        st = http_try(vc, "GET", "/repos", NULL, cookie, "", 0, NULL, 0);
-        return st == 200;
+        if (http_try(conn, "POST", "/repos/new", "application/x-www-form-urlencoded",
+                     cookie, rbody, (size_t)rbody_len, NULL, 0) < 0) return 0;
+        status = http_try(conn, "GET", "/repos", NULL, cookie, "", 0, NULL, 0);
+        return status == 200;
     }
     case SCENARIO_MIXED: {
-        enum mixed_op op = pick_op(&vc->rng);
-        enum mixed_op did = op;
+        enum mixed_op op = pick_op(&conn->rng);
+        enum mixed_op recorded_op = op;
         char body[512];
-        int st = -1;
+        int status = -1;
         if (op == OP_PUT_FILE || op == OP_OPEN_ISSUE || op == OP_ENQUEUE_RUN) {
-            if (vc->n_repos <= 0) { op = OP_READ_COUNT; did = OP_READ_COUNT; }
+            if (conn->n_repos <= 0) { op = OP_READ_COUNT; recorded_op = OP_READ_COUNT; }
         }
-        if (op == OP_MAKE_REPO && vc->n_repos >= vc->cfg->repos_per_conn) {
-            op = OP_READ_LIST; did = OP_READ_LIST;
+        if (op == OP_MAKE_REPO && conn->n_repos >= conn->cfg->repos_per_conn) {
+            op = OP_READ_LIST; recorded_op = OP_READ_LIST;
         }
         /* Cap subgroup creation the same way repos are capped; once full,
          * read the subtree instead so the op still exercises the namespace. */
-        if (op == OP_NS_CREATE && vc->n_groups >= vc->cfg->repos_per_conn) {
-            op = OP_NS_SUBTREE; did = OP_NS_SUBTREE;
+        if (op == OP_NS_CREATE && conn->n_groups >= conn->cfg->repos_per_conn) {
+            op = OP_NS_SUBTREE; recorded_op = OP_NS_SUBTREE;
         }
         switch (op) {
         case OP_READ_COUNT: {
             static const char b[] = "{\"path\":\"git_repo.git_repo.count_total\",\"args\":[]}";
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, b, sizeof(b) - 1, NULL, 0);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, b, sizeof(b) - 1, NULL, 0);
             break;
         }
         case OP_READ_LIST: {
-            int bn = snprintf(body, sizeof(body),
-                "{\"path\":\"git_repo.git_repo.list_for_owner\",\"args\":[%u]}", vc->uid);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            int body_len = snprintf(body, sizeof(body),
+                "{\"path\":\"git_repo.git_repo.list_for_owner\",\"args\":[%u]}", conn->uid);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
             break;
         }
         case OP_MAKE_REPO: {
-            int bn = snprintf(body, sizeof(body),
+            int body_len = snprintf(body, sizeof(body),
                 "{\"path\":\"git_repo.git_repo.make\",\"args\":[%u,\"%s\",\"r%d\"]}",
-                vc->uid, vc->uname, vc->n_repos);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
-            if (st == 200) vc->n_repos++;
+                conn->uid, conn->uname, conn->n_repos);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
+            if (status == 200) conn->n_repos++;
             break;
         }
         case OP_PUT_FILE: {
-            uint32_t idx = rng_next(&vc->rng) % (uint32_t)vc->n_repos;
+            uint32_t idx = rng_next(&conn->rng) % (uint32_t)conn->n_repos;
             char repo[16]; snprintf(repo, sizeof(repo), "r%u", idx);
-            uint32_t rid = hash_repo(vc->uname, repo);
-            int bn = snprintf(body, sizeof(body),
+            uint32_t repo_hash = hash_repo(conn->uname, repo);
+            int body_len = snprintf(body, sizeof(body),
                 "{\"path\":\"git_repo.git_repo.put_file\",\"args\":"
                 "[%u,\"f%ld.txt\",\"hello %ld\",\"commit %ld\",\"\",\"\"]}",
-                rid, counter, counter, counter);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+                repo_hash, counter, counter, counter);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
             break;
         }
         case OP_OPEN_ISSUE: {
-            uint32_t idx = rng_next(&vc->rng) % (uint32_t)vc->n_repos;
+            uint32_t idx = rng_next(&conn->rng) % (uint32_t)conn->n_repos;
             char repo[16]; snprintf(repo, sizeof(repo), "r%u", idx);
-            uint32_t rid = hash_repo(vc->uname, repo);
-            int bn = snprintf(body, sizeof(body),
-                "{\"path\":\"issues.issues.open\",\"args\":[%u,%u]}", rid, vc->uid);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            uint32_t repo_hash = hash_repo(conn->uname, repo);
+            int body_len = snprintf(body, sizeof(body),
+                "{\"path\":\"issues.issues.open\",\"args\":[%u,%u]}", repo_hash, conn->uid);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
             break;
         }
         case OP_ENQUEUE_RUN: {
-            uint32_t idx = rng_next(&vc->rng) % (uint32_t)vc->n_repos;
+            uint32_t idx = rng_next(&conn->rng) % (uint32_t)conn->n_repos;
             char repo[16]; snprintf(repo, sizeof(repo), "r%u", idx);
-            uint32_t rid = hash_repo(vc->uname, repo);
-            int bn = snprintf(body, sizeof(body),
-                "{\"path\":\"git_pipeline.git_pipeline.enqueue\",\"args\":[%u]}", rid);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            uint32_t repo_hash = hash_repo(conn->uname, repo);
+            int body_len = snprintf(body, sizeof(body),
+                "{\"path\":\"git_pipeline.git_pipeline.enqueue\",\"args\":[%u]}", repo_hash);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
             break;
         }
         case OP_LOGIN: {
             char lbody[128];
-            int bn = snprintf(lbody, sizeof(lbody), "username=%s&password=x", vc->uname);
+            int body_len = snprintf(lbody, sizeof(lbody), "username=%s&password=x", conn->uname);
             char new_sid[64];
-            st = http_try(vc, "POST", "/login", "application/x-www-form-urlencoded", NULL,
-                          lbody, (size_t)bn, new_sid, sizeof(new_sid));
+            status = http_try(conn, "POST", "/login", "application/x-www-form-urlencoded", NULL,
+                          lbody, (size_t)body_len, new_sid, sizeof(new_sid));
             /* Adopt the fresh session. Otherwise the connection keeps using its
              * stale sid and the just-minted session is orphaned in the store —
              * over a long run that bloats the session lookup and drags throughput. */
-            if ((st == 303 || st == 200) && new_sid[0])
-                memcpy(vc->sid, new_sid, sizeof(vc->sid));
+            if ((status == 303 || status == 200) && new_sid[0])
+                memcpy(conn->sid, new_sid, sizeof(conn->sid));
             break;
         }
         case OP_NS_SUBTREE: {
             /* The connection owns its personal namespace (path == its username),
              * so it has reporter+ on the whole subtree — the gate ns_subtree
              * requires. This is the call the webapp Projects page makes. */
-            int bn = snprintf(body, sizeof(body),
-                "{\"path\":\"accounts.accounts.ns_subtree\",\"args\":[\"%s\"]}", vc->uname);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            int body_len = snprintf(body, sizeof(body),
+                "{\"path\":\"accounts.accounts.ns_subtree\",\"args\":[\"%s\"]}", conn->uname);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
             break;
         }
         case OP_NS_MEMBERS: {
             /* Owner of the namespace ⇒ maintainer, which ns_members requires. */
-            int bn = snprintf(body, sizeof(body),
-                "{\"path\":\"accounts.accounts.ns_members\",\"args\":[\"%s\"]}", vc->uname);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+            int body_len = snprintf(body, sizeof(body),
+                "{\"path\":\"accounts.accounts.ns_members\",\"args\":[\"%s\"]}", conn->uname);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
             break;
         }
         case OP_NS_CREATE: {
             /* A subgroup under the connection's own namespace; it is maintainer
              * of the parent, which is what subgroup creation requires (creating
              * a ROOT group is site-admin only, so we never do that here). */
-            int bn = snprintf(body, sizeof(body),
+            int body_len = snprintf(body, sizeof(body),
                 "{\"path\":\"accounts.accounts.ns_create\",\"args\":[%u,\"group\",\"g%d\",\"%s\"]}",
-                vc->uid, vc->n_groups, vc->uname);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
-            if (st == 200) vc->n_groups++;
+                conn->uid, conn->n_groups, conn->uname);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
+            if (status == 200) conn->n_groups++;
             break;
         }
         case OP_NS_ADD_MEMBER: {
@@ -554,33 +582,33 @@ static int scenario_step(struct vconn *vc, long counter)
              * dependence on the (optional) seed population. Never target self:
              * INSERT OR REPLACE would overwrite our own owner row and downgrade
              * us out of the maintainer role the other ns ops need. */
-            if (vc->cfg->total <= 1) {
+            if (conn->cfg->total <= 1) {
                 /* Degenerate single-connection run: no sibling to grant to —
                  * read members instead so the op still touches the namespace. */
-                did = OP_NS_MEMBERS;
-                int bn = snprintf(body, sizeof(body),
-                    "{\"path\":\"accounts.accounts.ns_members\",\"args\":[\"%s\"]}", vc->uname);
-                st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+                recorded_op = OP_NS_MEMBERS;
+                int body_len = snprintf(body, sizeof(body),
+                    "{\"path\":\"accounts.accounts.ns_members\",\"args\":[\"%s\"]}", conn->uname);
+                status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
                 break;
             }
-            int oid = (vc->id + 1 + (int)(rng_next(&vc->rng) % (uint32_t)(vc->cfg->total - 1)))
-                      % vc->cfg->total;
+            int other_id = (conn->id + 1 + (int)(rng_next(&conn->rng) % (uint32_t)(conn->cfg->total - 1)))
+                      % conn->cfg->total;
             char other[40];
-            make_user(other, sizeof(other), vc->cfg->run_nonce, oid, -1);
+            make_user(other, sizeof(other), conn->cfg->run_nonce, other_id, -1);
             uint32_t member = hash_username(other);
-            int bn = snprintf(body, sizeof(body),
+            int body_len = snprintf(body, sizeof(body),
                 "{\"path\":\"accounts.accounts.ns_add_member\",\"args\":[\"%s\",%u,\"developer\"]}",
-                vc->uname, member);
-            st = http_try(vc, "POST", "/_rpc", "application/json", vc->sid, body, (size_t)bn, NULL, 0);
+                conn->uname, member);
+            status = http_try(conn, "POST", "/_rpc", "application/json", conn->sid, body, (size_t)body_len, NULL, 0);
             break;
         }
         case OP__COUNT: break;
         }
-        int bucket = st < 0 ? 0 : (st >= 200 && st < 300) ? 1 : st == 303 ? 2
-                   : st == 401 ? 3 : st == 403 ? 4 : (st >= 500 && st < 600) ? 5 : 6;
-        vc->status_hist[bucket]++;
-        int is_ok = (op == OP_LOGIN) ? (st == 303 || st == 200) : (st == 200);
-        if (is_ok) vc->op_ok[did]++; else vc->op_err[did]++;
+        int bucket = status < 0 ? 0 : (status >= 200 && status < 300) ? 1 : status == 303 ? 2
+                   : status == 401 ? 3 : status == 403 ? 4 : (status >= 500 && status < 600) ? 5 : 6;
+        conn->status_hist[bucket]++;
+        int is_ok = (op == OP_LOGIN) ? (status == 303 || status == 200) : (status == 200);
+        if (is_ok) conn->op_ok[recorded_op]++; else conn->op_err[recorded_op]++;
         return is_ok;
     }
     }
@@ -594,73 +622,164 @@ static int scenario_needs_session(enum scenario_id s)
 
 /* ---- coroutine entries ----------------------------------------------- */
 
+/* Pool-setup phase (issue #12): register + log in this connection's slice of
+ * the M-user population and pre-create one repo per user (so read ops have
+ * data). Runs ONCE before the timed load; fills disjoint slices of the shared
+ * user_pool, so no locking is needed. */
+static void pool_setup_coro(void *arg)
+{
+    struct vconn *conn = arg;
+    if (vconn_connect(conn) != 0) return;
+
+    long total_users = conn->cfg->users;
+    int conn_count = conn->cfg->total;
+    long per = (total_users + conn_count - 1) / conn_count;
+    long start = (long)conn->id * per;
+    long end = start + per;
+    if (end > total_users) end = total_users;
+
+    for (long idx = start; idx < end && !*conn->stop; ++idx) {
+        struct perf_user *user = &conn->cfg->user_pool[idx];
+        snprintf(user->uname, sizeof(user->uname), "pu%ldn%ld", conn->cfg->run_nonce % 100000, idx);
+        char body[128];
+        int body_len = snprintf(body, sizeof(body), "username=%s&password=x", user->uname);
+        http_try(conn, "POST", "/register", "application/x-www-form-urlencoded", NULL, body,
+                 (size_t)body_len, NULL, 0);
+        user->sid[0] = 0;
+        int status = http_try(conn, "POST", "/login", "application/x-www-form-urlencoded", NULL,
+                              body, (size_t)body_len, user->sid, sizeof(user->sid));
+        if ((status == 303 || status == 200) && user->sid[0]) {
+            user->uid = hash_username(user->uname);
+            char repo_body[160];
+            int repo_len = snprintf(repo_body, sizeof(repo_body),
+                "{\"path\":\"git_repo.git_repo.make\",\"args\":[%u,\"%s\",\"r0\"]}",
+                user->uid, user->uname);
+            char cookie[128];
+            snprintf(cookie, sizeof(cookie), "%s; picomesh-uname=%s", user->sid, user->uname);
+            http_try(conn, "POST", "/_rpc", "application/json", cookie, repo_body, (size_t)repo_len,
+                     NULL, 0);
+            user->ok = 1;
+            conn->seed_ok++;
+        } else {
+            conn->seed_err++;
+        }
+    }
+    vconn_close(conn);
+}
+
+/* The timed multiplexed-read workload (issue #12): each iteration picks a
+ * RANDOM user from the pre-established pool and issues a read on that user's
+ * behalf, so the load is attributed across the whole population while the
+ * connection count stays the concurrency knob. */
+static void pool_load_coro(struct vconn *conn)
+{
+    conn->rng = (uint64_t)(conn->cfg->run_nonce) * 0x9e3779b97f4a7c15ull
+              ^ ((uint64_t)(conn->id + 1) << 32) ^ now_ns();
+    if (!conn->rng) conn->rng = 0x123456789abcdefull;
+    long population = conn->cfg->users;
+
+    long counter = 0;
+    while (!*conn->stop &&
+           (conn->cfg->requests_per_conn <= 0 || counter < conn->cfg->requests_per_conn)) {
+        struct perf_user *user = &conn->cfg->user_pool[rng_next(&conn->rng) % (uint32_t)population];
+        counter++;
+        if (!user->ok) { conn->errors++; continue; }
+        char cookie[128];
+        snprintf(cookie, sizeof(cookie), "%s; picomesh-uname=%s", user->sid, user->uname);
+        uint64_t started_ns = now_ns();
+        int status;
+        if (rng_next(&conn->rng) & 1u) {
+            static const char count_body[] =
+                "{\"path\":\"git_repo.git_repo.count_total\",\"args\":[]}";
+            status = http_try(conn, "POST", "/_rpc", "application/json", cookie, count_body,
+                              sizeof(count_body) - 1, NULL, 0);
+        } else {
+            char list_body[160];
+            int list_len = snprintf(list_body, sizeof(list_body),
+                "{\"path\":\"git_repo.git_repo.list_for_owner\",\"args\":[%u]}", user->uid);
+            status = http_try(conn, "POST", "/_rpc", "application/json", cookie, list_body,
+                              (size_t)list_len, NULL, 0);
+        }
+        lat_push(&conn->lat, now_ns() - started_ns);
+        if (status == 200) conn->ok++; else conn->errors++;
+    }
+    vconn_close(conn);
+}
+
 static void load_coro(void *arg)
 {
-    struct vconn *vc = arg;
-    if (vconn_connect(vc) != 0) return;
+    struct vconn *conn = arg;
+    if (vconn_connect(conn) != 0) return;
 
-    vc->session_ok = 1;
-    if (scenario_needs_session(vc->cfg->scenario)) {
-        vc->session_ok = establish_session(vc);
-        if (!vc->session_ok) { vconn_close(vc); return; }
-    } else {
-        establish_session(vc);
+    /* Multiplexed population mode (issue #12): no per-connection login — drive
+     * reads across the pre-established user pool instead. */
+    if (conn->cfg->users > 0 && conn->cfg->user_pool) {
+        pool_load_coro(conn);
+        return;
     }
 
-    if (vc->cfg->scenario == SCENARIO_MIXED) {
-        vc->uid = hash_username(vc->uname);
-        vc->rng = (uint64_t)(vc->cfg->run_nonce) * 0x9e3779b97f4a7c15ull
-                ^ ((uint64_t)(vc->id + 1) << 32) ^ now_ns();
-        if (!vc->rng) vc->rng = 0x123456789abcdefull;
+    conn->session_ok = 1;
+    if (scenario_needs_session(conn->cfg->scenario)) {
+        conn->session_ok = establish_session(conn);
+        if (!conn->session_ok) { vconn_close(conn); return; }
+    } else {
+        establish_session(conn);
+    }
+
+    if (conn->cfg->scenario == SCENARIO_MIXED) {
+        conn->uid = hash_username(conn->uname);
+        conn->rng = (uint64_t)(conn->cfg->run_nonce) * 0x9e3779b97f4a7c15ull
+                ^ ((uint64_t)(conn->id + 1) << 32) ^ now_ns();
+        if (!conn->rng) conn->rng = 0x123456789abcdefull;
         char body[160];
-        int bn = snprintf(body, sizeof(body),
+        int body_len = snprintf(body, sizeof(body),
             "{\"path\":\"git_repo.git_repo.make\",\"args\":[%u,\"%s\",\"r0\"]}",
-            vc->uid, vc->uname);
-        if (http_try(vc, "POST", "/_rpc", "application/json", vc->sid,
-                     body, (size_t)bn, NULL, 0) == 200)
-            vc->n_repos = 1;
+            conn->uid, conn->uname);
+        if (http_try(conn, "POST", "/_rpc", "application/json", conn->sid,
+                     body, (size_t)body_len, NULL, 0) == 200)
+            conn->n_repos = 1;
     }
 
     long counter = 0;
-    if (vc->cfg->requests_per_conn > 0) {
-        for (long i = 0; i < vc->cfg->requests_per_conn && !*vc->stop; ++i) {
-            uint64_t t0 = now_ns();
-            int ok = scenario_step(vc, counter++);
-            lat_push(&vc->lat, now_ns() - t0);
-            if (ok) vc->ok++; else vc->errors++;
+    if (conn->cfg->requests_per_conn > 0) {
+        for (long i = 0; i < conn->cfg->requests_per_conn && !*conn->stop; ++i) {
+            uint64_t started_ns = now_ns();
+            int ok = scenario_step(conn, counter++);
+            lat_push(&conn->lat, now_ns() - started_ns);
+            if (ok) conn->ok++; else conn->errors++;
         }
     } else {
-        while (!*vc->stop) {
-            uint64_t t0 = now_ns();
-            int ok = scenario_step(vc, counter++);
-            lat_push(&vc->lat, now_ns() - t0);
-            if (ok) vc->ok++; else vc->errors++;
+        while (!*conn->stop) {
+            uint64_t started_ns = now_ns();
+            int ok = scenario_step(conn, counter++);
+            lat_push(&conn->lat, now_ns() - started_ns);
+            if (ok) conn->ok++; else conn->errors++;
         }
     }
-    vconn_close(vc);
+    vconn_close(conn);
 }
 
 static void seed_coro(void *arg)
 {
-    struct vconn *vc = arg;
-    if (vconn_connect(vc) != 0) return;
+    struct vconn *conn = arg;
+    if (vconn_connect(conn) != 0) return;
 
-    long total_users = vc->cfg->seed_users;
-    int n = vc->cfg->total;
-    long per = (total_users + n - 1) / n;
-    long start = (long)vc->id * per;
+    long total_users = conn->cfg->seed_users;
+    int conn_count = conn->cfg->total;
+    long per = (total_users + conn_count - 1) / conn_count;
+    long start = (long)conn->id * per;
     long end = start + per;
     if (end > total_users) end = total_users;
-    for (long i = start; i < end && !*vc->stop; ++i) {
+    for (long i = start; i < end && !*conn->stop; ++i) {
         uint32_t uid = (uint32_t)(i + 1);
         char body[96];
-        int bn = snprintf(body, sizeof(body),
+        int body_len = snprintf(body, sizeof(body),
             "{\"path\":\"accounts.accounts.register\",\"args\":[%u,\"u%u\"]}", uid, uid);
-        int st = http_try(vc, "POST", "/_rpc", "application/json", NULL,
-                          body, (size_t)bn, NULL, 0);
-        if (st == 200) vc->seed_ok++; else vc->seed_err++;
+        int status = http_try(conn, "POST", "/_rpc", "application/json", NULL,
+                          body, (size_t)body_len, NULL, 0);
+        if (status == 200) conn->seed_ok++; else conn->seed_err++;
     }
-    vconn_close(vc);
+    vconn_close(conn);
 }
 
 struct deadline_arg {
@@ -671,10 +790,10 @@ struct deadline_arg {
 
 static void deadline_coro(void *arg)
 {
-    struct deadline_arg *d = arg;
-    yloop_sleep_ms(d->loop, d->ms);
-    *d->stop = 1;
-    yloop_stop(d->loop);
+    struct deadline_arg *deadline = arg;
+    yloop_sleep_ms(deadline->loop, deadline->ms);
+    *deadline->stop = 1;
+    yloop_stop(deadline->loop);
 }
 
 /* ---- one OS thread: a loop + K coroutines ---------------------------- */
@@ -685,38 +804,46 @@ struct lt_thread {
     volatile int *stop;
     struct vconn *vconns;  /* slice into the shared vconn array */
     int lo, hi;            /* this thread owns vconns[lo..hi) */
-    int seed_phase;        /* 1 = run seed_coro, 0 = load_coro */
+    int phase;             /* PHASE_LOAD | PHASE_SEED | PHASE_POOL_SETUP */
 };
+
+enum { PHASE_LOAD = 0, PHASE_SEED = 1, PHASE_POOL_SETUP = 2 };
 
 static void *lt_thread_main(void *arg)
 {
-    struct lt_thread *t = arg;
-    struct yloop_ptr_result lr = yloop_create();
-    if (PICOMESH_IS_ERR(lr)) { picomesh_error_destroy(lr.error); return NULL; }
-    struct yloop *loop = lr.value;
+    struct lt_thread *thread = arg;
+    struct yloop_ptr_result loop_res = yloop_create();
+    if (PICOMESH_IS_ERR(loop_res)) { picomesh_error_destroy(loop_res.error); return NULL; }
+    struct yloop *loop = loop_res.value;
 
-    int k = t->hi - t->lo;
-    struct picomesh_coro **coros = calloc((size_t)k + 1, sizeof(*coros));
+    int coro_count = thread->hi - thread->lo;
+    struct picomesh_coro **coros = calloc((size_t)coro_count + 1, sizeof(*coros));
     if (!coros) { yloop_destroy(loop); return NULL; }
 
-    for (int i = 0; i < k; ++i) {
-        struct vconn *vc = &t->vconns[t->lo + i];
-        vc->loop = loop;
-        struct picomesh_coro_ptr_result cr = picomesh_coro_spawn(
-            t->seed_phase ? seed_coro : load_coro, vc, CORO_STACK_HINT, "vc");
-        if (PICOMESH_IS_ERR(cr)) { picomesh_error_destroy(cr.error); coros[i] = NULL; continue; }
-        coros[i] = cr.value;
+    for (int i = 0; i < coro_count; ++i) {
+        struct vconn *conn = &thread->vconns[thread->lo + i];
+        conn->loop = loop;
+        void (*coro_entry)(void *) = thread->phase == PHASE_SEED ? seed_coro
+                                   : thread->phase == PHASE_POOL_SETUP ? pool_setup_coro
+                                                                       : load_coro;
+        struct picomesh_coro_ptr_result spawn_res =
+            picomesh_coro_spawn(coro_entry, conn, CORO_STACK_HINT, "vc");
+        if (PICOMESH_IS_ERR(spawn_res)) { picomesh_error_destroy(spawn_res.error); coros[i] = NULL; continue; }
+        coros[i] = spawn_res.value;
         picomesh_coro_resume(coros[i]); /* run to first park (connect) */
     }
 
     /* Load phase, duration mode: a timer coro that ends the run. */
-    struct deadline_arg da = {.loop = loop, .stop = t->stop,
-        .ms = (unsigned int)(t->cfg->duration_secs * 1000.0)};
-    struct picomesh_coro *dcoro = NULL;
-    if (!t->seed_phase && t->cfg->requests_per_conn <= 0) {
-        struct picomesh_coro_ptr_result dr =
-            picomesh_coro_spawn(deadline_coro, &da, CORO_STACK_HINT, "deadline");
-        if (PICOMESH_IS_OK(dr)) { dcoro = dr.value; picomesh_coro_resume(dcoro); }
+    struct deadline_arg deadline = {.loop = loop, .stop = thread->stop,
+        .ms = (unsigned int)(thread->cfg->duration_secs * 1000.0)};
+    struct picomesh_coro *deadline_coro_handle = NULL;
+    if (thread->phase == PHASE_LOAD && thread->cfg->requests_per_conn <= 0) {
+        struct picomesh_coro_ptr_result deadline_res =
+            picomesh_coro_spawn(deadline_coro, &deadline, CORO_STACK_HINT, "deadline");
+        if (PICOMESH_IS_OK(deadline_res)) {
+            deadline_coro_handle = deadline_res.value;
+            picomesh_coro_resume(deadline_coro_handle);
+        }
     }
 
     yloop_run(loop);
@@ -724,32 +851,36 @@ static void *lt_thread_main(void *arg)
     /* Reap finished coros; parked ones (abandoned mid-request at the
      * deadline) are left for process exit — destroying a suspended coro
      * is unsafe (its resume callback would touch freed memory). */
-    for (int i = 0; i < k; ++i)
+    for (int i = 0; i < coro_count; ++i)
         if (coros[i] && picomesh_coro_is_finished(coros[i]))
             picomesh_coro_destroy(coros[i]);
-    if (dcoro && picomesh_coro_is_finished(dcoro)) picomesh_coro_destroy(dcoro);
+    if (deadline_coro_handle && picomesh_coro_is_finished(deadline_coro_handle))
+        picomesh_coro_destroy(deadline_coro_handle);
     free(coros);
     yloop_destroy(loop);
     return NULL;
 }
 
-/* Run one phase (seed or load) across all threads, then join. */
+/* Run one phase (load, seed, or pool-setup) across all threads, then join. */
 static void run_phase(struct lt_thread *threads, int nthreads, struct vconn *vconns,
                       int total, const struct perf_config *cfg, volatile int *stop,
-                      int seed_phase)
+                      int phase)
 {
     int per = (total + nthreads - 1) / nthreads;
-    for (int t = 0; t < nthreads; ++t) {
-        threads[t].cfg = cfg;
-        threads[t].stop = stop;
-        threads[t].vconns = vconns;
-        threads[t].lo = t * per;
-        threads[t].hi = (t + 1) * per < total ? (t + 1) * per : total;
-        threads[t].seed_phase = seed_phase;
-        if (threads[t].lo >= threads[t].hi) { threads[t].hi = threads[t].lo; }
-        pthread_create(&threads[t].thread, NULL, lt_thread_main, &threads[t]);
+    for (int thread_idx = 0; thread_idx < nthreads; ++thread_idx) {
+        threads[thread_idx].cfg = cfg;
+        threads[thread_idx].stop = stop;
+        threads[thread_idx].vconns = vconns;
+        threads[thread_idx].lo = thread_idx * per;
+        threads[thread_idx].hi = (thread_idx + 1) * per < total ? (thread_idx + 1) * per : total;
+        threads[thread_idx].phase = phase;
+        if (threads[thread_idx].lo >= threads[thread_idx].hi) {
+            threads[thread_idx].hi = threads[thread_idx].lo;
+        }
+        pthread_create(&threads[thread_idx].thread, NULL, lt_thread_main, &threads[thread_idx]);
     }
-    for (int t = 0; t < nthreads; ++t) pthread_join(threads[t].thread, NULL);
+    for (int thread_idx = 0; thread_idx < nthreads; ++thread_idx)
+        pthread_join(threads[thread_idx].thread, NULL);
 }
 
 /* ---- stats ----------------------------------------------------------- */
@@ -801,6 +932,11 @@ static void usage(const char *prog)
         "  --requests R          fixed requests PER CONNECTION (overrides --duration)\n"
         "  --scenario NAME       rpc_count|login|repo_create|register|full|mixed\n"
         "  --seed-users N        mixed: pre-create N account records (stage 1)\n"
+        "  --users M             population of M users multiplexed across --connections\n"
+        "                        (C ≪ M): pre-establish M sessions once, then each\n"
+        "                        connection acts as a RANDOM user per request — a\n"
+        "                        read workload attributed across the whole population.\n"
+        "                        Decouples user count from the connection concurrency knob.\n"
         "  --repos-per-worker K  mixed: cap repos a connection creates (default 8)\n"
         "  --emulate             run the client machinery but make NO real calls\n"
         "                        (synthetic success responses) — measures how far\n"
@@ -831,27 +967,28 @@ int main(int argc, char **argv)
     int coros_per_thread = 0;
 
     for (int i = 1; i < argc; ++i) {
-        const char *a = argv[i];
+        const char *arg = argv[i];
         const char *next = (i + 1 < argc) ? argv[i + 1] : NULL;
-        if (!strcmp(a, "--host") && next) { cfg.host = next; i++; }
-        else if (!strcmp(a, "--port") && next) { cfg.port = atoi(next); i++; }
-        else if (!strcmp(a, "--threads") && next) { cfg.threads = atoi(next); i++; }
-        else if (!strcmp(a, "--connections") && next) { cfg.connections = atoi(next); i++; }
-        else if (!strcmp(a, "--coros-per-thread") && next) { coros_per_thread = atoi(next); i++; }
-        else if (!strcmp(a, "--duration") && next) { cfg.duration_secs = atof(next); i++; }
-        else if (!strcmp(a, "--requests") && next) { cfg.requests_per_conn = atol(next); i++; }
-        else if (!strcmp(a, "--seed-users") && next) { cfg.seed_users = atol(next); i++; }
-        else if (!strcmp(a, "--repos-per-worker") && next) { cfg.repos_per_conn = atoi(next); i++; }
-        else if (!strcmp(a, "--emulate")) { cfg.emulate = 1; }
-        else if (!strcmp(a, "--scenario") && next) {
+        if (!strcmp(arg, "--host") && next) { cfg.host = next; i++; }
+        else if (!strcmp(arg, "--port") && next) { cfg.port = atoi(next); i++; }
+        else if (!strcmp(arg, "--threads") && next) { cfg.threads = atoi(next); i++; }
+        else if (!strcmp(arg, "--connections") && next) { cfg.connections = atoi(next); i++; }
+        else if (!strcmp(arg, "--coros-per-thread") && next) { coros_per_thread = atoi(next); i++; }
+        else if (!strcmp(arg, "--duration") && next) { cfg.duration_secs = atof(next); i++; }
+        else if (!strcmp(arg, "--requests") && next) { cfg.requests_per_conn = atol(next); i++; }
+        else if (!strcmp(arg, "--seed-users") && next) { cfg.seed_users = atol(next); i++; }
+        else if (!strcmp(arg, "--users") && next) { cfg.users = atol(next); i++; }
+        else if (!strcmp(arg, "--repos-per-worker") && next) { cfg.repos_per_conn = atoi(next); i++; }
+        else if (!strcmp(arg, "--emulate")) { cfg.emulate = 1; }
+        else if (!strcmp(arg, "--scenario") && next) {
             const char *canon = NULL;
             cfg.scenario = scenario_lookup(next, &canon);
             if (!canon) { fprintf(stderr, "unknown scenario '%s'\n", next); usage(argv[0]); return 2; }
             cfg.scenario_name = canon;
             i++;
         }
-        else if (!strcmp(a, "--help") || !strcmp(a, "-h")) { usage(argv[0]); return 0; }
-        else { fprintf(stderr, "unknown arg '%s'\n", a); usage(argv[0]); return 2; }
+        else if (!strcmp(arg, "--help") || !strcmp(arg, "-h")) { usage(argv[0]); return 0; }
+        else { fprintf(stderr, "unknown arg '%s'\n", arg); usage(argv[0]); return 2; }
     }
 
     if (cfg.threads < 1) cfg.threads = 1;
@@ -863,6 +1000,11 @@ int main(int argc, char **argv)
     if ((long)cfg.total * cfg.repos_per_conn > 4000) {
         cfg.repos_per_conn = 4000 / cfg.total;
         if (cfg.repos_per_conn < 1) cfg.repos_per_conn = 1;
+    }
+
+    if (cfg.users > 0) {
+        cfg.user_pool = calloc((size_t)cfg.users, sizeof(*cfg.user_pool));
+        if (!cfg.user_pool) { fprintf(stderr, "oom (user_pool)\n"); return 1; }
     }
 
     struct vconn *vconns = calloc((size_t)cfg.total, sizeof(*vconns));
@@ -904,9 +1046,26 @@ int main(int argc, char **argv)
                 (unsigned long long)seed_ok_total, seed_wall);
     }
 
+    /* ---- stage 1b: pre-establish the user population (issue #12) ------ */
+    if (cfg.users > 0) {
+        uint64_t pool_ok = 0, pool_err = 0;
+        fprintf(stderr, "establishing %ld-user population across %d connections (issue #12)…\n",
+                cfg.users, cfg.total);
+        uint64_t pool0 = now_ns();
+        run_phase(threads, cfg.threads, vconns, cfg.total, &cfg, &stop, PHASE_POOL_SETUP);
+        double pool_wall = (double)(now_ns() - pool0) / 1e9;
+        for (int i = 0; i < cfg.total; ++i) {
+            pool_ok += vconns[i].seed_ok;
+            pool_err += vconns[i].seed_err;
+            vconns[i].seed_ok = vconns[i].seed_err = 0; /* reset before the load phase */
+        }
+        fprintf(stderr, "population ready: %llu/%ld users in %.2fs (%llu failed)\n",
+                (unsigned long long)pool_ok, cfg.users, pool_wall, (unsigned long long)pool_err);
+    }
+
     /* ---- stage 2: the load ------------------------------------------- */
     uint64_t wall0 = now_ns();
-    run_phase(threads, cfg.threads, vconns, cfg.total, &cfg, &stop, 0);
+    run_phase(threads, cfg.threads, vconns, cfg.total, &cfg, &stop, PHASE_LOAD);
     double wall_s = (double)(now_ns() - wall0) / 1e9;
 
     uint64_t total_ok = 0, total_err = 0;
@@ -935,13 +1094,16 @@ int main(int argc, char **argv)
         mean_ms = (double)sum / (double)off / 1e6;
     }
     uint64_t total_req = total_ok + total_err;
-    double thr = wall_s > 0 ? (double)total_req / wall_s : 0.0;
+    double throughput = wall_s > 0 ? (double)total_req / wall_s : 0.0;
 
     printf("\n");
     printf("scenario       : %s%s\n", cfg.scenario_name,
            cfg.emulate ? "  [EMULATE — harness-only ceiling, no real calls]" : "");
     printf("concurrency    : %d threads × ~%d coroutines = %d connections\n",
            cfg.threads, (cfg.total + cfg.threads - 1) / cfg.threads, cfg.total);
+    if (cfg.users > 0)
+        printf("population     : %ld users multiplexed across %d connections (issue #12)\n",
+               cfg.users, cfg.total);
     if (cfg.scenario == SCENARIO_MIXED && cfg.seed_users > 0) {
         printf("seed stage     : %llu accounts in %.3f s (%.0f reg/s, %llu errors)\n",
                (unsigned long long)seed_ok_total, seed_wall,
@@ -952,7 +1114,7 @@ int main(int argc, char **argv)
     printf("wall time      : %.3f s\n", wall_s);
     printf("requests       : %llu ok, %llu errors\n",
            (unsigned long long)total_ok, (unsigned long long)total_err);
-    printf("throughput     : %.1f req/s\n", thr);
+    printf("throughput     : %.1f req/s\n", throughput);
     if (all && off) {
         printf("latency (ms)   : mean=%.3f min=%.3f p50=%.3f p90=%.3f "
                "p99=%.3f p99.9=%.3f max=%.3f\n",
@@ -970,22 +1132,22 @@ int main(int argc, char **argv)
             }
         printf("op breakdown   : (op = ok / err, share of total)\n");
         for (int o = 0; o < OP__COUNT; ++o) {
-            uint64_t n = op_ok_tot[o] + op_err_tot[o];
-            double share = total_req ? 100.0 * (double)n / (double)total_req : 0.0;
+            uint64_t op_total = op_ok_tot[o] + op_err_tot[o];
+            double share = total_req ? 100.0 * (double)op_total / (double)total_req : 0.0;
             printf("    %-12s : %8llu ok / %llu err  (%.1f%%, %.0f/s)\n",
                    OP_NAMES[o], (unsigned long long)op_ok_tot[o],
                    (unsigned long long)op_err_tot[o], share,
-                   wall_s > 0 ? (double)n / wall_s : 0.0);
+                   wall_s > 0 ? (double)op_total / wall_s : 0.0);
         }
-        uint64_t sh[7] = {0};
+        uint64_t status_totals[7] = {0};
         for (int i = 0; i < cfg.total; ++i)
-            for (int b = 0; b < 7; ++b) sh[b] += vconns[i].status_hist[b];
+            for (int b = 0; b < 7; ++b) status_totals[b] += vconns[i].status_hist[b];
         static const char *const SB[7] = {
             "transport(<0)", "2xx", "303", "401", "403", "5xx", "other"};
         printf("status codes   : (what the errors actually were)\n");
         for (int b = 0; b < 7; ++b)
-            if (sh[b])
-                printf("    %-13s : %llu\n", SB[b], (unsigned long long)sh[b]);
+            if (status_totals[b])
+                printf("    %-13s : %llu\n", SB[b], (unsigned long long)status_totals[b]);
     }
     printf("\n");
 

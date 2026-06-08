@@ -7,24 +7,24 @@
 
 struct picomesh_error *picomesh_error_chain(struct picomesh_error prev)
 {
-    struct picomesh_error *p = malloc(sizeof(*p));
-    if (!p) {
+    struct picomesh_error *node = malloc(sizeof(*node));
+    if (!node) {
         /* OOM during error wrapping: drop the inner chain so we don't leak
          * it. The outer error still surfaces; debug context is lost. */
         picomesh_error_destroy(prev);
         return NULL;
     }
-    *p = prev;
-    return p;
+    *node = prev;
+    return node;
 }
 
 void picomesh_error_destroy(struct picomesh_error err)
 {
-    struct picomesh_error *p = err.cause;
-    while (p) {
-        struct picomesh_error *next = p->cause;
-        free(p);
-        p = next;
+    struct picomesh_error *node = err.cause;
+    while (node) {
+        struct picomesh_error *next = node->cause;
+        free(node);
+        node = next;
     }
 }
 
@@ -40,10 +40,10 @@ void picomesh_error_print(FILE *out, const char *headline, struct picomesh_error
     }
     fprintf(out, "    at %s:%d (%s)\n", err.file ? err.file : "<unknown>", err.line,
             err.func ? err.func : "<unknown>");
-    for (const struct picomesh_error *c = err.cause; c; c = c->cause) {
-        fprintf(out, "  caused by: %s\n", c->msg ? c->msg : "<no message>");
-        fprintf(out, "    at %s:%d (%s)\n", c->file ? c->file : "<unknown>", c->line,
-                c->func ? c->func : "<unknown>");
+    for (const struct picomesh_error *cause = err.cause; cause; cause = cause->cause) {
+        fprintf(out, "  caused by: %s\n", cause->msg ? cause->msg : "<no message>");
+        fprintf(out, "    at %s:%d (%s)\n", cause->file ? cause->file : "<unknown>", cause->line,
+                cause->func ? cause->func : "<unknown>");
     }
 }
 
@@ -52,25 +52,26 @@ size_t picomesh_error_snprint(char *buf, size_t bufsize, struct picomesh_error e
     if (!buf || bufsize == 0) {
         return 0;
     }
-    int n =
+    int written =
         snprintf(buf, bufsize, "%s\n    at %s:%d (%s)", err.msg ? err.msg : "<no message>",
                  err.file ? err.file : "<unknown>", err.line, err.func ? err.func : "<unknown>");
-    if (n < 0) {
+    if (written < 0) {
         buf[0] = '\0';
         return 0;
     }
-    size_t off = (size_t)n < bufsize ? (size_t)n : bufsize - 1;
-    for (const struct picomesh_error *c = err.cause; c; c = c->cause) {
+    size_t off = (size_t)written < bufsize ? (size_t)written : bufsize - 1;
+    for (const struct picomesh_error *cause = err.cause; cause; cause = cause->cause) {
         if (off >= bufsize - 1) {
             break;
         }
-        int m = snprintf(buf + off, bufsize - off, "\n  caused by: %s\n    at %s:%d (%s)",
-                         c->msg ? c->msg : "<no message>", c->file ? c->file : "<unknown>",
-                         c->line, c->func ? c->func : "<unknown>");
-        if (m < 0) {
+        int cause_len = snprintf(buf + off, bufsize - off, "\n  caused by: %s\n    at %s:%d (%s)",
+                                 cause->msg ? cause->msg : "<no message>",
+                                 cause->file ? cause->file : "<unknown>", cause->line,
+                                 cause->func ? cause->func : "<unknown>");
+        if (cause_len < 0) {
             break;
         }
-        off += (size_t)m < bufsize - off ? (size_t)m : bufsize - 1 - off;
+        off += (size_t)cause_len < bufsize - off ? (size_t)cause_len : bufsize - 1 - off;
     }
     return off;
 }

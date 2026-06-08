@@ -85,10 +85,10 @@ static const struct yargv_option_def PICOMESH_OPTIONS[] = {
 };
 #define PICOMESH_OPTION_COUNT (sizeof(PICOMESH_OPTIONS) / sizeof(PICOMESH_OPTIONS[0]))
 
-static int die_err(const char *what, struct picomesh_error e)
+static int die_err(const char *what, struct picomesh_error err)
 {
-    picomesh_error_print(stderr, what, e);
-    picomesh_error_destroy(e);
+    picomesh_error_print(stderr, what, err);
+    picomesh_error_destroy(err);
     return 1;
 }
 
@@ -144,9 +144,9 @@ static void activate_one(const char *name)
     for (size_t i = 0; i < done_n; ++i)
         if (strcmp(done[i], name) == 0) return;  /* already active */
 
-    size_t n = 0;
-    const struct plugin_reg *rows = plugin_registry(&n);
-    for (size_t i = 0; i < n; ++i) {
+    size_t row_count = 0;
+    const struct plugin_reg *rows = plugin_registry(&row_count);
+    for (size_t i = 0; i < row_count; ++i) {
         if (strcmp(rows[i].name, name) == 0) {
             rows[i].reg();
             if (done_n < sizeof(done) / sizeof(done[0])) done[done_n++] = rows[i].name;
@@ -161,8 +161,8 @@ static void activate_one(const char *name)
 static int remotes_service_cb(const char *key, const struct yconfig_node *val, void *ud)
 {
     if (strcmp(key, "service") == 0) {
-        const char *s = yconfig_node_as_string(val, NULL);
-        if (s) { snprintf((char *)ud, 64, "%s", s); return 1; /* stop */ }
+        const char *str = yconfig_node_as_string(val, NULL);
+        if (str) { snprintf((char *)ud, 64, "%s", str); return 1; /* stop */ }
     }
     return 0;
 }
@@ -174,17 +174,17 @@ static int remotes_service_cb(const char *key, const struct yconfig_node *val, v
  *   3. top-level plugins: (list)               — standalone single-service
  *   4. nothing                                 — activate nothing (yaapp default)
  */
-static void activate_plugins(struct picomesh_engine *e)
+static void activate_plugins(struct picomesh_engine *engine)
 {
     /* 1. --plugins CLI: comma-separated names. */
-    const char *csv = yargv_get_string(picomesh_engine_cli(e), "plugins", NULL);
+    const char *csv = yargv_get_string(picomesh_engine_cli(engine), "plugins", NULL);
     if (csv && *csv) {
         char buf[1024];
         snprintf(buf, sizeof(buf), "%s", csv);
         for (char *tok = strtok(buf, ","); tok; tok = strtok(NULL, ",")) {
             while (*tok == ' ') ++tok;
-            size_t l = strlen(tok);
-            while (l && tok[l - 1] == ' ') tok[--l] = 0;
+            size_t len = strlen(tok);
+            while (len && tok[len - 1] == ' ') tok[--len] = 0;
             if (*tok) activate_one(tok);
         }
         return;
@@ -193,23 +193,23 @@ static void activate_plugins(struct picomesh_engine *e)
     /* 2/3. A plugins: list in config — under mesh.services.<name> when
      * --name is set, else top-level. Both are YAML lists of strings. */
     char path[256];
-    struct yconfig_node_ptr_result lr = {0};
-    const char *name = yargv_get_string(picomesh_engine_cli(e), "name", NULL);
+    struct yconfig_node_ptr_result list_res = {0};
+    const char *name = yargv_get_string(picomesh_engine_cli(engine), "name", NULL);
     if (name && *name) {
         snprintf(path, sizeof(path), "mesh.services.%s.plugins", name);
-        lr = yconfig_get(picomesh_engine_config(e), path);
+        list_res = yconfig_get(picomesh_engine_config(engine), path);
     }
-    if (!(PICOMESH_IS_OK(lr) && lr.value))
-        lr = yconfig_get(picomesh_engine_config(e), "plugins");
+    if (!(PICOMESH_IS_OK(list_res) && list_res.value))
+        list_res = yconfig_get(picomesh_engine_config(engine), "plugins");
 
-    if (PICOMESH_IS_OK(lr) && lr.value &&
-        yconfig_node_kind(lr.value) == YCONFIG_LIST) {
-        size_t n = yconfig_node_size(lr.value);
-        for (size_t i = 0; i < n; ++i) {
-            const struct yconfig_node *entry = yconfig_node_at(lr.value, i);
+    if (PICOMESH_IS_OK(list_res) && list_res.value &&
+        yconfig_node_kind(list_res.value) == YCONFIG_LIST) {
+        size_t count = yconfig_node_size(list_res.value);
+        for (size_t i = 0; i < count; ++i) {
+            const struct yconfig_node *entry = yconfig_node_at(list_res.value, i);
             if (!entry) continue;
-            const char *pn = yconfig_node_as_string(entry, NULL);
-            if (pn && *pn) activate_one(pn);
+            const char *plugin_name = yconfig_node_as_string(entry, NULL);
+            if (plugin_name && *plugin_name) activate_one(plugin_name);
         }
     } else {
         yinfo("activate: no plugins list in config — nothing activated locally");
@@ -224,24 +224,24 @@ static void activate_plugins(struct picomesh_engine *e)
      * — without it `/_rpc` can't pack args ("no method"). The plugin name
      * is the remote's `service:` name (1:1 in this scenario). */
     char rpath[256];
-    struct yconfig_node_ptr_result rr = {0};
+    struct yconfig_node_ptr_result remotes_res = {0};
     if (name && *name) {
         snprintf(rpath, sizeof(rpath), "mesh.services.%s.config.remotes", name);
-        rr = yconfig_get(picomesh_engine_config(e), rpath);
+        remotes_res = yconfig_get(picomesh_engine_config(engine), rpath);
     }
-    if (!(PICOMESH_IS_OK(rr) && rr.value))
-        rr = yconfig_get(picomesh_engine_config(e), "remotes");
-    if (PICOMESH_IS_OK(rr) && rr.value &&
-        yconfig_node_kind(rr.value) == YCONFIG_LIST) {
-        size_t n = yconfig_node_size(rr.value);
-        for (size_t i = 0; i < n; ++i) {
-            const struct yconfig_node *entry = yconfig_node_at(rr.value, i);
+    if (!(PICOMESH_IS_OK(remotes_res) && remotes_res.value))
+        remotes_res = yconfig_get(picomesh_engine_config(engine), "remotes");
+    if (PICOMESH_IS_OK(remotes_res) && remotes_res.value &&
+        yconfig_node_kind(remotes_res.value) == YCONFIG_LIST) {
+        size_t count = yconfig_node_size(remotes_res.value);
+        for (size_t i = 0; i < count; ++i) {
+            const struct yconfig_node *entry = yconfig_node_at(remotes_res.value, i);
             if (!entry || yconfig_node_kind(entry) != YCONFIG_MAP) continue;
             /* entry is {service: <name>, port?: ...}. No by-key map getter
              * is exposed, so for_each and grab the `service` value. */
-            char rn[64] = {0};
-            yconfig_node_for_each(entry, remotes_service_cb, rn);
-            if (rn[0]) activate_one(rn);
+            char service_name[64] = {0};
+            yconfig_node_for_each(entry, remotes_service_cb, service_name);
+            if (service_name[0]) activate_one(service_name);
         }
     }
 }
@@ -275,48 +275,48 @@ static void usage(FILE *out, const char *argv0)
  *   3. `yrpc.port` / `yrpc.host` (legacy config keys)
  *   4. defaults (127.0.0.1, 7777)
  */
-static const char *resolve_host(struct picomesh_engine *e)
+static const char *resolve_host(struct picomesh_engine *engine)
 {
-    const char *cli_host = yargv_get_string(picomesh_engine_cli(e), "host", NULL);
+    const char *cli_host = yargv_get_string(picomesh_engine_cli(engine), "host", NULL);
     if (cli_host && *cli_host) return cli_host;
 
-    const char *name = yargv_get_string(picomesh_engine_cli(e), "name", NULL);
+    const char *name = yargv_get_string(picomesh_engine_cli(engine), "name", NULL);
     if (name && *name) {
         char path[256];
         snprintf(path, sizeof(path), "mesh.services.%s.host", name);
-        struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(e), path);
-        if (PICOMESH_IS_OK(r) && r.value) {
-            const char *s = yconfig_node_as_string(r.value, NULL);
-            if (s && *s) return s;
+        struct yconfig_node_ptr_result host_res = yconfig_get(picomesh_engine_config(engine), path);
+        if (PICOMESH_IS_OK(host_res) && host_res.value) {
+            const char *str = yconfig_node_as_string(host_res.value, NULL);
+            if (str && *str) return str;
         }
     }
-    struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(e), "yrpc.host");
-    if (PICOMESH_IS_OK(r) && r.value) {
-        const char *s = yconfig_node_as_string(r.value, NULL);
-        if (s && *s) return s;
+    struct yconfig_node_ptr_result host_res = yconfig_get(picomesh_engine_config(engine), "yrpc.host");
+    if (PICOMESH_IS_OK(host_res) && host_res.value) {
+        const char *str = yconfig_node_as_string(host_res.value, NULL);
+        if (str && *str) return str;
     }
     return "127.0.0.1";
 }
 
-static int resolve_port(struct picomesh_engine *e)
+static int resolve_port(struct picomesh_engine *engine)
 {
-    int64_t port_cli = yargv_get_int(picomesh_engine_cli(e), "port", -1);
+    int64_t port_cli = yargv_get_int(picomesh_engine_cli(engine), "port", -1);
     if (port_cli > 0) return (int)port_cli;
 
-    const char *name = yargv_get_string(picomesh_engine_cli(e), "name", NULL);
+    const char *name = yargv_get_string(picomesh_engine_cli(engine), "name", NULL);
     if (name && *name) {
         char path[256];
         snprintf(path, sizeof(path), "mesh.services.%s.port", name);
-        struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(e), path);
-        if (PICOMESH_IS_OK(r) && r.value) {
-            int64_t p = yconfig_node_as_int(r.value, -1);
-            if (p > 0) return (int)p;
+        struct yconfig_node_ptr_result port_res = yconfig_get(picomesh_engine_config(engine), path);
+        if (PICOMESH_IS_OK(port_res) && port_res.value) {
+            int64_t port_val = yconfig_node_as_int(port_res.value, -1);
+            if (port_val > 0) return (int)port_val;
         }
     }
-    struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(e), "yrpc.port");
-    if (PICOMESH_IS_OK(r) && r.value) {
-        int64_t p = yconfig_node_as_int(r.value, -1);
-        if (p > 0) return (int)p;
+    struct yconfig_node_ptr_result port_res = yconfig_get(picomesh_engine_config(engine), "yrpc.port");
+    if (PICOMESH_IS_OK(port_res) && port_res.value) {
+        int64_t port_val = yconfig_node_as_int(port_res.value, -1);
+        if (port_val > 0) return (int)port_val;
     }
     return 7777;
 }
@@ -331,29 +331,29 @@ static int resolve_port(struct picomesh_engine *e)
  *
  * Clamped to [1, 256].
  */
-static int resolve_workers(struct picomesh_engine *e)
+static int resolve_workers(struct picomesh_engine *engine)
 {
-    int64_t n = -1;
-    int64_t cli = yargv_get_int(picomesh_engine_cli(e), "workers", -1);
-    if (cli > 0) {
-        n = cli;
+    int64_t worker_count = -1;
+    int64_t cli_workers = yargv_get_int(picomesh_engine_cli(engine), "workers", -1);
+    if (cli_workers > 0) {
+        worker_count = cli_workers;
     } else {
-        const char *name = yargv_get_string(picomesh_engine_cli(e), "name", NULL);
+        const char *name = yargv_get_string(picomesh_engine_cli(engine), "name", NULL);
         if (name && *name) {
             char path[256];
             snprintf(path, sizeof(path), "mesh.services.%s.workers", name);
-            struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(e), path);
-            if (PICOMESH_IS_OK(r) && r.value) n = yconfig_node_as_int(r.value, -1);
+            struct yconfig_node_ptr_result workers_res = yconfig_get(picomesh_engine_config(engine), path);
+            if (PICOMESH_IS_OK(workers_res) && workers_res.value) worker_count = yconfig_node_as_int(workers_res.value, -1);
         }
-        if (n <= 0) {
-            struct yconfig_node_ptr_result r =
-                yconfig_get(picomesh_engine_config(e), "workers");
-            if (PICOMESH_IS_OK(r) && r.value) n = yconfig_node_as_int(r.value, -1);
+        if (worker_count <= 0) {
+            struct yconfig_node_ptr_result workers_res =
+                yconfig_get(picomesh_engine_config(engine), "workers");
+            if (PICOMESH_IS_OK(workers_res) && workers_res.value) worker_count = yconfig_node_as_int(workers_res.value, -1);
         }
     }
-    if (n < 1) n = 1;
-    if (n > 256) n = 256;
-    return (int)n;
+    if (worker_count < 1) worker_count = 1;
+    if (worker_count > 256) worker_count = 256;
+    return (int)worker_count;
 }
 
 /* Inputs the per-worker setup callback needs. Lives on cmd_serve's stack
@@ -372,15 +372,15 @@ struct serve_setup {
  * SO_REUSEPORT. The frontend handle is owned for the process lifetime —
  * the loop owns the listener and the process is torn down by signal, so
  * there is nothing to stop here. */
-static struct picomesh_void_result serve_worker_setup(struct picomesh_engine *e,
+static struct picomesh_void_result serve_worker_setup(struct picomesh_engine *engine,
                                                    int worker_index, void *ud)
 {
-    struct serve_setup *ss = ud;
+    struct serve_setup *setup = ud;
 
-    if (ss->name && *ss->name) {
-        size_t n = picomesh_engine_open_remotes(e, ss->name);
+    if (setup->name && *setup->name) {
+        size_t count = picomesh_engine_open_remotes(engine, setup->name);
         yinfo("serve[%s w%d]: opened %zu remote(s) from mesh.services.%s.config.remotes",
-              ss->name, worker_index, n, ss->name);
+              setup->name, worker_index, count, setup->name);
     }
 
     /* Config-driven per-node perf profiling (gh#14). Opens this worker's
@@ -388,59 +388,59 @@ static struct picomesh_void_result serve_worker_setup(struct picomesh_engine *e,
      * permission/config failure is reported loudly but does NOT take the
      * service down — profiling must never be silently dropped, yet a host
      * without perf access shouldn't keep the mesh from coming up. */
-    struct picomesh_void_result perf_r = picomesh_engine_perf_start(e, ss->name);
-    if (PICOMESH_IS_ERR(perf_r)) {
+    struct picomesh_void_result perf_res = picomesh_engine_perf_start(engine, setup->name);
+    if (PICOMESH_IS_ERR(perf_res)) {
         /* Unconditional (ytrace_output, not the gated yerror): a requested-but-
          * refused profile must be loud even when tracing is off. yperf already
          * logged the precise failing event + errno just above. */
         ytrace_output("error", __FILE__, __LINE__, __func__,
                       "serve[%s w%d]: perf profiling could not start (see the preceding perf "
                       "error) — continuing without it",
-                      ss->name ? ss->name : "?", worker_index);
-        picomesh_error_destroy(perf_r.error);
+                      setup->name ? setup->name : "?", worker_index);
+        picomesh_error_destroy(perf_res.error);
     }
 
-    if (strcmp(ss->frontend, "yhttp") == 0) {
-        struct yhttp_config cfg = {.host = ss->host, .port = ss->port};
-        struct yhttp_frontend_ptr_result fr = yhttp_start(e, &cfg);
-        PICOMESH_RETURN_IF_ERR(picomesh_void, fr, "serve_worker_setup: yhttp_start failed");
-    } else if (strcmp(ss->frontend, "yttp") == 0) {
-        struct yttp_config cfg = {.host = ss->host, .port = ss->port};
-        struct yttp_frontend_ptr_result fr = yttp_start(e, &cfg);
-        PICOMESH_RETURN_IF_ERR(picomesh_void, fr, "serve_worker_setup: yttp_start failed");
-    } else if (strcmp(ss->frontend, "alpine") == 0) {
-        struct alpine_config cfg = {.host = ss->host, .port = ss->port};
-        struct alpine_frontend_ptr_result fr = alpine_start(e, &cfg);
-        PICOMESH_RETURN_IF_ERR(picomesh_void, fr, "serve_worker_setup: alpine_start failed");
-    } else if (strcmp(ss->frontend, "msgpack") == 0) {
-        struct msgpack_config cfg = {.host = ss->host, .port = ss->port};
-        struct msgpack_frontend_ptr_result fr = msgpack_start(e, &cfg);
-        PICOMESH_RETURN_IF_ERR(picomesh_void, fr, "serve_worker_setup: msgpack_start failed");
+    if (strcmp(setup->frontend, "yhttp") == 0) {
+        struct yhttp_config cfg = {.host = setup->host, .port = setup->port};
+        struct yhttp_frontend_ptr_result frontend_res = yhttp_start(engine, &cfg);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, frontend_res, "serve_worker_setup: yhttp_start failed");
+    } else if (strcmp(setup->frontend, "yttp") == 0) {
+        struct yttp_config cfg = {.host = setup->host, .port = setup->port};
+        struct yttp_frontend_ptr_result frontend_res = yttp_start(engine, &cfg);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, frontend_res, "serve_worker_setup: yttp_start failed");
+    } else if (strcmp(setup->frontend, "alpine") == 0) {
+        struct alpine_config cfg = {.host = setup->host, .port = setup->port};
+        struct alpine_frontend_ptr_result frontend_res = alpine_start(engine, &cfg);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, frontend_res, "serve_worker_setup: alpine_start failed");
+    } else if (strcmp(setup->frontend, "msgpack") == 0) {
+        struct msgpack_config cfg = {.host = setup->host, .port = setup->port};
+        struct msgpack_frontend_ptr_result frontend_res = msgpack_start(engine, &cfg);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, frontend_res, "serve_worker_setup: msgpack_start failed");
     } else {
-        struct yrpc_config cfg = {.host = ss->host, .port = ss->port};
-        struct yrpc_frontend_ptr_result fr = yrpc_start(e, &cfg);
-        PICOMESH_RETURN_IF_ERR(picomesh_void, fr, "serve_worker_setup: yrpc_start failed");
+        struct yrpc_config cfg = {.host = setup->host, .port = setup->port};
+        struct yrpc_frontend_ptr_result frontend_res = yrpc_start(engine, &cfg);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, frontend_res, "serve_worker_setup: yrpc_start failed");
     }
     return PICOMESH_OK_VOID();
 }
 
-static int cmd_serve(struct picomesh_engine *e)
+static int cmd_serve(struct picomesh_engine *engine)
 {
-    picomesh_active_engine_set(e);
+    picomesh_active_engine_set(engine);
 
-    const char *name = yargv_get_string(picomesh_engine_cli(e), "name", NULL);
-    const char *host = resolve_host(e);
+    const char *name = yargv_get_string(picomesh_engine_cli(engine), "name", NULL);
+    const char *host = resolve_host(engine);
     /* `port: auto` — allocate the listen port through portalloc (discovered
      * via the registry) before any worker binds. Otherwise the static port. */
     int port;
-    if (picomesh_serve_port_is_auto(e, name)) {
-        port = picomesh_autoport_allocate(e, name, host);
+    if (picomesh_serve_port_is_auto(engine, name)) {
+        port = picomesh_autoport_allocate(engine, name, host);
         if (port <= 0) {
             fprintf(stderr, "serve[%s]: port:auto allocation failed\n", name ? name : "?");
             return 1;
         }
     } else {
-        port = resolve_port(e);
+        port = resolve_port(engine);
     }
     /* Registration is an internal feature of every mesh node: announce
      * (name -> host:port) so `port: auto` consumers can discover us, then
@@ -448,10 +448,10 @@ static int cmd_serve(struct picomesh_engine *e)
      * when no registry is configured. Register BEFORE resolving remotes so the
      * registration phase can never deadlock against a peer that is waiting on
      * us. */
-    picomesh_autoport_register_self(e, name, host, port);
-    picomesh_autoport_resolve_remotes(e, name);
-    int workers = resolve_workers(e);
-    const char *frontend = yargv_get_string(picomesh_engine_cli(e), "frontend", "yrpc");
+    picomesh_autoport_register_self(engine, name, host, port);
+    picomesh_autoport_resolve_remotes(engine, name);
+    int workers = resolve_workers(engine);
+    const char *frontend = yargv_get_string(picomesh_engine_cli(engine), "frontend", "yrpc");
     if (!frontend) frontend = "yrpc";
 
     /* Reject an unknown frontend up front, before spinning any worker. */
@@ -473,17 +473,17 @@ static int cmd_serve(struct picomesh_engine *e)
      * `--name` service resolution drives every per-service config lookup
      * the workers do, exactly as before — only now it happens per worker
      * so each holds its own backend connection set. */
-    struct serve_setup ss = {.name = name, .host = host, .port = port, .frontend = frontend};
-    struct picomesh_void_result rr =
-        picomesh_engine_run_workers(e, (size_t)workers, serve_worker_setup, &ss);
-    if (PICOMESH_IS_ERR(rr)) return die_err("engine_run_workers", rr.error);
+    struct serve_setup setup = {.name = name, .host = host, .port = port, .frontend = frontend};
+    struct picomesh_void_result run_res =
+        picomesh_engine_run_workers(engine, (size_t)workers, serve_worker_setup, &setup);
+    if (PICOMESH_IS_ERR(run_res)) return die_err("engine_run_workers", run_res.error);
     return 0;
 }
 
-static int cmd_client(struct picomesh_engine *e)
+static int cmd_client(struct picomesh_engine *engine)
 {
-    const char *host = resolve_host(e);
-    int port = resolve_port(e);
+    const char *host = resolve_host(engine);
+    int port = resolve_port(engine);
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { perror("socket"); return 1; }
@@ -504,50 +504,50 @@ static int cmd_client(struct picomesh_engine *e)
      * msgpack client path. The receiver object is built locally (no remote
      * CREATE — the msgpack envelope identifies the receiver by path), then the
      * call rides the msgpack peer. Proves picomesh C → foreign msgpack. */
-    const char *transport = yargv_get_string(picomesh_engine_cli(e), "transport", NULL);
+    const char *transport = yargv_get_string(picomesh_engine_cli(engine), "transport", NULL);
     if (transport && strcmp(transport, "msgpack") == 0) {
-        struct peer_channel *mp = peer_channel_create_msgpack(fd);
-        if (!mp) { close(fd); return 1; }
+        struct peer_channel *msgpack_peer = peer_channel_create_msgpack(fd);
+        if (!msgpack_peer) { close(fd); return 1; }
         struct ctx local_ctx = {0};
-        struct object_ptr_result cr = calculator_calc_create(&local_ctx);
-        if (PICOMESH_IS_ERR(cr)) { peer_channel_destroy(mp); return die_err("calc_create", cr.error); }
-        struct object *calc = cr.value;
-        struct ctx mp_ctx = {.peer = mp};
-        struct picomesh_int64_result ar = calculator_calc_add(&mp_ctx, calc, NULL, 6, 7);
-        if (PICOMESH_IS_ERR(ar)) { peer_channel_destroy(mp); return die_err("calc_add(msgpack)", ar.error); }
-        printf("msgpack client: 6 + 7 = %lld\n", (long long)ar.value);
-        struct picomesh_int64_result mr = calculator_calc_mul(&mp_ctx, calc, NULL, 6, 7);
-        if (PICOMESH_IS_ERR(mr)) { peer_channel_destroy(mp); return die_err("calc_mul(msgpack)", mr.error); }
-        printf("msgpack client: 6 * 7 = %lld\n", (long long)mr.value);
+        struct object_ptr_result create_res = calculator_calc_create(&local_ctx);
+        if (PICOMESH_IS_ERR(create_res)) { peer_channel_destroy(msgpack_peer); return die_err("calc_create", create_res.error); }
+        struct object *calc = create_res.value;
+        struct ctx msgpack_ctx = {.peer = msgpack_peer};
+        struct picomesh_int64_result add_res = calculator_calc_add(&msgpack_ctx, calc, NULL, 6, 7);
+        if (PICOMESH_IS_ERR(add_res)) { peer_channel_destroy(msgpack_peer); return die_err("calc_add(msgpack)", add_res.error); }
+        printf("msgpack client: 6 + 7 = %lld\n", (long long)add_res.value);
+        struct picomesh_int64_result mul_res = calculator_calc_mul(&msgpack_ctx, calc, NULL, 6, 7);
+        if (PICOMESH_IS_ERR(mul_res)) { peer_channel_destroy(msgpack_peer); return die_err("calc_mul(msgpack)", mul_res.error); }
+        printf("msgpack client: 6 * 7 = %lld\n", (long long)mul_res.value);
         object_release_in_ctx(&local_ctx, calc);
-        peer_channel_destroy(mp);
+        peer_channel_destroy(msgpack_peer);
         return 0;
     }
 
-    struct peer_channel *s = peer_channel_create(fd);
-    if (!s) { close(fd); return 1; }
-    struct ctx ctx = {.peer = s};
+    struct peer_channel *channel = peer_channel_create(fd);
+    if (!channel) { close(fd); return 1; }
+    struct ctx ctx = {.peer = channel};
 
-    struct object_ptr_result cr = calculator_calc_create(&ctx);
-    if (PICOMESH_IS_ERR(cr)) { peer_channel_destroy(s); return die_err("calc_create", cr.error); }
-    struct object *calc = cr.value;
-    struct picomesh_int64_result ar = calculator_calc_add(&ctx, calc, NULL, 6, 7);
-    if (PICOMESH_IS_ERR(ar)) { peer_channel_destroy(s); return die_err("calc_add", ar.error); }
-    yinfo("client: 6 + 7 = %lld", (long long)ar.value);
-    struct picomesh_int64_result mr = calculator_calc_mul(&ctx, calc, NULL, 6, 7);
-    if (PICOMESH_IS_ERR(mr)) { peer_channel_destroy(s); return die_err("calc_mul", mr.error); }
-    yinfo("client: 6 * 7 = %lld", (long long)mr.value);
+    struct object_ptr_result create_res = calculator_calc_create(&ctx);
+    if (PICOMESH_IS_ERR(create_res)) { peer_channel_destroy(channel); return die_err("calc_create", create_res.error); }
+    struct object *calc = create_res.value;
+    struct picomesh_int64_result add_res = calculator_calc_add(&ctx, calc, NULL, 6, 7);
+    if (PICOMESH_IS_ERR(add_res)) { peer_channel_destroy(channel); return die_err("calc_add", add_res.error); }
+    yinfo("client: 6 + 7 = %lld", (long long)add_res.value);
+    struct picomesh_int64_result mul_res = calculator_calc_mul(&ctx, calc, NULL, 6, 7);
+    if (PICOMESH_IS_ERR(mul_res)) { peer_channel_destroy(channel); return die_err("calc_mul", mul_res.error); }
+    yinfo("client: 6 * 7 = %lld", (long long)mul_res.value);
     object_release_in_ctx(&ctx, calc); /* remote proxy is cached on the channel */
 
-    peer_channel_destroy(s);
+    peer_channel_destroy(channel);
     return 0;
 }
 
-static int cmd_config_dump(struct picomesh_engine *e)
+static int cmd_config_dump(struct picomesh_engine *engine)
 {
     char buf[16384];
-    size_t n = yconfig_dump(picomesh_engine_config(e), buf, sizeof(buf));
-    (void)n;
+    size_t len = yconfig_dump(picomesh_engine_config(engine), buf, sizeof(buf));
+    (void)len;
     printf("%s\n", buf);
     return 0;
 }
@@ -570,8 +570,8 @@ static void ymain_fatal_signal(int sig)
     write(STDERR_FILENO, name, strlen(name));
     write(STDERR_FILENO, " — backtrace follows ***\n", 25);
     void *frames[64];
-    int n = backtrace(frames, 64);
-    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+    int frame_count = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
     /* Restore the default disposition and re-raise so the real exit status /
      * core dump is preserved (and runsv then restarts the service). */
     signal(sig, SIG_DFL);
@@ -601,9 +601,9 @@ int main(int argc, char **argv)
     ytrace_init();
     ymain_install_crash_handler();
 
-    struct yargv_chain_ptr_result pr = yargv_parse(PICOMESH_OPTIONS, PICOMESH_OPTION_COUNT, argc, argv);
-    if (PICOMESH_IS_ERR(pr)) return die_err("yargv_parse", pr.error);
-    struct yargv_chain *cli = pr.value;
+    struct yargv_chain_ptr_result parse_res = yargv_parse(PICOMESH_OPTIONS, PICOMESH_OPTION_COUNT, argc, argv);
+    if (PICOMESH_IS_ERR(parse_res)) return die_err("yargv_parse", parse_res.error);
+    struct yargv_chain *cli = parse_res.value;
 
     if (yargv_get_bool(cli, "help", 0)) { usage(stdout, argv[0]); yargv_chain_destroy(cli); return 0; }
     if (yargv_get_bool(cli, "verbose", 0)) {
@@ -613,35 +613,35 @@ int main(int argc, char **argv)
     const char *sub = yargv_subcommand(cli);
     if (!sub) { usage(stderr, argv[0]); yargv_chain_destroy(cli); return 2; }
 
-    struct picomesh_engine_args ea = {
+    struct picomesh_engine_args engine_args = {
         .cli = cli,                    /* engine takes ownership */
         .app_name = yargv_get_string(cli, "app_name", "picomesh"),
     };
-    struct picomesh_engine_ptr_result er = picomesh_engine_create(&ea);
-    if (PICOMESH_IS_ERR(er)) return die_err("engine_create", er.error);
-    struct picomesh_engine *e = er.value;
+    struct picomesh_engine_ptr_result engine_res = picomesh_engine_create(&engine_args);
+    if (PICOMESH_IS_ERR(engine_res)) return die_err("engine_create", engine_res.error);
+    struct picomesh_engine *engine = engine_res.value;
 
     /* Registration == activation. Done here on the main thread, before any
      * subcommand (and before serve spawns workers): only the plugins this
      * instance activated via config enter the registry; everything else
      * compiled in stays unreachable. */
-    picomesh_active_engine_set(e);
-    activate_plugins(e);
+    picomesh_active_engine_set(engine);
+    activate_plugins(engine);
 
     int rc;
     if (strcmp(sub, "serve") == 0) {
-        rc = cmd_serve(e);
+        rc = cmd_serve(engine);
     } else if (strcmp(sub, "client") == 0) {
-        rc = cmd_client(e);
+        rc = cmd_client(engine);
     } else if (strcmp(sub, "config-dump") == 0) {
-        rc = cmd_config_dump(e);
+        rc = cmd_config_dump(engine);
     } else if (strcmp(sub, "invoke") == 0) {
-        rc = picomesh_cli_dispatch(e);
+        rc = picomesh_cli_dispatch(engine);
     } else {
         usage(stderr, argv[0]);
         rc = 2;
     }
 
-    picomesh_engine_destroy(e);
+    picomesh_engine_destroy(engine);
     return rc;
 }

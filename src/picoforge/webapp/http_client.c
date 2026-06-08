@@ -38,10 +38,10 @@
  *
  * NULL is treated as safe (callers that pass NULL skip the header
  * write entirely). */
-static int header_value_safe(const char *v)
+static int header_value_safe(const char *value)
 {
-    if (!v) return 1;
-    for (const unsigned char *p = (const unsigned char *)v; *p; ++p) {
+    if (!value) return 1;
+    for (const unsigned char *p = (const unsigned char *)value; *p; ++p) {
         if (*p == '\r' || *p == '\n') return 0;
         if (*p < 0x20 && *p != '\t')  return 0;
         if (*p == 0x7F)               return 0;
@@ -86,9 +86,9 @@ int gateway_url_parse(const char *url, struct gateway_url *out)
     return 0;
 }
 
-/* Read the HTTP response off `s` until headers parse + Content-Length
+/* Read the HTTP response off `stream` until headers parse + Content-Length
  * bytes of body are in. Caller frees out_body. */
-static int read_full_response(struct yloop_stream *s,
+static int read_full_response(struct yloop_stream *stream,
                               char **out_body, size_t *out_body_len,
                               int *out_status,
                               char *out_set_cookie, size_t out_set_cookie_cap)
@@ -105,15 +105,15 @@ static int read_full_response(struct yloop_stream *s,
     int header_end = -1;
 
     while (total < HC_RESP_BUF) {
-        size_t got = yloop_read_some(s, buf + total, HC_RESP_BUF - total);
+        size_t got = yloop_read_some(stream, buf + total, HC_RESP_BUF - total);
         if (got == 0) { free(buf); return -1; }
         total += got;
         num_headers = HC_MAX_HEADERS;
-        int r = phr_parse_response(buf, total, &minor, &status_code,
+        int parse_result = phr_parse_response(buf, total, &minor, &status_code,
                                    &msg, &msg_len,
                                    headers, &num_headers, last);
-        if (r > 0) { header_end = r; break; }
-        if (r == -1) { free(buf); return -1; }
+        if (parse_result > 0) { header_end = parse_result; break; }
+        if (parse_result == -1) { free(buf); return -1; }
         last = total;
     }
     if (header_end < 0) { free(buf); return -1; }
@@ -172,7 +172,7 @@ static int read_full_response(struct yloop_stream *s,
     size_t body_have = total - (size_t)header_end;
     size_t body_need = (size_t)content_length - body_have;
     while (body_need > 0) {
-        size_t got = yloop_read_some(s, buf + total, body_need);
+        size_t got = yloop_read_some(stream, buf + total, body_need);
         if (got == 0) break;
         total += got;
         body_need -= got;
@@ -221,54 +221,54 @@ int http_post(struct yloop *loop, const struct gateway_url *gw,
         return -1;
     }
 
-    struct yloop_stream_ptr_result sr =
+    struct yloop_stream_ptr_result connect_res =
         yloop_connect_tcp(loop, gw->host, gw->port);
-    if (PICOMESH_IS_ERR(sr)) {
-        picomesh_error_destroy(sr.error);
+    if (PICOMESH_IS_ERR(connect_res)) {
+        picomesh_error_destroy(connect_res.error);
         return -1;
     }
-    struct yloop_stream *s = sr.value;
+    struct yloop_stream *stream = connect_res.value;
 
     /* Build request headers. */
     char hdr[1024];
-    int n = snprintf(hdr, sizeof(hdr),
+    int header_len = snprintf(hdr, sizeof(hdr),
         "POST %s HTTP/1.1\r\n"
         "Host: %s:%d\r\n"
         "Content-Type: %s\r\n"
         "Content-Length: %zu\r\n"
         "Connection: close\r\n",
         path, gw->host, gw->port, content_type, body_len);
-    if (n <= 0 || (size_t)n >= sizeof(hdr)) { yloop_close(s); return -1; }
+    if (header_len <= 0 || (size_t)header_len >= sizeof(hdr)) { yloop_close(stream); return -1; }
     if (bearer && *bearer) {
-        int m = snprintf(hdr + n, sizeof(hdr) - n,
+        int written = snprintf(hdr + header_len, sizeof(hdr) - header_len,
                          "Authorization: Bearer %s\r\n", bearer);
-        if (m <= 0 || n + m >= (int)sizeof(hdr)) { yloop_close(s); return -1; }
-        n += m;
+        if (written <= 0 || header_len + written >= (int)sizeof(hdr)) { yloop_close(stream); return -1; }
+        header_len += written;
     }
     if (sid && *sid) {
-        int m = snprintf(hdr + n, sizeof(hdr) - n,
+        int written = snprintf(hdr + header_len, sizeof(hdr) - header_len,
                          "picomesh-sid: %s\r\n", sid);
-        if (m <= 0 || n + m >= (int)sizeof(hdr)) { yloop_close(s); return -1; }
-        n += m;
+        if (written <= 0 || header_len + written >= (int)sizeof(hdr)) { yloop_close(stream); return -1; }
+        header_len += written;
     }
-    int m = snprintf(hdr + n, sizeof(hdr) - n, "\r\n");
-    if (m <= 0) { yloop_close(s); return -1; }
-    n += m;
+    int written = snprintf(hdr + header_len, sizeof(hdr) - header_len, "\r\n");
+    if (written <= 0) { yloop_close(stream); return -1; }
+    header_len += written;
 
-    if (yloop_write(s, hdr, (size_t)n) != (size_t)n) {
-        yloop_close(s);
+    if (yloop_write(stream, hdr, (size_t)header_len) != (size_t)header_len) {
+        yloop_close(stream);
         return -1;
     }
-    if (yloop_write(s, body, body_len) != body_len) {
-        yloop_close(s);
+    if (yloop_write(stream, body, body_len) != body_len) {
+        yloop_close(stream);
         return -1;
     }
 
-    int rc = read_full_response(s, &resp->body, &resp->body_len,
+    int read_res = read_full_response(stream, &resp->body, &resp->body_len,
                                 &resp->status,
                                 resp->set_cookie, sizeof(resp->set_cookie));
-    yloop_close(s);
-    return rc;
+    yloop_close(stream);
+    return read_res;
 }
 
 int http_post_json(struct yloop *loop, const struct gateway_url *gw,
@@ -281,10 +281,10 @@ int http_post_json(struct yloop *loop, const struct gateway_url *gw,
                      bearer, sid, body, body_len, resp);
 }
 
-void http_response_free(struct http_response *r)
+void http_response_free(struct http_response *resp)
 {
-    if (!r) return;
-    free(r->body);
-    r->body = NULL;
-    r->body_len = 0;
+    if (!resp) return;
+    free(resp->body);
+    resp->body = NULL;
+    resp->body_len = 0;
 }

@@ -36,10 +36,10 @@ minvoke_fn minvoke_for(const char *qname)
 {
     if (!qname)
         return NULL;
-    for (struct lookup_node *n = *chain_head(); n; n = n->next) {
-        minvoke_fn f = n->fn(qname);
-        if (f)
-            return f;
+    for (struct lookup_node *node = *chain_head(); node; node = node->next) {
+        minvoke_fn found_fn = node->fn(qname);
+        if (found_fn)
+            return found_fn;
     }
     return NULL;
 }

@@ -56,8 +56,8 @@ static struct picomesh_coro **current_slot(void)
  * (and globally unique) without a lock. */
 static unsigned int next_id(void)
 {
-    static atomic_uint n = 0;
-    return atomic_fetch_add_explicit(&n, 1, memory_order_relaxed) + 1;
+    static atomic_uint counter = 0;
+    return atomic_fetch_add_explicit(&counter, 1, memory_order_relaxed) + 1;
 }
 
 static void coro_trampoline(void)
@@ -80,22 +80,22 @@ struct picomesh_coro_ptr_result picomesh_coro_spawn(picomesh_coro_entry entry, v
                                               size_t stack_hint, const char *name)
 {
     if (!entry) return PICOMESH_ERR(picomesh_coro_ptr, "picomesh_coro_spawn: NULL entry");
-    struct picomesh_coro *c = calloc(1, sizeof(*c));
-    if (!c) return PICOMESH_ERR(picomesh_coro_ptr, "picomesh_coro_spawn: calloc failed");
-    c->entry = entry;
-    c->arg = arg;
-    c->id = next_id();
-    c->name = name ? strdup(name) : NULL;
+    struct picomesh_coro *coro = calloc(1, sizeof(*coro));
+    if (!coro) return PICOMESH_ERR(picomesh_coro_ptr, "picomesh_coro_spawn: calloc failed");
+    coro->entry = entry;
+    coro->arg = arg;
+    coro->id = next_id();
+    coro->name = name ? strdup(name) : NULL;
     size_t stack = stack_hint ? stack_hint : DEFAULT_STACK_SIZE;
-    c->thread = co_create((unsigned int)stack, coro_trampoline);
-    if (!c->thread) {
-        free(c->name);
-        free(c);
+    coro->thread = co_create((unsigned int)stack, coro_trampoline);
+    if (!coro->thread) {
+        free(coro->name);
+        free(coro);
         return PICOMESH_ERR(picomesh_coro_ptr, "picomesh_coro_spawn: co_create failed");
     }
-    ydebug("spawn id=%u name=%s stack=%zu thread=%p", c->id,
-           c->name ? c->name : "(anon)", stack, c->thread);
-    return PICOMESH_OK(picomesh_coro_ptr, c);
+    ydebug("spawn id=%u name=%s stack=%zu thread=%p", coro->id,
+           coro->name ? coro->name : "(anon)", stack, coro->thread);
+    return PICOMESH_OK(picomesh_coro_ptr, coro);
 }
 
 void picomesh_coro_yield(void)

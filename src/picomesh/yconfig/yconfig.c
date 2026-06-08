@@ -57,122 +57,122 @@ struct yconfig {
 
 /* ---------------- node alloc / free -------------------------------- */
 
-static struct yconfig_node *node_new(enum yconfig_kind k)
+static struct yconfig_node *node_new(enum yconfig_kind kind)
 {
-    struct yconfig_node *n = calloc(1, sizeof(*n));
-    if (n) n->kind = k;
-    return n;
+    struct yconfig_node *node = calloc(1, sizeof(*node));
+    if (node) node->kind = kind;
+    return node;
 }
 
-static void node_free(struct yconfig_node *n);
+static void node_free(struct yconfig_node *node);
 
-static void map_free(struct yconfig_node *n)
+static void map_free(struct yconfig_node *node)
 {
-    for (size_t i = 0; i < n->u.map.count; ++i) {
-        free(n->u.map.entries[i].key);
-        node_free(n->u.map.entries[i].value);
+    for (size_t i = 0; i < node->u.map.count; ++i) {
+        free(node->u.map.entries[i].key);
+        node_free(node->u.map.entries[i].value);
     }
-    free(n->u.map.entries);
+    free(node->u.map.entries);
 }
 
-static void list_free(struct yconfig_node *n)
+static void list_free(struct yconfig_node *node)
 {
-    for (size_t i = 0; i < n->u.list.count; ++i) {
-        node_free(n->u.list.items[i]);
+    for (size_t i = 0; i < node->u.list.count; ++i) {
+        node_free(node->u.list.items[i]);
     }
-    free(n->u.list.items);
+    free(node->u.list.items);
 }
 
-static void node_free(struct yconfig_node *n)
+static void node_free(struct yconfig_node *node)
 {
-    if (!n) return;
-    switch (n->kind) {
-    case YCONFIG_STRING: free(n->u.s); break;
-    case YCONFIG_LIST:   list_free(n); break;
-    case YCONFIG_MAP:    map_free(n);  break;
+    if (!node) return;
+    switch (node->kind) {
+    case YCONFIG_STRING: free(node->u.s); break;
+    case YCONFIG_LIST:   list_free(node); break;
+    case YCONFIG_MAP:    map_free(node);  break;
     default: break;
     }
-    free(n);
+    free(node);
 }
 
-static struct yconfig_node *node_new_string(const char *s)
+static struct yconfig_node *node_new_string(const char *str)
 {
-    struct yconfig_node *n = node_new(YCONFIG_STRING);
-    if (!n) return NULL;
-    n->u.s = strdup(s ? s : "");
-    if (!n->u.s) { free(n); return NULL; }
-    return n;
+    struct yconfig_node *node = node_new(YCONFIG_STRING);
+    if (!node) return NULL;
+    node->u.s = strdup(str ? str : "");
+    if (!node->u.s) { free(node); return NULL; }
+    return node;
 }
 
-static int map_set(struct yconfig_node *m, const char *key, struct yconfig_node *value)
+static int map_set(struct yconfig_node *map, const char *key, struct yconfig_node *value)
 {
     /* Replace if exists. */
-    for (size_t i = 0; i < m->u.map.count; ++i) {
-        if (strcmp(m->u.map.entries[i].key, key) == 0) {
-            node_free(m->u.map.entries[i].value);
-            m->u.map.entries[i].value = value;
+    for (size_t i = 0; i < map->u.map.count; ++i) {
+        if (strcmp(map->u.map.entries[i].key, key) == 0) {
+            node_free(map->u.map.entries[i].value);
+            map->u.map.entries[i].value = value;
             return 0;
         }
     }
-    if (m->u.map.count == m->u.map.cap) {
-        size_t ncap = m->u.map.cap ? m->u.map.cap * 2 : 8;
-        struct kv *na = realloc(m->u.map.entries, ncap * sizeof(*na));
-        if (!na) return -1;
-        m->u.map.entries = na;
-        m->u.map.cap = ncap;
+    if (map->u.map.count == map->u.map.cap) {
+        size_t new_cap = map->u.map.cap ? map->u.map.cap * 2 : 8;
+        struct kv *new_entries = realloc(map->u.map.entries, new_cap * sizeof(*new_entries));
+        if (!new_entries) return -1;
+        map->u.map.entries = new_entries;
+        map->u.map.cap = new_cap;
     }
-    m->u.map.entries[m->u.map.count].key = strdup(key);
-    if (!m->u.map.entries[m->u.map.count].key) return -1;
-    m->u.map.entries[m->u.map.count].value = value;
-    m->u.map.count++;
+    map->u.map.entries[map->u.map.count].key = strdup(key);
+    if (!map->u.map.entries[map->u.map.count].key) return -1;
+    map->u.map.entries[map->u.map.count].value = value;
+    map->u.map.count++;
     return 0;
 }
 
-static struct yconfig_node *map_get(const struct yconfig_node *m, const char *key)
+static struct yconfig_node *map_get(const struct yconfig_node *map, const char *key)
 {
-    if (!m || m->kind != YCONFIG_MAP) return NULL;
-    for (size_t i = 0; i < m->u.map.count; ++i) {
-        if (strcmp(m->u.map.entries[i].key, key) == 0) {
-            return m->u.map.entries[i].value;
+    if (!map || map->kind != YCONFIG_MAP) return NULL;
+    for (size_t i = 0; i < map->u.map.count; ++i) {
+        if (strcmp(map->u.map.entries[i].key, key) == 0) {
+            return map->u.map.entries[i].value;
         }
     }
     return NULL;
 }
 
-static int list_push(struct yconfig_node *l, struct yconfig_node *item)
+static int list_push(struct yconfig_node *list, struct yconfig_node *item)
 {
-    if (l->u.list.count == l->u.list.cap) {
-        size_t ncap = l->u.list.cap ? l->u.list.cap * 2 : 8;
-        struct yconfig_node **na = realloc(l->u.list.items, ncap * sizeof(*na));
-        if (!na) return -1;
-        l->u.list.items = na;
-        l->u.list.cap = ncap;
+    if (list->u.list.count == list->u.list.cap) {
+        size_t new_cap = list->u.list.cap ? list->u.list.cap * 2 : 8;
+        struct yconfig_node **new_items = realloc(list->u.list.items, new_cap * sizeof(*new_items));
+        if (!new_items) return -1;
+        list->u.list.items = new_items;
+        list->u.list.cap = new_cap;
     }
-    l->u.list.items[l->u.list.count++] = item;
+    list->u.list.items[list->u.list.count++] = item;
     return 0;
 }
 
 /* ---------------- scalar parsing ----------------------------------- */
 
-static int parse_int64(const char *s, int64_t *out)
+static int parse_int64(const char *str, int64_t *out)
 {
-    if (!s || !*s) return -1;
+    if (!str || !*str) return -1;
     char *end;
     errno = 0;
-    long long v = strtoll(s, &end, 10);
+    long long value = strtoll(str, &end, 10);
     if (errno || *end != '\0') return -1;
-    *out = (int64_t)v;
+    *out = (int64_t)value;
     return 0;
 }
 
-static int parse_float(const char *s, double *out)
+static int parse_float(const char *str, double *out)
 {
-    if (!s || !*s) return -1;
+    if (!str || !*str) return -1;
     char *end;
     errno = 0;
-    double v = strtod(s, &end);
+    double value = strtod(str, &end);
     if (errno || *end != '\0') return -1;
-    *out = v;
+    *out = value;
     return 0;
 }
 
@@ -196,41 +196,41 @@ static struct yconfig_node *node_from_scalar(const yaml_event_t *ev)
         if ((len == 4 && (strncmp(val, "true", 4) == 0 || strncmp(val, "True", 4) == 0)) ||
             (len == 3 && (strncmp(val, "yes",  3) == 0 || strncmp(val, "Yes",  3) == 0)) ||
             (len == 2 && (strncmp(val, "on",   2) == 0 || strncmp(val, "On",   2) == 0))) {
-            struct yconfig_node *n = node_new(YCONFIG_BOOL);
-            if (n) n->u.b = 1;
-            return n;
+            struct yconfig_node *node = node_new(YCONFIG_BOOL);
+            if (node) node->u.b = 1;
+            return node;
         }
         if ((len == 5 && (strncmp(val, "false", 5) == 0 || strncmp(val, "False", 5) == 0)) ||
             (len == 2 && (strncmp(val, "no",   2) == 0 || strncmp(val, "No",   2) == 0))) {
-            struct yconfig_node *n = node_new(YCONFIG_BOOL);
-            if (n) n->u.b = 0;
-            return n;
+            struct yconfig_node *node = node_new(YCONFIG_BOOL);
+            if (node) node->u.b = 0;
+            return node;
         }
         char buf[64];
         if (len < sizeof(buf)) {
             memcpy(buf, val, len);
             buf[len] = 0;
-            int64_t iv;
-            double fv;
-            if (parse_int64(buf, &iv) == 0) {
-                struct yconfig_node *n = node_new(YCONFIG_INT);
-                if (n) n->u.i = iv;
-                return n;
+            int64_t int_value;
+            double float_value;
+            if (parse_int64(buf, &int_value) == 0) {
+                struct yconfig_node *node = node_new(YCONFIG_INT);
+                if (node) node->u.i = int_value;
+                return node;
             }
-            if (parse_float(buf, &fv) == 0) {
-                struct yconfig_node *n = node_new(YCONFIG_FLOAT);
-                if (n) n->u.f = fv;
-                return n;
+            if (parse_float(buf, &float_value) == 0) {
+                struct yconfig_node *node = node_new(YCONFIG_FLOAT);
+                if (node) node->u.f = float_value;
+                return node;
             }
         }
     }
-    struct yconfig_node *n = node_new(YCONFIG_STRING);
-    if (!n) return NULL;
-    n->u.s = malloc(len + 1);
-    if (!n->u.s) { free(n); return NULL; }
-    memcpy(n->u.s, val, len);
-    n->u.s[len] = 0;
-    return n;
+    struct yconfig_node *node = node_new(YCONFIG_STRING);
+    if (!node) return NULL;
+    node->u.s = malloc(len + 1);
+    if (!node->u.s) { free(node); return NULL; }
+    memcpy(node->u.s, val, len);
+    node->u.s[len] = 0;
+    return node;
 }
 
 /* ---------------- libyaml event-driven parser ---------------------- */
@@ -245,19 +245,19 @@ struct frame {
     char *pending_key;              /* MAP only: NULL when expecting a key */
 };
 
-static int push_frame(struct frame **stack, size_t *sp, size_t *cap,
-                      struct yconfig_node *c)
+static int push_frame(struct frame **stack, size_t *depth, size_t *cap,
+                      struct yconfig_node *container)
 {
-    if (*sp == *cap) {
-        size_t nc = *cap ? *cap * 2 : 16;
-        struct frame *ns = realloc(*stack, nc * sizeof(*ns));
-        if (!ns) return -1;
-        *stack = ns;
-        *cap = nc;
+    if (*depth == *cap) {
+        size_t new_cap = *cap ? *cap * 2 : 16;
+        struct frame *new_stack = realloc(*stack, new_cap * sizeof(*new_stack));
+        if (!new_stack) return -1;
+        *stack = new_stack;
+        *cap = new_cap;
     }
-    (*stack)[*sp].container = c;
-    (*stack)[*sp].pending_key = NULL;
-    (*sp)++;
+    (*stack)[*depth].container = container;
+    (*stack)[*depth].pending_key = NULL;
+    (*depth)++;
     return 0;
 }
 
@@ -284,33 +284,33 @@ static int attach(struct frame *top, struct yconfig_node *child)
         node_free(child);
         return top->pending_key ? 0 : -1;
     }
-    int rc = map_set(top->container, top->pending_key, child);
+    int result_code = map_set(top->container, top->pending_key, child);
     free(top->pending_key);
     top->pending_key = NULL;
-    return rc;
+    return result_code;
 }
 
 static struct yconfig_node *parse_stream(yaml_parser_t *parser)
 {
     struct yconfig_node *root = NULL;
     struct frame *stack = NULL;
-    size_t sp = 0, cap = 0;
-    yaml_event_t ev;
+    size_t depth = 0, cap = 0;
+    yaml_event_t event;
 
     /* Wait for the first STREAM-START, then proceed until STREAM-END.
      * Multiple documents are not supported — the first one wins, the
      * rest are warned about. */
     int saw_doc = 0;
-    int rc = -1;
+    int result_code = -1;
 
     for (;;) {
-        if (!yaml_parser_parse(parser, &ev)) {
+        if (!yaml_parser_parse(parser, &event)) {
             yerror("yconfig: yaml parser error: %s",
                    parser->problem ? parser->problem : "(unknown)");
             goto out;
         }
 
-        switch (ev.type) {
+        switch (event.type) {
         case YAML_STREAM_START_EVENT:
             break;
         case YAML_DOCUMENT_START_EVENT:
@@ -322,43 +322,43 @@ static struct yconfig_node *parse_stream(yaml_parser_t *parser)
             saw_doc = 1;
             break;
         case YAML_STREAM_END_EVENT:
-            rc = 0;
-            yaml_event_delete(&ev);
+            result_code = 0;
+            yaml_event_delete(&event);
             goto out;
 
         case YAML_MAPPING_START_EVENT: {
-            struct yconfig_node *m = node_new(YCONFIG_MAP);
-            if (!m) goto err;
-            if (!root) root = m;
-            else if (attach(&stack[sp - 1], m) < 0) goto err;
-            if (push_frame(&stack, &sp, &cap, m) < 0) goto err;
+            struct yconfig_node *map = node_new(YCONFIG_MAP);
+            if (!map) goto err;
+            if (!root) root = map;
+            else if (attach(&stack[depth - 1], map) < 0) goto err;
+            if (push_frame(&stack, &depth, &cap, map) < 0) goto err;
             break;
         }
         case YAML_SEQUENCE_START_EVENT: {
-            struct yconfig_node *l = node_new(YCONFIG_LIST);
-            if (!l) goto err;
-            if (!root) root = l;
-            else if (attach(&stack[sp - 1], l) < 0) goto err;
-            if (push_frame(&stack, &sp, &cap, l) < 0) goto err;
+            struct yconfig_node *list = node_new(YCONFIG_LIST);
+            if (!list) goto err;
+            if (!root) root = list;
+            else if (attach(&stack[depth - 1], list) < 0) goto err;
+            if (push_frame(&stack, &depth, &cap, list) < 0) goto err;
             break;
         }
         case YAML_MAPPING_END_EVENT:
         case YAML_SEQUENCE_END_EVENT:
-            if (sp == 0) {
+            if (depth == 0) {
                 ywarn("yconfig: container end without matching start");
                 goto err;
             }
-            free(stack[sp - 1].pending_key);
-            sp--;
+            free(stack[depth - 1].pending_key);
+            depth--;
             break;
 
         case YAML_SCALAR_EVENT: {
-            struct yconfig_node *s = node_from_scalar(&ev);
-            if (!s) goto err;
+            struct yconfig_node *scalar = node_from_scalar(&event);
+            if (!scalar) goto err;
             if (!root) {
-                root = s;
-            } else if (attach(&stack[sp - 1], s) < 0) {
-                node_free(s);
+                root = scalar;
+            } else if (attach(&stack[depth - 1], scalar) < 0) {
+                node_free(scalar);
                 goto err;
             }
             break;
@@ -369,20 +369,20 @@ static struct yconfig_node *parse_stream(yaml_parser_t *parser)
         default:
             break;
         }
-        yaml_event_delete(&ev);
+        yaml_event_delete(&event);
         continue;
 err:
-        yaml_event_delete(&ev);
+        yaml_event_delete(&event);
         node_free(root);
         root = NULL;
         goto out;
     }
 out:
-    while (sp > 0) {
-        free(stack[--sp].pending_key);
+    while (depth > 0) {
+        free(stack[--depth].pending_key);
     }
     free(stack);
-    if (rc != 0 && root) {
+    if (result_code != 0 && root) {
         node_free(root);
         root = NULL;
     }
@@ -391,21 +391,21 @@ out:
 
 static struct yconfig_node *parse_yaml_file(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f) {
+    FILE *file_handle = fopen(path, "rb");
+    if (!file_handle) {
         ydebug("yconfig: %s: %s", path, strerror(errno));
         return NULL;
     }
     yaml_parser_t parser;
     if (!yaml_parser_initialize(&parser)) {
-        fclose(f);
+        fclose(file_handle);
         yerror("yconfig: yaml_parser_initialize failed");
         return NULL;
     }
-    yaml_parser_set_input_file(&parser, f);
+    yaml_parser_set_input_file(&parser, file_handle);
     struct yconfig_node *root = parse_stream(&parser);
     yaml_parser_delete(&parser);
-    fclose(f);
+    fclose(file_handle);
     /* yaapp's convention: an empty file parses to {} (empty map), not NULL.
      * Match that so downstream merge code can rely on a map at top level. */
     if (!root) {
@@ -422,15 +422,15 @@ static struct yconfig_node *parse_yaml_file(const char *path)
 
 static struct yconfig_node *node_clone(const struct yconfig_node *src);
 
-static struct yconfig_node *clone_map(const struct yconfig_node *m)
+static struct yconfig_node *clone_map(const struct yconfig_node *map)
 {
     struct yconfig_node *out = node_new(YCONFIG_MAP);
     if (!out) return NULL;
-    for (size_t i = 0; i < m->u.map.count; ++i) {
-        struct yconfig_node *v = node_clone(m->u.map.entries[i].value);
-        if (!v) { node_free(out); return NULL; }
-        if (map_set(out, m->u.map.entries[i].key, v) < 0) {
-            node_free(v);
+    for (size_t i = 0; i < map->u.map.count; ++i) {
+        struct yconfig_node *value = node_clone(map->u.map.entries[i].value);
+        if (!value) { node_free(out); return NULL; }
+        if (map_set(out, map->u.map.entries[i].key, value) < 0) {
+            node_free(value);
             node_free(out);
             return NULL;
         }
@@ -438,14 +438,14 @@ static struct yconfig_node *clone_map(const struct yconfig_node *m)
     return out;
 }
 
-static struct yconfig_node *clone_list(const struct yconfig_node *l)
+static struct yconfig_node *clone_list(const struct yconfig_node *list)
 {
     struct yconfig_node *out = node_new(YCONFIG_LIST);
     if (!out) return NULL;
-    for (size_t i = 0; i < l->u.list.count; ++i) {
-        struct yconfig_node *v = node_clone(l->u.list.items[i]);
-        if (!v) { node_free(out); return NULL; }
-        if (list_push(out, v) < 0) { node_free(v); node_free(out); return NULL; }
+    for (size_t i = 0; i < list->u.list.count; ++i) {
+        struct yconfig_node *value = node_clone(list->u.list.items[i]);
+        if (!value) { node_free(out); return NULL; }
+        if (list_push(out, value) < 0) { node_free(value); node_free(out); return NULL; }
     }
     return out;
 }
@@ -456,13 +456,13 @@ static struct yconfig_node *node_clone(const struct yconfig_node *src)
     switch (src->kind) {
     case YCONFIG_NULL:   return node_new(YCONFIG_NULL);
     case YCONFIG_BOOL: {
-        struct yconfig_node *n = node_new(YCONFIG_BOOL); if (n) n->u.b = src->u.b; return n;
+        struct yconfig_node *node = node_new(YCONFIG_BOOL); if (node) node->u.b = src->u.b; return node;
     }
     case YCONFIG_INT: {
-        struct yconfig_node *n = node_new(YCONFIG_INT); if (n) n->u.i = src->u.i; return n;
+        struct yconfig_node *node = node_new(YCONFIG_INT); if (node) node->u.i = src->u.i; return node;
     }
     case YCONFIG_FLOAT: {
-        struct yconfig_node *n = node_new(YCONFIG_FLOAT); if (n) n->u.f = src->u.f; return n;
+        struct yconfig_node *node = node_new(YCONFIG_FLOAT); if (node) node->u.f = src->u.f; return node;
     }
     case YCONFIG_STRING:
         return node_new_string(src->u.s);
@@ -480,15 +480,15 @@ static int merge_into(struct yconfig_node *base, const struct yconfig_node *over
 {
     if (!base || !over || base->kind != YCONFIG_MAP || over->kind != YCONFIG_MAP) return -1;
     for (size_t i = 0; i < over->u.map.count; ++i) {
-        const char *k = over->u.map.entries[i].key;
-        const struct yconfig_node *v = over->u.map.entries[i].value;
-        struct yconfig_node *existing = map_get(base, k);
-        if (existing && existing->kind == YCONFIG_MAP && v->kind == YCONFIG_MAP) {
-            if (merge_into(existing, v) < 0) return -1;
+        const char *key = over->u.map.entries[i].key;
+        const struct yconfig_node *value = over->u.map.entries[i].value;
+        struct yconfig_node *existing = map_get(base, key);
+        if (existing && existing->kind == YCONFIG_MAP && value->kind == YCONFIG_MAP) {
+            if (merge_into(existing, value) < 0) return -1;
         } else {
-            struct yconfig_node *clone = node_clone(v);
+            struct yconfig_node *clone = node_clone(value);
             if (!clone) return -1;
-            if (map_set(base, k, clone) < 0) {
+            if (map_set(base, key, clone) < 0) {
                 node_free(clone);
                 return -1;
             }
@@ -507,87 +507,87 @@ static char *subst_env_str(const char *src)
     size_t cap = strlen(src) + 32;
     char *out = malloc(cap);
     if (!out) return NULL;
-    size_t off = 0;
+    size_t out_len = 0;
 
-    for (const char *p = src; *p;) {
-        if (p[0] == '$' && p[1] == '{') {
-            const char *end = strchr(p + 2, '}');
-            if (!end) { out[off++] = *p++; continue; }
-            const char *name_start = p + 2;
+    for (const char *cursor = src; *cursor;) {
+        if (cursor[0] == '$' && cursor[1] == '{') {
+            const char *close_brace = strchr(cursor + 2, '}');
+            if (!close_brace) { out[out_len++] = *cursor++; continue; }
+            const char *name_start = cursor + 2;
             const char *colon = NULL;
-            for (const char *q = name_start; q < end; ++q) {
-                if (*q == ':') { colon = q; break; }
+            for (const char *scan = name_start; scan < close_brace; ++scan) {
+                if (*scan == ':') { colon = scan; break; }
             }
             char name[128];
-            const char *def = "";
+            const char *default_start = "";
             size_t name_len;
             if (colon) {
                 name_len = (size_t)(colon - name_start);
-                def = colon + 1;
-                /* def runs to `end` */
+                default_start = colon + 1;
+                /* default_start runs to `close_brace` */
             } else {
-                name_len = (size_t)(end - name_start);
+                name_len = (size_t)(close_brace - name_start);
             }
-            if (name_len >= sizeof(name)) { out[off++] = *p++; continue; }
+            if (name_len >= sizeof(name)) { out[out_len++] = *cursor++; continue; }
             memcpy(name, name_start, name_len);
             name[name_len] = 0;
-            const char *val = getenv(name);
-            const char *rep;
+            const char *env_value = getenv(name);
+            const char *replacement;
             char def_buf[256];
-            if (val) {
-                rep = val;
+            if (env_value) {
+                replacement = env_value;
             } else if (colon) {
-                size_t dl = (size_t)(end - def);
-                if (dl >= sizeof(def_buf)) dl = sizeof(def_buf) - 1;
-                memcpy(def_buf, def, dl);
-                def_buf[dl] = 0;
-                rep = def_buf;
+                size_t default_len = (size_t)(close_brace - default_start);
+                if (default_len >= sizeof(def_buf)) default_len = sizeof(def_buf) - 1;
+                memcpy(def_buf, default_start, default_len);
+                def_buf[default_len] = 0;
+                replacement = def_buf;
             } else {
-                rep = "";
+                replacement = "";
             }
-            size_t rep_len = strlen(rep);
-            while (off + rep_len + 1 > cap) {
-                size_t nc = cap * 2;
-                char *no = realloc(out, nc);
-                if (!no) { free(out); return NULL; }
-                out = no;
-                cap = nc;
+            size_t rep_len = strlen(replacement);
+            while (out_len + rep_len + 1 > cap) {
+                size_t new_cap = cap * 2;
+                char *new_out = realloc(out, new_cap);
+                if (!new_out) { free(out); return NULL; }
+                out = new_out;
+                cap = new_cap;
             }
-            memcpy(out + off, rep, rep_len);
-            off += rep_len;
-            p = end + 1;
+            memcpy(out + out_len, replacement, rep_len);
+            out_len += rep_len;
+            cursor = close_brace + 1;
         } else {
-            if (off + 1 >= cap) {
-                size_t nc = cap * 2;
-                char *no = realloc(out, nc);
-                if (!no) { free(out); return NULL; }
-                out = no;
-                cap = nc;
+            if (out_len + 1 >= cap) {
+                size_t new_cap = cap * 2;
+                char *new_out = realloc(out, new_cap);
+                if (!new_out) { free(out); return NULL; }
+                out = new_out;
+                cap = new_cap;
             }
-            out[off++] = *p++;
+            out[out_len++] = *cursor++;
         }
     }
-    out[off] = 0;
+    out[out_len] = 0;
     return out;
 }
 
-static void subst_env(struct yconfig_node *n)
+static void subst_env(struct yconfig_node *node)
 {
-    if (!n) return;
-    switch (n->kind) {
+    if (!node) return;
+    switch (node->kind) {
     case YCONFIG_STRING: {
-        char *expanded = subst_env_str(n->u.s);
+        char *expanded = subst_env_str(node->u.s);
         if (expanded) {
-            free(n->u.s);
-            n->u.s = expanded;
+            free(node->u.s);
+            node->u.s = expanded;
         }
         break;
     }
     case YCONFIG_LIST:
-        for (size_t i = 0; i < n->u.list.count; ++i) subst_env(n->u.list.items[i]);
+        for (size_t i = 0; i < node->u.list.count; ++i) subst_env(node->u.list.items[i]);
         break;
     case YCONFIG_MAP:
-        for (size_t i = 0; i < n->u.map.count; ++i) subst_env(n->u.map.entries[i].value);
+        for (size_t i = 0; i < node->u.map.count; ++i) subst_env(node->u.map.entries[i].value);
         break;
     default: break;
     }
@@ -611,80 +611,80 @@ static struct yconfig_node *node_from_cli_value(const char *val)
     if (strcmp(val, "true") == 0 || strcmp(val, "True") == 0 ||
         strcmp(val, "yes") == 0 || strcmp(val, "Yes") == 0 ||
         strcmp(val, "on") == 0 || strcmp(val, "On") == 0) {
-        struct yconfig_node *n = node_new(YCONFIG_BOOL);
-        if (n) n->u.b = 1;
-        return n;
+        struct yconfig_node *node = node_new(YCONFIG_BOOL);
+        if (node) node->u.b = 1;
+        return node;
     }
     if (strcmp(val, "false") == 0 || strcmp(val, "False") == 0 ||
         strcmp(val, "no") == 0 || strcmp(val, "No") == 0 ||
         strcmp(val, "off") == 0 || strcmp(val, "Off") == 0) {
-        struct yconfig_node *n = node_new(YCONFIG_BOOL);
-        if (n) n->u.b = 0;
-        return n;
+        struct yconfig_node *node = node_new(YCONFIG_BOOL);
+        if (node) node->u.b = 0;
+        return node;
     }
-    int64_t iv;
-    double fv;
-    if (parse_int64(val, &iv) == 0) {
-        struct yconfig_node *n = node_new(YCONFIG_INT);
-        if (n) n->u.i = iv;
-        return n;
+    int64_t int_value;
+    double float_value;
+    if (parse_int64(val, &int_value) == 0) {
+        struct yconfig_node *node = node_new(YCONFIG_INT);
+        if (node) node->u.i = int_value;
+        return node;
     }
-    if (parse_float(val, &fv) == 0) {
-        struct yconfig_node *n = node_new(YCONFIG_FLOAT);
-        if (n) n->u.f = fv;
-        return n;
+    if (parse_float(val, &float_value) == 0) {
+        struct yconfig_node *node = node_new(YCONFIG_FLOAT);
+        if (node) node->u.f = float_value;
+        return node;
     }
     return node_new_string(val);
 }
 
 static int apply_cli_override(struct yconfig_node *root, const char *kv)
 {
-    const char *eq = strchr(kv, '=');
-    if (!eq) {
+    const char *equals = strchr(kv, '=');
+    if (!equals) {
         ywarn("yconfig: --config '%s' has no '=' — ignoring", kv);
         return 0;
     }
-    size_t klen = (size_t)(eq - kv);
-    if (klen == 0) {
+    size_t key_len = (size_t)(equals - kv);
+    if (key_len == 0) {
         ywarn("yconfig: empty key in --config '%s' — ignoring", kv);
         return 0;
     }
     char path[256];
-    if (klen >= sizeof(path)) {
+    if (key_len >= sizeof(path)) {
         ywarn("yconfig: --config key too long, ignoring");
         return 0;
     }
-    memcpy(path, kv, klen);
-    path[klen] = 0;
+    memcpy(path, kv, key_len);
+    path[key_len] = 0;
 
     /* Build {part1: {part2: ... : value}}. */
     const char *rest = path;
-    struct yconfig_node *leaf = node_from_cli_value(eq + 1);
+    struct yconfig_node *leaf = node_from_cli_value(equals + 1);
     if (!leaf) return -1;
-    struct yconfig_node *cur = leaf;
+    struct yconfig_node *current = leaf;
 
     /* Reverse-build: tokenise then wrap from innermost out. */
     char *tokens[16];
     size_t tcount = 0;
     char buf[256];
-    size_t bl = strlen(rest);
-    if (bl >= sizeof(buf)) { node_free(leaf); return 0; }
-    memcpy(buf, rest, bl + 1);
+    size_t rest_len = strlen(rest);
+    if (rest_len >= sizeof(buf)) { node_free(leaf); return 0; }
+    memcpy(buf, rest, rest_len + 1);
     for (char *tok = strtok(buf, "."); tok; tok = strtok(NULL, ".")) {
         if (tcount >= sizeof(tokens) / sizeof(tokens[0])) break;
         tokens[tcount++] = tok;
     }
     for (size_t i = tcount; i-- > 0; ) {
-        struct yconfig_node *m = node_new(YCONFIG_MAP);
-        if (!m) { node_free(cur); return -1; }
-        if (map_set(m, tokens[i], cur) < 0) {
-            node_free(m); node_free(cur); return -1;
+        struct yconfig_node *map = node_new(YCONFIG_MAP);
+        if (!map) { node_free(current); return -1; }
+        if (map_set(map, tokens[i], current) < 0) {
+            node_free(map); node_free(current); return -1;
         }
-        cur = m;
+        current = map;
     }
-    int rc = merge_into(root, cur);
-    node_free(cur);
-    return rc;
+    int result_code = merge_into(root, current);
+    node_free(current);
+    return result_code;
 }
 
 /* ---------------- filesystem search -------------------------------- */
@@ -700,10 +700,10 @@ static char *xdg_path(const char *app_name)
     const char *home = getenv("HOME");
     if (!home) return NULL;
     size_t len = strlen(home) + strlen(app_name) * 2 + 32;
-    char *p = malloc(len);
-    if (!p) return NULL;
-    snprintf(p, len, "%s/.config/%s/%s.yaml", home, app_name, app_name);
-    return p;
+    char *path = malloc(len);
+    if (!path) return NULL;
+    snprintf(path, len, "%s/.config/%s/%s.yaml", home, app_name, app_name);
+    return path;
 }
 
 static char *git_root_path(const char *app_name)
@@ -735,11 +735,11 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
 {
     const char *app = (args && args->app_name) ? args->app_name : "picomesh";
 
-    struct yconfig *c = calloc(1, sizeof(*c));
-    if (!c) return PICOMESH_ERR(yconfig_ptr, "yconfig_create: calloc failed");
-    c->root = node_new(YCONFIG_MAP);
-    if (!c->root) {
-        free(c);
+    struct yconfig *config = calloc(1, sizeof(*config));
+    if (!config) return PICOMESH_ERR(yconfig_ptr, "yconfig_create: calloc failed");
+    config->root = node_new(YCONFIG_MAP);
+    if (!config->root) {
+        free(config);
         return PICOMESH_ERR(yconfig_ptr, "yconfig_create: root alloc failed");
     }
 
@@ -755,18 +755,18 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
         if (xdg && file_exists(xdg)) {
             ydebug("yconfig: loading XDG %s", xdg);
             struct yconfig_node *file = parse_yaml_file(xdg);
-            if (file) { merge_into(c->root, file); node_free(file); }
+            if (file) { merge_into(config->root, file); node_free(file); }
         }
         free(xdg);
 
         /* 2. Git repo root. */
-        char *gr = git_root_path(app);
-        if (gr && file_exists(gr)) {
-            ydebug("yconfig: loading git-root %s", gr);
-            struct yconfig_node *file = parse_yaml_file(gr);
-            if (file) { merge_into(c->root, file); node_free(file); }
+        char *git_root = git_root_path(app);
+        if (git_root && file_exists(git_root)) {
+            ydebug("yconfig: loading git-root %s", git_root);
+            struct yconfig_node *file = parse_yaml_file(git_root);
+            if (file) { merge_into(config->root, file); node_free(file); }
         }
-        free(gr);
+        free(git_root);
 
         /* 3. cwd. */
         char cwd_path[64];
@@ -774,7 +774,7 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
         if (file_exists(cwd_path)) {
             ydebug("yconfig: loading cwd %s", cwd_path);
             struct yconfig_node *file = parse_yaml_file(cwd_path);
-            if (file) { merge_into(c->root, file); node_free(file); }
+            if (file) { merge_into(config->root, file); node_free(file); }
         }
     }
 
@@ -782,7 +782,7 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
     if (args && args->config_file && file_exists(args->config_file)) {
         ydebug("yconfig: loading explicit %s", args->config_file);
         struct yconfig_node *file = parse_yaml_file(args->config_file);
-        if (file) { merge_into(c->root, file); node_free(file); }
+        if (file) { merge_into(config->root, file); node_free(file); }
     }
 
     /* 5. --config CLI overrides — applied LAST, so they win over every file.
@@ -790,8 +790,8 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
      *    overrides work. */
     if (args && args->cli_overrides) {
         for (size_t i = 0; i < args->cli_override_count; ++i) {
-            if (apply_cli_override(c->root, args->cli_overrides[i]) < 0) {
-                yconfig_destroy(c);
+            if (apply_cli_override(config->root, args->cli_overrides[i]) < 0) {
+                yconfig_destroy(config);
                 return PICOMESH_ERR(yconfig_ptr, "yconfig_create: cli override merge failed");
             }
         }
@@ -799,49 +799,49 @@ struct yconfig_ptr_result yconfig_create(const struct yconfig_create_args *args)
 
     /* Env-var substitution happens last so every layer's strings get
      * expanded uniformly. */
-    subst_env(c->root);
-    return PICOMESH_OK(yconfig_ptr, c);
+    subst_env(config->root);
+    return PICOMESH_OK(yconfig_ptr, config);
 }
 
-void yconfig_destroy(struct yconfig *c)
+void yconfig_destroy(struct yconfig *config)
 {
-    if (!c) return;
-    node_free(c->root);
-    free(c);
+    if (!config) return;
+    node_free(config->root);
+    free(config);
 }
 
-const struct yconfig_node *yconfig_root(const struct yconfig *c)
+const struct yconfig_node *yconfig_root(const struct yconfig *config)
 {
-    return c ? c->root : NULL;
+    return config ? config->root : NULL;
 }
 
-struct picomesh_void_result yconfig_promote_subtree(struct yconfig *c, const char *dot_path)
+struct picomesh_void_result yconfig_promote_subtree(struct yconfig *config, const char *dot_path)
 {
-    if (!c || !dot_path) {
+    if (!config || !dot_path) {
         return PICOMESH_ERR(picomesh_void, "yconfig_promote_subtree: NULL args");
     }
     char buf[256];
-    size_t l = strlen(dot_path);
-    if (l >= sizeof(buf)) {
+    size_t path_len = strlen(dot_path);
+    if (path_len >= sizeof(buf)) {
         return PICOMESH_ERR(picomesh_void, "yconfig_promote_subtree: path too long");
     }
-    memcpy(buf, dot_path, l + 1);
+    memcpy(buf, dot_path, path_len + 1);
 
-    const struct yconfig_node *sub = c->root;
+    const struct yconfig_node *subtree = config->root;
     for (char *tok = strtok(buf, "."); tok; tok = strtok(NULL, ".")) {
-        if (!sub || sub->kind != YCONFIG_MAP) {
-            sub = NULL;
+        if (!subtree || subtree->kind != YCONFIG_MAP) {
+            subtree = NULL;
             break;
         }
-        sub = map_get(sub, tok);
+        subtree = map_get(subtree, tok);
     }
     /* Subtree absent or not a map → no projection, but not an error.
      * The caller (engine) projects optimistically; missing entries
      * just mean "no service-local config to flatten". */
-    if (!sub || sub->kind != YCONFIG_MAP) {
+    if (!subtree || subtree->kind != YCONFIG_MAP) {
         return PICOMESH_OK_VOID();
     }
-    if (merge_into(c->root, sub) < 0) {
+    if (merge_into(config->root, subtree) < 0) {
         return PICOMESH_ERR(picomesh_void, "yconfig_promote_subtree: merge failed");
     }
     return PICOMESH_OK_VOID();
@@ -849,29 +849,29 @@ struct picomesh_void_result yconfig_promote_subtree(struct yconfig *c, const cha
 
 /* ---------------- dot-path lookup ---------------------------------- */
 
-static const struct yconfig_node *walk_path(const struct yconfig_node *n, const char *path)
+static const struct yconfig_node *walk_path(const struct yconfig_node *node, const char *path)
 {
-    if (!n || !path) return NULL;
+    if (!node || !path) return NULL;
     char buf[256];
     size_t len = strlen(path);
     if (len >= sizeof(buf)) return NULL;
     memcpy(buf, path, len + 1);
 
-    const struct yconfig_node *cur = n;
+    const struct yconfig_node *current = node;
     for (char *tok = strtok(buf, "."); tok; tok = strtok(NULL, ".")) {
-        if (!cur || cur->kind != YCONFIG_MAP) return NULL;
-        cur = map_get(cur, tok);
-        if (!cur) return NULL;
+        if (!current || current->kind != YCONFIG_MAP) return NULL;
+        current = map_get(current, tok);
+        if (!current) return NULL;
     }
-    return cur;
+    return current;
 }
 
-struct yconfig_node_ptr_result yconfig_get(const struct yconfig *c, const char *dot_path)
+struct yconfig_node_ptr_result yconfig_get(const struct yconfig *config, const char *dot_path)
 {
-    if (!c || !dot_path) {
+    if (!config || !dot_path) {
         return PICOMESH_ERR(yconfig_node_ptr, "yconfig_get: NULL args");
     }
-    const struct yconfig_node *direct = walk_path(c->root, dot_path);
+    const struct yconfig_node *direct = walk_path(config->root, dot_path);
     if (direct) return PICOMESH_OK(yconfig_node_ptr, direct);
 
     /* Inheritance fallback: peel the first segment and retry against the
@@ -884,102 +884,102 @@ struct yconfig_node_ptr_result yconfig_get(const struct yconfig *c, const char *
     memcpy(buf, dot_path, len + 1);
     char *dot = strchr(buf, '.');
     while (dot) {
-        const struct yconfig_node *hit = walk_path(c->root, dot + 1);
+        const struct yconfig_node *hit = walk_path(config->root, dot + 1);
         if (hit) return PICOMESH_OK(yconfig_node_ptr, hit);
         dot = strchr(dot + 1, '.');
     }
     return PICOMESH_OK(yconfig_node_ptr, NULL);
 }
 
-const struct yconfig_node *yconfig_section(const struct yconfig *c, const char *name)
+const struct yconfig_node *yconfig_section(const struct yconfig *config, const char *name)
 {
-    return map_get(c ? c->root : NULL, name);
+    return map_get(config ? config->root : NULL, name);
 }
 
 /* ---------------- typed accessors --------------------------------- */
 
-enum yconfig_kind yconfig_node_kind(const struct yconfig_node *n)
+enum yconfig_kind yconfig_node_kind(const struct yconfig_node *node)
 {
-    return n ? n->kind : YCONFIG_NULL;
+    return node ? node->kind : YCONFIG_NULL;
 }
 
-size_t yconfig_node_size(const struct yconfig_node *n)
+size_t yconfig_node_size(const struct yconfig_node *node)
 {
-    if (!n) return 0;
-    if (n->kind == YCONFIG_MAP)  return n->u.map.count;
-    if (n->kind == YCONFIG_LIST) return n->u.list.count;
+    if (!node) return 0;
+    if (node->kind == YCONFIG_MAP)  return node->u.map.count;
+    if (node->kind == YCONFIG_LIST) return node->u.list.count;
     return 0;
 }
 
-const char *yconfig_node_as_string(const struct yconfig_node *n, const char *fallback)
+const char *yconfig_node_as_string(const struct yconfig_node *node, const char *fallback)
 {
-    return (n && n->kind == YCONFIG_STRING) ? n->u.s : fallback;
+    return (node && node->kind == YCONFIG_STRING) ? node->u.s : fallback;
 }
 
-int64_t yconfig_node_as_int(const struct yconfig_node *n, int64_t fallback)
+int64_t yconfig_node_as_int(const struct yconfig_node *node, int64_t fallback)
 {
-    if (!n) return fallback;
-    if (n->kind == YCONFIG_INT)   return n->u.i;
-    if (n->kind == YCONFIG_FLOAT) return (int64_t)n->u.f;
-    if (n->kind == YCONFIG_BOOL)  return (int64_t)n->u.b;
-    if (n->kind == YCONFIG_STRING) {
-        int64_t v;
-        if (parse_int64(n->u.s, &v) == 0) return v;
+    if (!node) return fallback;
+    if (node->kind == YCONFIG_INT)   return node->u.i;
+    if (node->kind == YCONFIG_FLOAT) return (int64_t)node->u.f;
+    if (node->kind == YCONFIG_BOOL)  return (int64_t)node->u.b;
+    if (node->kind == YCONFIG_STRING) {
+        int64_t value;
+        if (parse_int64(node->u.s, &value) == 0) return value;
     }
     return fallback;
 }
 
-double yconfig_node_as_float(const struct yconfig_node *n, double fallback)
+double yconfig_node_as_float(const struct yconfig_node *node, double fallback)
 {
-    if (!n) return fallback;
-    if (n->kind == YCONFIG_FLOAT) return n->u.f;
-    if (n->kind == YCONFIG_INT)   return (double)n->u.i;
-    if (n->kind == YCONFIG_STRING) {
-        double v;
-        if (parse_float(n->u.s, &v) == 0) return v;
+    if (!node) return fallback;
+    if (node->kind == YCONFIG_FLOAT) return node->u.f;
+    if (node->kind == YCONFIG_INT)   return (double)node->u.i;
+    if (node->kind == YCONFIG_STRING) {
+        double value;
+        if (parse_float(node->u.s, &value) == 0) return value;
     }
     return fallback;
 }
 
-int yconfig_node_as_bool(const struct yconfig_node *n, int fallback)
+int yconfig_node_as_bool(const struct yconfig_node *node, int fallback)
 {
-    if (!n) return fallback;
-    if (n->kind == YCONFIG_BOOL) return n->u.b;
-    if (n->kind == YCONFIG_INT)  return n->u.i != 0;
-    if (n->kind == YCONFIG_STRING) {
-        const char *s = n->u.s;
-        if (!s || !*s) return fallback;
-        if (strcasecmp(s, "true") == 0 || strcasecmp(s, "yes") == 0 ||
-            strcasecmp(s, "on") == 0 || strcmp(s, "1") == 0) return 1;
-        if (strcasecmp(s, "false") == 0 || strcasecmp(s, "no") == 0 ||
-            strcasecmp(s, "off") == 0 || strcmp(s, "0") == 0) return 0;
+    if (!node) return fallback;
+    if (node->kind == YCONFIG_BOOL) return node->u.b;
+    if (node->kind == YCONFIG_INT)  return node->u.i != 0;
+    if (node->kind == YCONFIG_STRING) {
+        const char *str = node->u.s;
+        if (!str || !*str) return fallback;
+        if (strcasecmp(str, "true") == 0 || strcasecmp(str, "yes") == 0 ||
+            strcasecmp(str, "on") == 0 || strcmp(str, "1") == 0) return 1;
+        if (strcasecmp(str, "false") == 0 || strcasecmp(str, "no") == 0 ||
+            strcasecmp(str, "off") == 0 || strcmp(str, "0") == 0) return 0;
     }
     return fallback;
 }
 
-int yconfig_node_for_each(const struct yconfig_node *n,
+int yconfig_node_for_each(const struct yconfig_node *node,
                           int (*cb)(const char *key, const struct yconfig_node *val, void *ud),
                           void *ud)
 {
-    if (!n || n->kind != YCONFIG_MAP || !cb) return 0;
-    for (size_t i = 0; i < n->u.map.count; ++i) {
-        int r = cb(n->u.map.entries[i].key, n->u.map.entries[i].value, ud);
-        if (r) return r;
+    if (!node || node->kind != YCONFIG_MAP || !cb) return 0;
+    for (size_t i = 0; i < node->u.map.count; ++i) {
+        int result_code = cb(node->u.map.entries[i].key, node->u.map.entries[i].value, ud);
+        if (result_code) return result_code;
     }
     return 0;
 }
 
-const struct yconfig_node *yconfig_node_at(const struct yconfig_node *n, size_t idx)
+const struct yconfig_node *yconfig_node_at(const struct yconfig_node *node, size_t idx)
 {
-    if (!n || n->kind != YCONFIG_LIST || idx >= n->u.list.count) return NULL;
-    return n->u.list.items[idx];
+    if (!node || node->kind != YCONFIG_LIST || idx >= node->u.list.count) return NULL;
+    return node->u.list.items[idx];
 }
 
-const struct yconfig_node *yconfig_node_get(const struct yconfig_node *n, const char *key)
+const struct yconfig_node *yconfig_node_get(const struct yconfig_node *node, const char *key)
 {
-    if (!n || n->kind != YCONFIG_MAP || !key) return NULL;
-    for (size_t i = 0; i < n->u.map.count; ++i)
-        if (strcmp(n->u.map.entries[i].key, key) == 0) return n->u.map.entries[i].value;
+    if (!node || node->kind != YCONFIG_MAP || !key) return NULL;
+    for (size_t i = 0; i < node->u.map.count; ++i)
+        if (strcmp(node->u.map.entries[i].key, key) == 0) return node->u.map.entries[i].value;
     return NULL;
 }
 
@@ -987,12 +987,12 @@ const struct yconfig_node *yconfig_node_get(const struct yconfig_node *n, const 
 
 static int dump_node(const struct yconfig_node *n, char *buf, size_t cap, size_t off, int indent);
 
-static int append(char *buf, size_t cap, size_t off, const char *s)
+static int append(char *buf, size_t cap, size_t off, const char *str)
 {
-    size_t l = strlen(s);
-    if (off + l >= cap) return (int)off;
-    memcpy(buf + off, s, l);
-    return (int)(off + l);
+    size_t len = strlen(str);
+    if (off + len >= cap) return (int)off;
+    memcpy(buf + off, str, len);
+    return (int)(off + len);
 }
 
 static int dump_indent(char *buf, size_t cap, size_t off, int indent)
@@ -1003,34 +1003,34 @@ static int dump_indent(char *buf, size_t cap, size_t off, int indent)
     return (int)off;
 }
 
-static int dump_node(const struct yconfig_node *n, char *buf, size_t cap, size_t off, int indent)
+static int dump_node(const struct yconfig_node *node, char *buf, size_t cap, size_t off, int indent)
 {
-    if (!n) return (int)off;
+    if (!node) return (int)off;
     char tmp[64];
-    switch (n->kind) {
+    switch (node->kind) {
     case YCONFIG_NULL:   off = (size_t)append(buf, cap, off, "null"); break;
-    case YCONFIG_BOOL:   off = (size_t)append(buf, cap, off, n->u.b ? "true" : "false"); break;
-    case YCONFIG_INT:    snprintf(tmp, sizeof(tmp), "%" PRId64, n->u.i); off = (size_t)append(buf, cap, off, tmp); break;
-    case YCONFIG_FLOAT:  snprintf(tmp, sizeof(tmp), "%g", n->u.f);       off = (size_t)append(buf, cap, off, tmp); break;
+    case YCONFIG_BOOL:   off = (size_t)append(buf, cap, off, node->u.b ? "true" : "false"); break;
+    case YCONFIG_INT:    snprintf(tmp, sizeof(tmp), "%" PRId64, node->u.i); off = (size_t)append(buf, cap, off, tmp); break;
+    case YCONFIG_FLOAT:  snprintf(tmp, sizeof(tmp), "%g", node->u.f);       off = (size_t)append(buf, cap, off, tmp); break;
     case YCONFIG_STRING: off = (size_t)append(buf, cap, off, "\"");
-                         off = (size_t)append(buf, cap, off, n->u.s);
+                         off = (size_t)append(buf, cap, off, node->u.s);
                          off = (size_t)append(buf, cap, off, "\"");
                          break;
     case YCONFIG_LIST:
         off = (size_t)append(buf, cap, off, "[");
-        for (size_t i = 0; i < n->u.list.count; ++i) {
+        for (size_t i = 0; i < node->u.list.count; ++i) {
             if (i) off = (size_t)append(buf, cap, off, ", ");
-            off = (size_t)dump_node(n->u.list.items[i], buf, cap, off, indent);
+            off = (size_t)dump_node(node->u.list.items[i], buf, cap, off, indent);
         }
         off = (size_t)append(buf, cap, off, "]");
         break;
     case YCONFIG_MAP:
         off = (size_t)append(buf, cap, off, "{\n");
-        for (size_t i = 0; i < n->u.map.count; ++i) {
+        for (size_t i = 0; i < node->u.map.count; ++i) {
             off = (size_t)dump_indent(buf, cap, off, indent + 1);
-            off = (size_t)append(buf, cap, off, n->u.map.entries[i].key);
+            off = (size_t)append(buf, cap, off, node->u.map.entries[i].key);
             off = (size_t)append(buf, cap, off, ": ");
-            off = (size_t)dump_node(n->u.map.entries[i].value, buf, cap, off, indent + 1);
+            off = (size_t)dump_node(node->u.map.entries[i].value, buf, cap, off, indent + 1);
             off = (size_t)append(buf, cap, off, ",\n");
         }
         off = (size_t)dump_indent(buf, cap, off, indent);
@@ -1040,20 +1040,20 @@ static int dump_node(const struct yconfig_node *n, char *buf, size_t cap, size_t
     return (int)off;
 }
 
-size_t yconfig_dump(const struct yconfig *c, char *buf, size_t bufsize)
+size_t yconfig_dump(const struct yconfig *config, char *buf, size_t bufsize)
 {
     if (!buf || bufsize == 0) return 0;
-    int n = dump_node(c ? c->root : NULL, buf, bufsize, 0, 0);
-    if ((size_t)n >= bufsize) n = (int)bufsize - 1;
-    buf[n] = 0;
-    return (size_t)n;
+    int dumped_len = dump_node(config ? config->root : NULL, buf, bufsize, 0, 0);
+    if ((size_t)dumped_len >= bufsize) dumped_len = (int)bufsize - 1;
+    buf[dumped_len] = 0;
+    return (size_t)dumped_len;
 }
 
-size_t yconfig_node_dump(const struct yconfig_node *n, char *buf, size_t bufsize)
+size_t yconfig_node_dump(const struct yconfig_node *node, char *buf, size_t bufsize)
 {
     if (!buf || bufsize == 0) return 0;
-    int w = dump_node(n, buf, bufsize, 0, 0);
-    if ((size_t)w >= bufsize) w = (int)bufsize - 1;
-    buf[w] = 0;
-    return (size_t)w;
+    int written_len = dump_node(node, buf, bufsize, 0, 0);
+    if ((size_t)written_len >= bufsize) written_len = (int)bufsize - 1;
+    buf[written_len] = 0;
+    return (size_t)written_len;
 }

@@ -125,10 +125,10 @@ static void ytrace_write_all(int fd, const char *buf, size_t len)
 {
     size_t off = 0;
     while (off < len) {
-        ssize_t w = write(fd, buf + off, len - off);
-        if (w < 0) { if (errno == EINTR) continue; break; }
-        if (w == 0) break;
-        off += (size_t)w;
+        ssize_t written = write(fd, buf + off, len - off);
+        if (written < 0) { if (errno == EINTR) continue; break; }
+        if (written == 0) break;
+        off += (size_t)written;
     }
 }
 
@@ -182,29 +182,29 @@ static void *ytrace_collector_main(void *arg)
 /* pthread_key destructor: the thread is exiting and will no longer log, so mark
  * its buffers for the collector to drain and reclaim. Does NOT free here — the
  * collector may be mid-drain. */
-static void ytrace_tls_dtor(void *p)
+static void ytrace_tls_dtor(void *arg)
 {
-    struct ytrace_thread *t = p;
-    if (t) t->dead = 1;
+    struct ytrace_thread *thread = arg;
+    if (thread) thread->dead = 1;
 }
 
 static struct ytrace_thread *ytrace_thread_register(void)
 {
-    struct ytrace_thread *t = calloc(1, sizeof(*t));
-    if (!t) return NULL;
-    t->buf[0].data = malloc(g_buf_cap);
-    t->buf[1].data = malloc(g_buf_cap);
-    if (!t->buf[0].data || !t->buf[1].data) {
-        free(t->buf[0].data); free(t->buf[1].data); free(t);
+    struct ytrace_thread *thread = calloc(1, sizeof(*thread));
+    if (!thread) return NULL;
+    thread->buf[0].data = malloc(g_buf_cap);
+    thread->buf[1].data = malloc(g_buf_cap);
+    if (!thread->buf[0].data || !thread->buf[1].data) {
+        free(thread->buf[0].data); free(thread->buf[1].data); free(thread);
         return NULL;
     }
-    t->buf[0].cap = t->buf[1].cap = g_buf_cap;
-    pthread_mutex_init(&t->lock, NULL);
-    t->tid = (unsigned long)pthread_self();
+    thread->buf[0].cap = thread->buf[1].cap = g_buf_cap;
+    pthread_mutex_init(&thread->lock, NULL);
+    thread->tid = (unsigned long)pthread_self();
 
     pthread_mutex_lock(&g_threads_lock);
-    t->next = g_threads;
-    g_threads = t;
+    thread->next = g_threads;
+    g_threads = thread;
     /* Start the collector on the first thread that ever emits — so a process
      * that never logs (tracing off) never spawns the background thread. */
     if (!g_collector_started) {
@@ -213,46 +213,46 @@ static struct ytrace_thread *ytrace_thread_register(void)
     }
     pthread_mutex_unlock(&g_threads_lock);
 
-    tl_self = t;
-    if (g_tls_key_made) pthread_setspecific(g_tls_key, t);
-    return t;
+    tl_self = thread;
+    if (g_tls_key_made) pthread_setspecific(g_tls_key, thread);
+    return thread;
 }
 
 /* Hot path: append one formatted line to this thread's active buffer. */
 static void ytrace_emit(uint64_t ts_ns, const char *text, size_t len)
 {
-    struct ytrace_thread *t = tl_self;
-    if (!t) {
-        t = ytrace_thread_register();
-        if (!t) { ytrace_write_all(g_sink_fd, text, len); return; }
+    struct ytrace_thread *thread = tl_self;
+    if (!thread) {
+        thread = ytrace_thread_register();
+        if (!thread) { ytrace_write_all(g_sink_fd, text, len); return; }
     }
     size_t need = YTRACE_REC_HDR + len;
-    if (need > t->buf[0].cap) { ytrace_write_all(g_sink_fd, text, len); return; }
+    if (need > thread->buf[0].cap) { ytrace_write_all(g_sink_fd, text, len); return; }
 
-    pthread_mutex_lock(&t->lock);
-    struct ytrace_logbuf *b = &t->buf[t->active];
-    if (b->len + need > b->cap) {
-        int other = t->active ^ 1;
-        if (t->buf[other].len == 0) {       /* spare drained by collector → swap */
-            t->active = other;
-            b = &t->buf[other];
+    pthread_mutex_lock(&thread->lock);
+    struct ytrace_logbuf *buf = &thread->buf[thread->active];
+    if (buf->len + need > buf->cap) {
+        int other = thread->active ^ 1;
+        if (thread->buf[other].len == 0) {  /* spare drained by collector → swap */
+            thread->active = other;
+            buf = &thread->buf[other];
         } else {                            /* collector behind → drop, don't block.
                                              * Record the gap on the buffer (O(1)):
                                              * the collector turns it into a marker
                                              * positioned at the first drop's time. */
-            if (b->drop_count == 0) b->drop_first_ts = ts_ns;
-            b->drop_count++;
-            pthread_mutex_unlock(&t->lock);
+            if (buf->drop_count == 0) buf->drop_first_ts = ts_ns;
+            buf->drop_count++;
+            pthread_mutex_unlock(&thread->lock);
             return;
         }
     }
-    char *p = b->data + b->len;
-    uint16_t l16 = (uint16_t)len;
-    memcpy(p, &ts_ns, sizeof(ts_ns));
-    memcpy(p + sizeof(ts_ns), &l16, sizeof(l16));
-    memcpy(p + YTRACE_REC_HDR, text, len);
-    b->len += need;
-    pthread_mutex_unlock(&t->lock);
+    char *dest = buf->data + buf->len;
+    uint16_t len16 = (uint16_t)len;
+    memcpy(dest, &ts_ns, sizeof(ts_ns));
+    memcpy(dest + sizeof(ts_ns), &len16, sizeof(len16));
+    memcpy(dest + YTRACE_REC_HDR, text, len);
+    buf->len += need;
+    pthread_mutex_unlock(&thread->lock);
 }
 
 /* ---- collector scratch (only the collector thread touches these) -------- */
@@ -276,19 +276,19 @@ static char  *g_outbuf = NULL;            static size_t g_outbuf_cap = 0;
 static int grow(void **buf, size_t *cap, size_t need, size_t elem)
 {
     if (need <= *cap) return 1;
-    size_t nc = *cap ? *cap : 256;
-    while (nc < need) nc *= 2;
-    void *p = realloc(*buf, nc * elem);
-    if (!p) return 0;
-    *buf = p; *cap = nc;
+    size_t new_cap = *cap ? *cap : 256;
+    while (new_cap < need) new_cap *= 2;
+    void *new_buf = realloc(*buf, new_cap * elem);
+    if (!new_buf) return 0;
+    *buf = new_buf; *cap = new_cap;
     return 1;
 }
 
 static int cmp_desc_ts(const void *a, const void *b)
 {
-    uint64_t x = ((const struct ytrace_desc *)a)->ts_ns;
-    uint64_t y = ((const struct ytrace_desc *)b)->ts_ns;
-    return (x > y) - (x < y);
+    uint64_t left_ts = ((const struct ytrace_desc *)a)->ts_ns;
+    uint64_t right_ts = ((const struct ytrace_desc *)b)->ts_ns;
+    return (left_ts > right_ts) - (left_ts < right_ts);
 }
 
 /* Format one synthesized drop marker into `out`, positioned at `ts_ns`. */
@@ -297,14 +297,14 @@ static int format_drop_marker(char *out, size_t cap, uint64_t ts_ns,
 {
     struct timespec ts = {(time_t)(ts_ns / 1000000000ull),
                           (long)(ts_ns % 1000000000ull)};
-    char tb[32];
-    format_timestamp(tb, sizeof(tb), &ts);
-    const char *col = g_use_colors ? ANSI_YELLOW : "";
-    const char *rst = g_use_colors ? ANSI_RESET : "";
+    char time_buf[32];
+    format_timestamp(time_buf, sizeof(time_buf), &ts);
+    const char *color = g_use_colors ? ANSI_YELLOW : "";
+    const char *reset = g_use_colors ? ANSI_RESET : "";
     return snprintf(out, cap,
                     "[%s] %s[drop ]%s ytrace: %llu line(s) dropped here "
                     "(thread %lu, buffer full)\n",
-                    tb, col, rst, (unsigned long long)drop, tid);
+                    time_buf, color, reset, (unsigned long long)drop, tid);
 }
 
 static void ytrace_flush_all(void)
@@ -317,45 +317,45 @@ static void ytrace_flush_all(void)
      * owned by the collector and the writer won't touch it until we reset its len.
      * So we parse it lock-free below. */
     pthread_mutex_lock(&g_threads_lock);
-    for (struct ytrace_thread *t = g_threads; t; t = t->next) {
-        pthread_mutex_lock(&t->lock);
-        int act = t->active, ina = act ^ 1, take = -1;
-        if (t->buf[ina].len > 0) {
-            take = ina;
-        } else if (t->buf[act].len > 0) {
-            t->active = ina;        /* O(1) swap: writer moves to the free buffer */
-            take = act;
+    for (struct ytrace_thread *thread = g_threads; thread; thread = thread->next) {
+        pthread_mutex_lock(&thread->lock);
+        int active = thread->active, inactive = active ^ 1, take = -1;
+        if (thread->buf[inactive].len > 0) {
+            take = inactive;
+        } else if (thread->buf[active].len > 0) {
+            thread->active = inactive;  /* O(1) swap: writer moves to the free buffer */
+            take = active;
         }
-        unsigned long tid = t->tid;
-        char    *data   = take >= 0 ? t->buf[take].data           : NULL;
-        size_t   dlen   = take >= 0 ? t->buf[take].len            : 0;
-        uint64_t dcount = take >= 0 ? t->buf[take].drop_count     : 0;
-        uint64_t dts    = take >= 0 ? t->buf[take].drop_first_ts  : 0;
-        pthread_mutex_unlock(&t->lock);
+        unsigned long tid = thread->tid;
+        char    *data        = take >= 0 ? thread->buf[take].data          : NULL;
+        size_t   data_len    = take >= 0 ? thread->buf[take].len           : 0;
+        uint64_t drop_count  = take >= 0 ? thread->buf[take].drop_count    : 0;
+        uint64_t drop_ts     = take >= 0 ? thread->buf[take].drop_first_ts : 0;
+        pthread_mutex_unlock(&thread->lock);
 
         if (take < 0) continue;
 
         if (grow((void **)&g_snap, &g_snap_cap, nsnap + 1, sizeof(*g_snap))) {
-            g_snap[nsnap].t = t; g_snap[nsnap].idx = take; nsnap++;
+            g_snap[nsnap].t = thread; g_snap[nsnap].idx = take; nsnap++;
         }
-        const char *p = data, *end = data + dlen;
-        while (p + YTRACE_REC_HDR <= end) {
-            uint64_t ts; uint16_t l;
-            memcpy(&ts, p, sizeof(ts));
-            memcpy(&l, p + sizeof(ts), sizeof(l));
-            const char *txt = p + YTRACE_REC_HDR;
-            if (txt + l > end) break;
+        const char *cursor = data, *end = data + data_len;
+        while (cursor + YTRACE_REC_HDR <= end) {
+            uint64_t ts; uint16_t rec_len;
+            memcpy(&ts, cursor, sizeof(ts));
+            memcpy(&rec_len, cursor + sizeof(ts), sizeof(rec_len));
+            const char *txt = cursor + YTRACE_REC_HDR;
+            if (txt + rec_len > end) break;
             if (grow((void **)&g_desc, &g_desc_cap, ndesc + 1, sizeof(*g_desc))) {
-                g_desc[ndesc] = (struct ytrace_desc){.ts_ns = ts, .text = txt, .len = l};
+                g_desc[ndesc] = (struct ytrace_desc){.ts_ns = ts, .text = txt, .len = rec_len};
                 ndesc++;
             }
-            p = txt + l;
+            cursor = txt + rec_len;
         }
         /* The marker lands at the first dropped line's timestamp — so after the
          * merge it appears in the stream exactly at the gap. */
-        if (dcount > 0 && grow((void **)&g_desc, &g_desc_cap, ndesc + 1, sizeof(*g_desc))) {
-            g_desc[ndesc] = (struct ytrace_desc){.ts_ns = dts, .text = NULL,
-                                                 .tid = tid, .drop = dcount};
+        if (drop_count > 0 && grow((void **)&g_desc, &g_desc_cap, ndesc + 1, sizeof(*g_desc))) {
+            g_desc[ndesc] = (struct ytrace_desc){.ts_ns = drop_ts, .text = NULL,
+                                                 .tid = tid, .drop = drop_count};
             ndesc++;
         }
     }
@@ -364,11 +364,11 @@ static void ytrace_flush_all(void)
     /* Phase 2 — merge by timestamp + write once. */
     if (ndesc) {
         qsort(g_desc, ndesc, sizeof(*g_desc), cmp_desc_ts);
-        size_t total = 0, nmark = 0;
+        size_t total = 0, marker_count = 0;
         for (size_t i = 0; i < ndesc; ++i) {
-            if (g_desc[i].text) total += g_desc[i].len; else nmark++;
+            if (g_desc[i].text) total += g_desc[i].len; else marker_count++;
         }
-        size_t reserve = total + nmark * 128 + 1;
+        size_t reserve = total + marker_count * 128 + 1;
         if (grow((void **)&g_outbuf, &g_outbuf_cap, reserve, 1)) {
             size_t off = 0;
             for (size_t i = 0; i < ndesc; ++i) {
@@ -376,9 +376,10 @@ static void ytrace_flush_all(void)
                     memcpy(g_outbuf + off, g_desc[i].text, g_desc[i].len);
                     off += g_desc[i].len;
                 } else if (off + 128 <= g_outbuf_cap) {
-                    int n = format_drop_marker(g_outbuf + off, g_outbuf_cap - off,
-                                               g_desc[i].ts_ns, g_desc[i].tid, g_desc[i].drop);
-                    if (n > 0) off += (size_t)n;
+                    int marker_len = format_drop_marker(g_outbuf + off, g_outbuf_cap - off,
+                                                        g_desc[i].ts_ns, g_desc[i].tid,
+                                                        g_desc[i].drop);
+                    if (marker_len > 0) off += (size_t)marker_len;
                 }
             }
             ytrace_write_all(g_sink_fd, g_outbuf, off);
@@ -396,18 +397,18 @@ static void ytrace_flush_all(void)
     /* Phase 4 — reclaim threads that exited and are fully drained. Only the
      * collector frees, so this is race-free. */
     pthread_mutex_lock(&g_threads_lock);
-    struct ytrace_thread **pp = &g_threads;
-    while (*pp) {
-        struct ytrace_thread *t = *pp;
-        pthread_mutex_lock(&t->lock);
-        int empty = (t->buf[0].len == 0 && t->buf[1].len == 0);
-        pthread_mutex_unlock(&t->lock);
-        if (t->dead && empty) {
-            *pp = t->next;
-            pthread_mutex_destroy(&t->lock);
-            free(t->buf[0].data); free(t->buf[1].data); free(t);
+    struct ytrace_thread **link = &g_threads;
+    while (*link) {
+        struct ytrace_thread *thread = *link;
+        pthread_mutex_lock(&thread->lock);
+        int empty = (thread->buf[0].len == 0 && thread->buf[1].len == 0);
+        pthread_mutex_unlock(&thread->lock);
+        if (thread->dead && empty) {
+            *link = thread->next;
+            pthread_mutex_destroy(&thread->lock);
+            free(thread->buf[0].data); free(thread->buf[1].data); free(thread);
         } else {
-            pp = &t->next;
+            link = &thread->next;
         }
     }
     pthread_mutex_unlock(&g_threads_lock);
@@ -515,16 +516,17 @@ void ytrace_output(const char *level, const char *file, int line, const char *fu
     uint64_t ts_ns = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
     format_timestamp(time_buf, sizeof(time_buf), &ts);
 
-    const char *bname = strrchr(file, '/');
-    if (!bname) bname = strrchr(file, '\\');
-    if (bname) bname++; else bname = file;
+    const char *base_name = strrchr(file, '/');
+    if (!base_name) base_name = strrchr(file, '\\');
+    if (base_name) base_name++; else base_name = file;
 
     char rec[YTRACE_REC_MAX];
-    int n = snprintf(rec, sizeof(rec), "[%s] %s[%-5s]%s %s:%d (%s): %s\n", time_buf,
-                     level_color(level), level, color_reset(), bname, line, func, msg_buf);
-    if (n <= 0) return;
-    if ((size_t)n >= sizeof(rec)) n = (int)sizeof(rec) - 1; /* truncated line */
-    ytrace_emit(ts_ns, rec, (size_t)n);
+    int rec_len = snprintf(rec, sizeof(rec), "[%s] %s[%-5s]%s %s:%d (%s): %s\n", time_buf,
+                           level_color(level), level, color_reset(), base_name, line, func,
+                           msg_buf);
+    if (rec_len <= 0) return;
+    if ((size_t)rec_len >= sizeof(rec)) rec_len = (int)sizeof(rec) - 1; /* truncated line */
+    ytrace_emit(ts_ns, rec, (size_t)rec_len);
 }
 
 /* ---- runtime control (operate on the point registry) -------------------- */
@@ -549,10 +551,10 @@ void ytrace_set_file_enabled(const char *file, bool enabled)
 {
     YTRACE_LOCK();
     for (size_t i = 0; i < g_point_count; i++) {
-        const char *pb = strrchr(g_points[i].file, '/');
-        if (!pb) pb = strrchr(g_points[i].file, '\\');
-        pb = pb ? pb + 1 : g_points[i].file;
-        if (strcmp(g_points[i].file, file) == 0 || strcmp(pb, file) == 0) {
+        const char *base_name = strrchr(g_points[i].file, '/');
+        if (!base_name) base_name = strrchr(g_points[i].file, '\\');
+        base_name = base_name ? base_name + 1 : g_points[i].file;
+        if (strcmp(g_points[i].file, file) == 0 || strcmp(base_name, file) == 0) {
             *g_points[i].enabled = enabled;
         }
     }
@@ -585,43 +587,43 @@ void ytrace_list(void)
     fprintf(stderr, "%-4s %-7s %-6s %-30s %-20s %s\n", "IDX", "ENABLED", "LEVEL", "FILE:LINE",
             "FUNCTION", "MESSAGE");
     for (size_t i = 0; i < g_point_count; i++) {
-        const ytrace_point_t *p = &g_points[i];
-        const char *bname = strrchr(p->file, '/');
-        if (!bname) bname = strrchr(p->file, '\\');
-        bname = bname ? bname + 1 : p->file;
+        const ytrace_point_t *point = &g_points[i];
+        const char *base_name = strrchr(point->file, '/');
+        if (!base_name) base_name = strrchr(point->file, '\\');
+        base_name = base_name ? base_name + 1 : point->file;
         char loc_buf[32];
-        snprintf(loc_buf, sizeof(loc_buf), "%s:%d", bname, p->line);
+        snprintf(loc_buf, sizeof(loc_buf), "%s:%d", base_name, point->line);
         char msg_buf[32];
-        if (p->message && strlen(p->message) > 0) {
-            snprintf(msg_buf, sizeof(msg_buf), "%.28s%s", p->message,
-                     strlen(p->message) > 28 ? ".." : "");
+        if (point->message && strlen(point->message) > 0) {
+            snprintf(msg_buf, sizeof(msg_buf), "%.28s%s", point->message,
+                     strlen(point->message) > 28 ? ".." : "");
         } else {
             msg_buf[0] = '\0';
         }
-        fprintf(stderr, "%-4zu %-7s %-6s %-30s %-20s %s\n", i, *p->enabled ? "ON" : "off",
-                p->level, loc_buf, p->function, msg_buf);
+        fprintf(stderr, "%-4zu %-7s %-6s %-30s %-20s %s\n", i, *point->enabled ? "ON" : "off",
+                point->level, loc_buf, point->function, msg_buf);
     }
     fprintf(stderr, "\n");
     YTRACE_UNLOCK();
 }
 
-void ytime_timer_observe(struct ytime_timer *t, const char *name, const char *file, int line,
+void ytime_timer_observe(struct ytime_timer *timer, const char *name, const char *file, int line,
                          const char *function, double elapsed_ms)
 {
     YTRACE_LOCK();
-    if (!t->registered) {
-        t->name = name;
-        t->file = file;
-        t->line = line;
-        t->function = function;
-        t->count = 0;
-        t->sum_ms = 0.0;
-        t->last_ms = 0.0;
-        t->min_ms = elapsed_ms;
-        t->max_ms = elapsed_ms;
-        t->avg_ms = 0.0;
+    if (!timer->registered) {
+        timer->name = name;
+        timer->file = file;
+        timer->line = line;
+        timer->function = function;
+        timer->count = 0;
+        timer->sum_ms = 0.0;
+        timer->last_ms = 0.0;
+        timer->min_ms = elapsed_ms;
+        timer->max_ms = elapsed_ms;
+        timer->avg_ms = 0.0;
         if (g_timer_count < YTIME_MAX_TIMERS) {
-            g_timers[g_timer_count++] = t;
+            g_timers[g_timer_count++] = timer;
         } else {
             static bool warned = false;
             if (!warned) {
@@ -629,14 +631,14 @@ void ytime_timer_observe(struct ytime_timer *t, const char *name, const char *fi
                 warned = true;
             }
         }
-        t->registered = true;
+        timer->registered = true;
     }
-    t->count++;
-    t->sum_ms += elapsed_ms;
-    t->last_ms = elapsed_ms;
-    t->avg_ms = t->sum_ms / (double)t->count;
-    if (elapsed_ms < t->min_ms) t->min_ms = elapsed_ms;
-    if (elapsed_ms > t->max_ms) t->max_ms = elapsed_ms;
+    timer->count++;
+    timer->sum_ms += elapsed_ms;
+    timer->last_ms = elapsed_ms;
+    timer->avg_ms = timer->sum_ms / (double)timer->count;
+    if (elapsed_ms < timer->min_ms) timer->min_ms = elapsed_ms;
+    if (elapsed_ms > timer->max_ms) timer->max_ms = elapsed_ms;
     YTRACE_UNLOCK();
 }
 
@@ -660,15 +662,15 @@ void ytime_timer_list(void)
     fprintf(stderr, "%-4s %-20s %-30s %10s %10s %10s %10s %10s\n", "IDX", "NAME", "FILE:LINE",
             "N", "LAST(ms)", "AVG(ms)", "MIN(ms)", "MAX(ms)");
     for (size_t i = 0; i < g_timer_count; i++) {
-        const struct ytime_timer *t = g_timers[i];
-        const char *bname = strrchr(t->file, '/');
-        if (!bname) bname = strrchr(t->file, '\\');
-        bname = bname ? bname + 1 : t->file;
+        const struct ytime_timer *timer = g_timers[i];
+        const char *base_name = strrchr(timer->file, '/');
+        if (!base_name) base_name = strrchr(timer->file, '\\');
+        base_name = base_name ? base_name + 1 : timer->file;
         char loc_buf[32];
-        snprintf(loc_buf, sizeof(loc_buf), "%s:%d", bname, t->line);
+        snprintf(loc_buf, sizeof(loc_buf), "%s:%d", base_name, timer->line);
         fprintf(stderr, "%-4zu %-20s %-30s %10llu %10.3f %10.3f %10.3f %10.3f\n", i,
-                t->name ? t->name : "", loc_buf, (unsigned long long)t->count, t->last_ms,
-                t->avg_ms, t->min_ms, t->max_ms);
+                timer->name ? timer->name : "", loc_buf, (unsigned long long)timer->count,
+                timer->last_ms, timer->avg_ms, timer->min_ms, timer->max_ms);
     }
     fprintf(stderr, "\n");
     YTRACE_UNLOCK();
@@ -678,13 +680,13 @@ void ytime_timer_reset_all(void)
 {
     YTRACE_LOCK();
     for (size_t i = 0; i < g_timer_count; i++) {
-        struct ytime_timer *t = g_timers[i];
-        t->count = 0;
-        t->sum_ms = 0.0;
-        t->last_ms = 0.0;
-        t->min_ms = 0.0;
-        t->max_ms = 0.0;
-        t->avg_ms = 0.0;
+        struct ytime_timer *timer = g_timers[i];
+        timer->count = 0;
+        timer->sum_ms = 0.0;
+        timer->last_ms = 0.0;
+        timer->min_ms = 0.0;
+        timer->max_ms = 0.0;
+        timer->avg_ms = 0.0;
     }
     YTRACE_UNLOCK();
 }

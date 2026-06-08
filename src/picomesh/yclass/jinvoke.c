@@ -33,9 +33,9 @@ void jinvoke_add_lookup(jinvoke_lookup_fn fn)
 jinvoke_fn jinvoke_for(const char *qname)
 {
     if (!qname) return NULL;
-    for (struct lookup_node *n = *chain_head(); n; n = n->next) {
-        jinvoke_fn f = n->fn(qname);
-        if (f) return f;
+    for (struct lookup_node *node = *chain_head(); node; node = node->next) {
+        jinvoke_fn found_fn = node->fn(qname);
+        if (found_fn) return found_fn;
     }
     return NULL;
 }
@@ -67,9 +67,9 @@ void jinvoke_params_add_lookup(jinvoke_params_lookup_fn fn)
 const struct jinvoke_params *jinvoke_params_for(const char *qname)
 {
     if (!qname) return NULL;
-    for (struct params_node *n = *params_chain_head(); n; n = n->next) {
-        const struct jinvoke_params *p = n->fn(qname);
-        if (p) return p;
+    for (struct params_node *node = *params_chain_head(); node; node = node->next) {
+        const struct jinvoke_params *params = node->fn(qname);
+        if (params) return params;
     }
     return NULL;
 }

@@ -14,7 +14,10 @@ export YTRACE_DEFAULT_ON="${YTRACE_DEFAULT_ON:-yes}"
 export YTRACE_LOG_LEVEL="${YTRACE_LOG_LEVEL:-error}"
 
 PICOMESH=./build-desktop-release/picomesh
-SERVER=./tools/msgpack-client/echo_server.py
+# The foreign service is built on the GENERATED server skeleton
+# (bindings/python/calculator_server.py via msgpack-codegen --role server, gh#23);
+# only the four arithmetic bodies are hand-written.
+SERVER=./tools/msgpack-client/calculator_server_impl.py
 HOST=127.0.0.1
 PORT=7912
 LIFETIME=25

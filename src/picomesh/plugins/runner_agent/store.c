@@ -69,30 +69,30 @@ struct ra_record {
 
 static struct ra_storage_result ra_open(void)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return PICOMESH_ERR(ra_storage, "runner_agent: no active engine");
-    struct ra_storage h = {.c = picomesh_engine_service_ctx(e, "sharded_storage")};
-    struct object_ptr_result o = sharded_storage_db_create(&h.c);
-    if (PICOMESH_IS_ERR(o)) return PICOMESH_ERR(ra_storage, "runner_agent: storage_db_create failed", o);
-    h.obj = o.value;
-    return PICOMESH_OK(ra_storage, h);
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return PICOMESH_ERR(ra_storage, "runner_agent: no active engine");
+    struct ra_storage storage = {.c = picomesh_engine_service_ctx(engine, "sharded_storage")};
+    struct object_ptr_result create_res = sharded_storage_db_create(&storage.c);
+    if (PICOMESH_IS_ERR(create_res)) return PICOMESH_ERR(ra_storage, "runner_agent: storage_db_create failed", create_res);
+    storage.obj = create_res.value;
+    return PICOMESH_OK(ra_storage, storage);
 }
 
 /* Atomic counter / id bump — OK value is the value after the add. */
-static struct picomesh_int64_result ra_incr(struct ra_storage *h, struct yheaders *hdrs, const char *key, int64_t delta)
+static struct picomesh_int64_result ra_incr(struct ra_storage *storage, struct yheaders *hdrs, const char *key, int64_t delta)
 {
-    struct picomesh_int64_result r = sharded_storage_db_incr(&h->c, h->obj, hdrs, RA_CTX, key, delta);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int64, "runner_agent: counter update failed", r);
-    return r;
+    struct picomesh_int64_result incr_res = sharded_storage_db_incr(&storage->c, storage->obj, hdrs, RA_CTX, key, delta);
+    if (PICOMESH_IS_ERR(incr_res)) return PICOMESH_ERR(picomesh_int64, "runner_agent: counter update failed", incr_res);
+    return incr_res;
 }
 
-static struct picomesh_int64_result ra_get_int(struct ra_storage *h, struct yheaders *hdrs, const char *key, int64_t fallback)
+static struct picomesh_int64_result ra_get_int(struct ra_storage *storage, struct yheaders *hdrs, const char *key, int64_t fallback)
 {
-    struct picomesh_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, RA_CTX, key);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int64, "runner_agent: storage read failed", r);
-    int64_t v = (r.value && r.value[0]) ? strtoll(r.value, NULL, 10) : fallback;
-    free(r.value);
-    return PICOMESH_OK(picomesh_int64, v);
+    struct picomesh_string_result get_res = sharded_storage_db_get(&storage->c, storage->obj, hdrs, RA_CTX, key);
+    if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_int64, "runner_agent: storage read failed", get_res);
+    int64_t value = (get_res.value && get_res.value[0]) ? strtoll(get_res.value, NULL, 10) : fallback;
+    free(get_res.value);
+    return PICOMESH_OK(picomesh_int64, value);
 }
 
 /* SHA-256 hex of a NUL-terminated string into a 65-byte buffer. */
@@ -116,12 +116,12 @@ static int ra_alloc_token(char *out, size_t cap)
     uint8_t raw[16];
     size_t got = 0;
     while (got < sizeof(raw)) {
-        ssize_t n = getrandom(raw + got, sizeof(raw) - got, 0);
-        if (n < 0) {
+        ssize_t read_len = getrandom(raw + got, sizeof(raw) - got, 0);
+        if (read_len < 0) {
             if (errno == EINTR) continue;
             return 0;
         }
-        got += (size_t)n;
+        got += (size_t)read_len;
     }
     static const char hex[] = "0123456789abcdef";
     memcpy(out, "rnr_", 4);
@@ -137,21 +137,21 @@ static int ra_alloc_token(char *out, size_t cap)
 /* Serialize a runner record to owned JSON. */
 static char *ra_record_to_json(const struct ra_record *rec)
 {
-    struct yjson_writer *w = yjson_writer_new();
-    if (!w) return NULL;
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "name");      yjson_writer_string(w, rec->name);
-    yjson_writer_key(w, "labels");    yjson_writer_string(w, rec->labels);
-    yjson_writer_key(w, "version");   yjson_writer_string(w, rec->version);
-    yjson_writer_key(w, "host");      yjson_writer_string(w, rec->host);
-    yjson_writer_key(w, "status");    yjson_writer_string(w, rec->status);
-    yjson_writer_key(w, "last_seen"); yjson_writer_int(w, rec->last_seen);
-    yjson_writer_key(w, "tok_hash");  yjson_writer_string(w, rec->tok_hash);
-    yjson_writer_end_object(w);
+    struct yjson_writer *writer = yjson_writer_new();
+    if (!writer) return NULL;
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "name");      yjson_writer_string(writer, rec->name);
+    yjson_writer_key(writer, "labels");    yjson_writer_string(writer, rec->labels);
+    yjson_writer_key(writer, "version");   yjson_writer_string(writer, rec->version);
+    yjson_writer_key(writer, "host");      yjson_writer_string(writer, rec->host);
+    yjson_writer_key(writer, "status");    yjson_writer_string(writer, rec->status);
+    yjson_writer_key(writer, "last_seen"); yjson_writer_int(writer, rec->last_seen);
+    yjson_writer_key(writer, "tok_hash");  yjson_writer_string(writer, rec->tok_hash);
+    yjson_writer_end_object(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(w, &len);
+    const char *data = yjson_writer_data(writer, &len);
     char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(w);
+    yjson_writer_free(writer);
     return out;
 }
 
@@ -162,16 +162,16 @@ static void ra_copy_field(char *dst, size_t cap, const struct yjson_value *obj, 
 }
 
 /* Read runner:<id> into `rec`. OK value: 1 = present, 0 = absent. */
-static struct picomesh_int_result ra_record_load(struct ra_storage *h, struct yheaders *hdrs,
+static struct picomesh_int_result ra_record_load(struct ra_storage *storage, struct yheaders *hdrs,
                                                  uint32_t runner_id, struct ra_record *rec)
 {
     char key[48];
     snprintf(key, sizeof(key), "runner:%u", runner_id);
-    struct picomesh_string_result r = sharded_storage_db_get(&h->c, h->obj, hdrs, RA_CTX, key);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int, "runner_agent: record read failed", r);
-    if (!r.value || !r.value[0]) { free(r.value); return PICOMESH_OK(picomesh_int, 0); }
-    struct yjson_doc *doc = yjson_parse(r.value, strlen(r.value));
-    free(r.value);
+    struct picomesh_string_result get_res = sharded_storage_db_get(&storage->c, storage->obj, hdrs, RA_CTX, key);
+    if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_int, "runner_agent: record read failed", get_res);
+    if (!get_res.value || !get_res.value[0]) { free(get_res.value); return PICOMESH_OK(picomesh_int, 0); }
+    struct yjson_doc *doc = yjson_parse(get_res.value, strlen(get_res.value));
+    free(get_res.value);
     if (!doc) return PICOMESH_ERR(picomesh_int, "runner_agent: record parse failed");
     const struct yjson_value *obj = yjson_doc_root(doc);
     memset(rec, 0, sizeof(*rec));
@@ -187,16 +187,16 @@ static struct picomesh_int_result ra_record_load(struct ra_storage *h, struct yh
 }
 
 /* Persist a runner record at runner:<id>. */
-static struct picomesh_void_result ra_record_store(struct ra_storage *h, struct yheaders *hdrs,
+static struct picomesh_void_result ra_record_store(struct ra_storage *storage, struct yheaders *hdrs,
                                                    uint32_t runner_id, const struct ra_record *rec)
 {
     char *json = ra_record_to_json(rec);
     if (!json) return PICOMESH_ERR(picomesh_void, "runner_agent: record encode failed");
     char key[48];
     snprintf(key, sizeof(key), "runner:%u", runner_id);
-    struct picomesh_int_result r = sharded_storage_db_set(&h->c, h->obj, hdrs, RA_CTX, key, json);
+    struct picomesh_int_result set_res = sharded_storage_db_set(&storage->c, storage->obj, hdrs, RA_CTX, key, json);
     free(json);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_void, "runner_agent: record write failed", r);
+    if (PICOMESH_IS_ERR(set_res)) return PICOMESH_ERR(picomesh_void, "runner_agent: record write failed", set_res);
     return PICOMESH_OK_VOID();
 }
 
@@ -215,17 +215,17 @@ struct picomesh_json_result runner_agent_runner_agent_create_token_impl(struct c
                                                                         const char *name, const char *labels)
 {
     (void)ctx; (void)obj;
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: storage open failed", sr);
-    struct ra_storage h = sr.value;
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
 
     char token[40];
     if (!ra_alloc_token(token, sizeof(token)))
         return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: secure random unavailable");
 
-    struct picomesh_int64_result idr = ra_incr(&h, hdrs, "next_id", 1);
-    if (PICOMESH_IS_ERR(idr)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: allocate id failed", idr);
-    uint32_t runner_id = (uint32_t)idr.value;
+    struct picomesh_int64_result id_res = ra_incr(&storage, hdrs, "next_id", 1);
+    if (PICOMESH_IS_ERR(id_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: allocate id failed", id_res);
+    uint32_t runner_id = (uint32_t)id_res.value;
 
     struct ra_record rec;
     memset(&rec, 0, sizeof(rec));
@@ -235,29 +235,29 @@ struct picomesh_json_result runner_agent_runner_agent_create_token_impl(struct c
     rec.last_seen = picomesh_security_now();
     ra_sha256_hex(token, rec.tok_hash);
 
-    struct picomesh_void_result ws = ra_record_store(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(ws)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: persist record failed", ws);
+    struct picomesh_void_result store_res = ra_record_store(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(store_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: persist record failed", store_res);
 
     char tok_key[80];
     snprintf(tok_key, sizeof(tok_key), "tok:%s", rec.tok_hash);
     char id_str[16];
     snprintf(id_str, sizeof(id_str), "%u", runner_id);
-    struct picomesh_int_result ts = sharded_storage_db_set(&h.c, h.obj, hdrs, RA_CTX, tok_key, id_str);
-    if (PICOMESH_IS_ERR(ts)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: persist token failed", ts);
+    struct picomesh_int_result tok_set_res = sharded_storage_db_set(&storage.c, storage.obj, hdrs, RA_CTX, tok_key, id_str);
+    if (PICOMESH_IS_ERR(tok_set_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: persist token failed", tok_set_res);
 
-    struct picomesh_int64_result cc = ra_incr(&h, hdrs, "count", 1);
-    if (PICOMESH_IS_ERR(cc)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: bump count failed", cc);
+    struct picomesh_int64_result count_res = ra_incr(&storage, hdrs, "count", 1);
+    if (PICOMESH_IS_ERR(count_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: bump count failed", count_res);
 
-    struct yjson_writer *w = yjson_writer_new();
-    if (!w) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: writer alloc failed");
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "runner_id"); yjson_writer_int(w, (int64_t)runner_id);
-    yjson_writer_key(w, "token");     yjson_writer_string(w, token);
-    yjson_writer_end_object(w);
+    struct yjson_writer *writer = yjson_writer_new();
+    if (!writer) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: writer alloc failed");
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "runner_id"); yjson_writer_int(writer, (int64_t)runner_id);
+    yjson_writer_key(writer, "token");     yjson_writer_string(writer, token);
+    yjson_writer_end_object(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(w, &len);
+    const char *data = yjson_writer_data(writer, &len);
     char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(w);
+    yjson_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: encode failed");
     /* The raw token is never logged — only the runner id. */
     yinfo("runner_agent: created runner=%u name=%s", runner_id, rec.name);
@@ -271,27 +271,27 @@ struct picomesh_uint32_result runner_agent_runner_agent_lookup_token_impl(struct
 {
     (void)ctx; (void)obj;
     if (!token || !*token) return PICOMESH_OK(picomesh_uint32, 0);
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_lookup_token: storage open failed", sr);
-    struct ra_storage h = sr.value;
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_lookup_token: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
 
     char hash[65];
     ra_sha256_hex(token, hash);
     char tok_key[80];
     snprintf(tok_key, sizeof(tok_key), "tok:%s", hash);
-    struct picomesh_string_result r = sharded_storage_db_get(&h.c, h.obj, hdrs, RA_CTX, tok_key);
-    if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_lookup_token: read failed", r);
-    if (!r.value || !r.value[0]) { free(r.value); return PICOMESH_OK(picomesh_uint32, 0); }
-    uint32_t runner_id = (uint32_t)strtoul(r.value, NULL, 10);
-    free(r.value);
+    struct picomesh_string_result get_res = sharded_storage_db_get(&storage.c, storage.obj, hdrs, RA_CTX, tok_key);
+    if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_lookup_token: read failed", get_res);
+    if (!get_res.value || !get_res.value[0]) { free(get_res.value); return PICOMESH_OK(picomesh_uint32, 0); }
+    uint32_t runner_id = (uint32_t)strtoul(get_res.value, NULL, 10);
+    free(get_res.value);
     if (runner_id == 0) return PICOMESH_OK(picomesh_uint32, 0);
 
     /* A disabled (revoked) runner must not authenticate even if a stale token
      * mapping lingers. */
     struct ra_record rec;
-    struct picomesh_int_result lr = ra_record_load(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_lookup_token: record load failed", lr);
-    if (lr.value == 0) return PICOMESH_OK(picomesh_uint32, 0);
+    struct picomesh_int_result load_res = ra_record_load(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_lookup_token: record load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_OK(picomesh_uint32, 0);
     if (strcmp(rec.status, "disabled") == 0) return PICOMESH_OK(picomesh_uint32, 0);
     return PICOMESH_OK(picomesh_uint32, runner_id);
 }
@@ -307,18 +307,18 @@ PICOMESH_CLASS_ANNOTATE("override@runner_agent:runner_agent:runner_agent_exchang
 struct picomesh_string_result runner_agent_runner_agent_exchange_impl(struct ctx *ctx, struct object *obj,
                                                                       struct yheaders *hdrs, const char *token)
 {
-    struct picomesh_uint32_result idr = runner_agent_runner_agent_lookup_token_impl(ctx, obj, hdrs, token);
-    if (PICOMESH_IS_ERR(idr)) return PICOMESH_ERR(picomesh_string, "runner_agent_exchange: lookup failed", idr);
-    uint32_t runner_id = idr.value;
+    struct picomesh_uint32_result lookup_res = runner_agent_runner_agent_lookup_token_impl(ctx, obj, hdrs, token);
+    if (PICOMESH_IS_ERR(lookup_res)) return PICOMESH_ERR(picomesh_string, "runner_agent_exchange: lookup failed", lookup_res);
+    uint32_t runner_id = lookup_res.value;
     if (runner_id == 0) return PICOMESH_ERR(picomesh_string, "runner_agent_exchange: unknown or revoked runner token");
 
     char username[40], groups[64];
     snprintf(username, sizeof(username), "runner-%u", runner_id);
     snprintf(groups, sizeof(groups), "site:runner,runner:%u", runner_id);
 
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return PICOMESH_ERR(picomesh_string, "runner_agent_exchange: no active engine");
-    struct ctx ti_ctx = picomesh_engine_service_ctx(e, "token_issuer");
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return PICOMESH_ERR(picomesh_string, "runner_agent_exchange: no active engine");
+    struct ctx ti_ctx = picomesh_engine_service_ctx(engine, "token_issuer");
     struct object_ptr_result ti_obj = token_issuer_token_issuer_create(&ti_ctx);
     if (PICOMESH_IS_ERR(ti_obj)) return PICOMESH_ERR(picomesh_string, "runner_agent_exchange: token_issuer unreachable", ti_obj);
     struct picomesh_string_result jwt =
@@ -333,27 +333,27 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token_impl(struct ct
                                                                        uint32_t runner_id)
 {
     (void)ctx; (void)obj;
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: storage open failed", sr);
-    struct ra_storage h = sr.value;
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
 
     struct ra_record rec;
-    struct picomesh_int_result lr = ra_record_load(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: record load failed", lr);
-    if (lr.value == 0) return PICOMESH_OK(picomesh_int, 0);
+    struct picomesh_int_result load_res = ra_record_load(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: record load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_OK(picomesh_int, 0);
     if (strcmp(rec.status, "disabled") == 0) return PICOMESH_OK(picomesh_int, 0);
 
     if (rec.tok_hash[0]) {
         char tok_key[80];
         snprintf(tok_key, sizeof(tok_key), "tok:%s", rec.tok_hash);
-        struct picomesh_int_result del = sharded_storage_db_del(&h.c, h.obj, hdrs, RA_CTX, tok_key);
-        if (PICOMESH_IS_ERR(del)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: token delete failed", del);
+        struct picomesh_int_result del_res = sharded_storage_db_del(&storage.c, storage.obj, hdrs, RA_CTX, tok_key);
+        if (PICOMESH_IS_ERR(del_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: token delete failed", del_res);
     }
     snprintf(rec.status, sizeof(rec.status), "disabled");
-    struct picomesh_void_result ws = ra_record_store(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(ws)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: record write failed", ws);
-    struct picomesh_int64_result cc = ra_incr(&h, hdrs, "count", -1);
-    if (PICOMESH_IS_ERR(cc)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: count update failed", cc);
+    struct picomesh_void_result store_res = ra_record_store(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(store_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: record write failed", store_res);
+    struct picomesh_int64_result count_res = ra_incr(&storage, hdrs, "count", -1);
+    if (PICOMESH_IS_ERR(count_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: count update failed", count_res);
     yinfo("runner_agent: revoked runner=%u", runner_id);
     return PICOMESH_OK(picomesh_int, 1);
 }
@@ -368,14 +368,14 @@ struct picomesh_uint32_result runner_agent_runner_agent_register_impl(struct ctx
     (void)ctx; (void)obj;
     if (!ra_caller_is(hdrs, runner_id))
         return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: caller is not this runner");
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: storage open failed", sr);
-    struct ra_storage h = sr.value;
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
 
     struct ra_record rec;
-    struct picomesh_int_result lr = ra_record_load(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: record load failed", lr);
-    if (lr.value == 0) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: unknown runner");
+    struct picomesh_int_result load_res = ra_record_load(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: record load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: unknown runner");
     if (strcmp(rec.status, "disabled") == 0)
         return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: runner is disabled");
 
@@ -386,8 +386,8 @@ struct picomesh_uint32_result runner_agent_runner_agent_register_impl(struct ctx
     snprintf(rec.status, sizeof(rec.status), "online");
     rec.last_seen = picomesh_security_now();
 
-    struct picomesh_void_result ws = ra_record_store(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(ws)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: record write failed", ws);
+    struct picomesh_void_result store_res = ra_record_store(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(store_res)) return PICOMESH_ERR(picomesh_uint32, "runner_agent_register: record write failed", store_res);
     yinfo("runner_agent: register runner=%u labels=%s", runner_id, rec.labels);
     return PICOMESH_OK(picomesh_uint32, runner_id);
 }
@@ -400,21 +400,21 @@ struct picomesh_int_result runner_agent_runner_agent_heartbeat_impl(struct ctx *
     (void)ctx; (void)obj;
     if (!ra_caller_is(hdrs, runner_id))
         return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: caller is not this runner");
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: storage open failed", sr);
-    struct ra_storage h = sr.value;
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
 
     struct ra_record rec;
-    struct picomesh_int_result lr = ra_record_load(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: record load failed", lr);
-    if (lr.value == 0) return PICOMESH_OK(picomesh_int, 0);
+    struct picomesh_int_result load_res = ra_record_load(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: record load failed", load_res);
+    if (load_res.value == 0) return PICOMESH_OK(picomesh_int, 0);
     if (strcmp(rec.status, "disabled") == 0)
         return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: runner is disabled");
 
     snprintf(rec.status, sizeof(rec.status), "%s", (status && *status) ? status : "online");
     rec.last_seen = picomesh_security_now();
-    struct picomesh_void_result ws = ra_record_store(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(ws)) return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: record write failed", ws);
+    struct picomesh_void_result store_res = ra_record_store(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(store_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_heartbeat: record write failed", store_res);
     return PICOMESH_OK(picomesh_int, 1);
 }
 
@@ -423,30 +423,30 @@ struct picomesh_json_result runner_agent_runner_agent_get_impl(struct ctx *ctx, 
                                                                struct yheaders *hdrs, uint32_t runner_id)
 {
     (void)ctx; (void)obj;
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_json, "runner_agent_get: storage open failed", sr);
-    struct ra_storage h = sr.value;
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_get: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
     struct ra_record rec;
-    struct picomesh_int_result lr = ra_record_load(&h, hdrs, runner_id, &rec);
-    if (PICOMESH_IS_ERR(lr)) return PICOMESH_ERR(picomesh_json, "runner_agent_get: record load failed", lr);
-    if (lr.value == 0) { char *empty = strdup("{}"); return empty ? PICOMESH_OK(picomesh_json, empty)
+    struct picomesh_int_result load_res = ra_record_load(&storage, hdrs, runner_id, &rec);
+    if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_get: record load failed", load_res);
+    if (load_res.value == 0) { char *empty = strdup("{}"); return empty ? PICOMESH_OK(picomesh_json, empty)
                                                                   : PICOMESH_ERR(picomesh_json, "runner_agent_get: oom"); }
     /* Echo the record but never the token hash — that is at-rest secret material. */
-    struct yjson_writer *w = yjson_writer_new();
-    if (!w) return PICOMESH_ERR(picomesh_json, "runner_agent_get: writer alloc failed");
-    yjson_writer_begin_object(w);
-    yjson_writer_key(w, "runner_id"); yjson_writer_int(w, (int64_t)runner_id);
-    yjson_writer_key(w, "name");      yjson_writer_string(w, rec.name);
-    yjson_writer_key(w, "labels");    yjson_writer_string(w, rec.labels);
-    yjson_writer_key(w, "version");   yjson_writer_string(w, rec.version);
-    yjson_writer_key(w, "host");      yjson_writer_string(w, rec.host);
-    yjson_writer_key(w, "status");    yjson_writer_string(w, rec.status);
-    yjson_writer_key(w, "last_seen"); yjson_writer_int(w, rec.last_seen);
-    yjson_writer_end_object(w);
+    struct yjson_writer *writer = yjson_writer_new();
+    if (!writer) return PICOMESH_ERR(picomesh_json, "runner_agent_get: writer alloc failed");
+    yjson_writer_begin_object(writer);
+    yjson_writer_key(writer, "runner_id"); yjson_writer_int(writer, (int64_t)runner_id);
+    yjson_writer_key(writer, "name");      yjson_writer_string(writer, rec.name);
+    yjson_writer_key(writer, "labels");    yjson_writer_string(writer, rec.labels);
+    yjson_writer_key(writer, "version");   yjson_writer_string(writer, rec.version);
+    yjson_writer_key(writer, "host");      yjson_writer_string(writer, rec.host);
+    yjson_writer_key(writer, "status");    yjson_writer_string(writer, rec.status);
+    yjson_writer_key(writer, "last_seen"); yjson_writer_int(writer, rec.last_seen);
+    yjson_writer_end_object(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(w, &len);
+    const char *data = yjson_writer_data(writer, &len);
     char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(w);
+    yjson_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "runner_agent_get: encode failed");
     return PICOMESH_OK(picomesh_json, out);
 }
@@ -457,10 +457,10 @@ struct picomesh_json_result runner_agent_runner_agent_list_impl(struct ctx *ctx,
                                                                 int64_t offset, int64_t limit)
 {
     (void)ctx; (void)obj;
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_json, "runner_agent_list: storage open failed", sr);
-    struct ra_storage h = sr.value;
-    return sharded_storage_db_list(&h.c, h.obj, hdrs, RA_CTX, "runner:", offset, limit);
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_list: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
+    return sharded_storage_db_list(&storage.c, storage.obj, hdrs, RA_CTX, "runner:", offset, limit);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@runner_agent:runner_agent:runner_agent_list_all")
@@ -468,22 +468,22 @@ struct picomesh_json_result runner_agent_runner_agent_list_all_impl(struct ctx *
                                                                     struct yheaders *hdrs)
 {
     (void)ctx; (void)obj;
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_json, "runner_agent_list_all: storage open failed", sr);
-    struct ra_storage h = sr.value;
-    return sharded_storage_db_list_all(&h.c, h.obj, hdrs, RA_CTX, "runner:");
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_list_all: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
+    return sharded_storage_db_list_all(&storage.c, storage.obj, hdrs, RA_CTX, "runner:");
 }
 
 PICOMESH_CLASS_ANNOTATE("override@runner_agent:runner_agent:runner_agent_count_active")
 struct picomesh_size_result runner_agent_runner_agent_count_active_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs)
 {
     (void)ctx; (void)obj;
-    struct ra_storage_result sr = ra_open();
-    if (PICOMESH_IS_ERR(sr)) return PICOMESH_ERR(picomesh_size, "runner_agent_count_active: storage open failed", sr);
-    struct ra_storage h = sr.value;
-    struct picomesh_int64_result cr = ra_get_int(&h, hdrs, "count", 0);
-    if (PICOMESH_IS_ERR(cr)) return PICOMESH_ERR(picomesh_size, "runner_agent_count_active: read failed", cr);
-    return PICOMESH_OK(picomesh_size, (size_t)(cr.value < 0 ? 0 : cr.value));
+    struct ra_storage_result open_res = ra_open();
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_size, "runner_agent_count_active: storage open failed", open_res);
+    struct ra_storage storage = open_res.value;
+    struct picomesh_int64_result count_res = ra_get_int(&storage, hdrs, "count", 0);
+    if (PICOMESH_IS_ERR(count_res)) return PICOMESH_ERR(picomesh_size, "runner_agent_count_active: read failed", count_res);
+    return PICOMESH_OK(picomesh_size, (size_t)(count_res.value < 0 ? 0 : count_res.value));
 }
 
 #include "store.gen.c"

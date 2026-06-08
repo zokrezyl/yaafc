@@ -81,12 +81,12 @@ static int autoport_probe_bind(const char *host, int port)
 static int autoport_registry_addr(struct picomesh_engine *engine, char *host_out, size_t cap,
                                   int *port_out)
 {
-    struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(engine), "registry");
-    if (PICOMESH_IS_ERR(r) || !r.value || yconfig_node_kind(r.value) != YCONFIG_MAP) return 0;
-    const struct yconfig_node *port_node = yconfig_node_get(r.value, "port");
+    struct yconfig_node_ptr_result registry_res = yconfig_get(picomesh_engine_config(engine), "registry");
+    if (PICOMESH_IS_ERR(registry_res) || !registry_res.value || yconfig_node_kind(registry_res.value) != YCONFIG_MAP) return 0;
+    const struct yconfig_node *port_node = yconfig_node_get(registry_res.value, "port");
     int64_t port = port_node ? yconfig_node_as_int(port_node, -1) : -1;
     if (port <= 0) return 0;
-    const struct yconfig_node *host_node = yconfig_node_get(r.value, "host");
+    const struct yconfig_node *host_node = yconfig_node_get(registry_res.value, "host");
     const char *host = host_node ? yconfig_node_as_string(host_node, NULL) : NULL;
     snprintf(host_out, cap, "%s", (host && *host) ? host : "127.0.0.1");
     *port_out = (int)port;
@@ -104,19 +104,19 @@ static int autoport_plugin_active(struct picomesh_engine *engine, const char *na
     if (name && *name) {
         char path[256];
         snprintf(path, sizeof(path), "mesh.services.%s.plugins", name);
-        struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(engine), path);
-        if (PICOMESH_IS_OK(r) && r.value && yconfig_node_kind(r.value) == YCONFIG_LIST) plugins = r.value;
+        struct yconfig_node_ptr_result plugins_res = yconfig_get(picomesh_engine_config(engine), path);
+        if (PICOMESH_IS_OK(plugins_res) && plugins_res.value && yconfig_node_kind(plugins_res.value) == YCONFIG_LIST) plugins = plugins_res.value;
     }
     if (!plugins) {
-        struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(engine), "plugins");
-        if (PICOMESH_IS_OK(r) && r.value && yconfig_node_kind(r.value) == YCONFIG_LIST) plugins = r.value;
+        struct yconfig_node_ptr_result plugins_res = yconfig_get(picomesh_engine_config(engine), "plugins");
+        if (PICOMESH_IS_OK(plugins_res) && plugins_res.value && yconfig_node_kind(plugins_res.value) == YCONFIG_LIST) plugins = plugins_res.value;
     }
     if (!plugins) return 0;
-    size_t n = yconfig_node_size(plugins);
-    for (size_t i = 0; i < n; ++i) {
+    size_t count = yconfig_node_size(plugins);
+    for (size_t i = 0; i < count; ++i) {
         const struct yconfig_node *item = yconfig_node_at(plugins, i);
-        const char *s = item ? yconfig_node_as_string(item, NULL) : NULL;
-        if (s && strcmp(s, plugin) == 0) return 1;
+        const char *str = item ? yconfig_node_as_string(item, NULL) : NULL;
+        if (str && strcmp(str, plugin) == 0) return 1;
     }
     return 0;
 }
@@ -148,14 +148,14 @@ static int reg_session_open(struct picomesh_engine *engine, struct reg_session *
         return 0;
     }
     session->ctx = (struct ctx){.peer = session->channel};
-    struct object_ptr_result obj_r = registry_registry_create(&session->ctx);
-    if (PICOMESH_IS_ERR(obj_r)) {
-        picomesh_error_destroy(obj_r.error);
+    struct object_ptr_result obj_res = registry_registry_create(&session->ctx);
+    if (PICOMESH_IS_ERR(obj_res)) {
+        picomesh_error_destroy(obj_res.error);
         peer_channel_destroy(session->channel);
         session->channel = NULL;
         return 0;
     }
-    session->obj = obj_r.value;
+    session->obj = obj_res.value;
     return 1;
 }
 
@@ -175,26 +175,26 @@ static int reg_resolve(struct reg_session *session, const char *service, int wai
 {
     int tries = wait ? 150 : 1; /* ~15s of 100ms polls */
     for (int attempt = 0; attempt < tries; ++attempt) {
-        struct picomesh_string_result r =
+        struct picomesh_string_result resolve_res =
             registry_registry_resolve(&session->ctx, session->obj, NULL, service);
-        if (PICOMESH_IS_ERR(r)) {
-            picomesh_error_destroy(r.error);
-        } else if (r.value && *r.value) {
-            const char *colon = strrchr(r.value, ':');
+        if (PICOMESH_IS_ERR(resolve_res)) {
+            picomesh_error_destroy(resolve_res.error);
+        } else if (resolve_res.value && *resolve_res.value) {
+            const char *colon = strrchr(resolve_res.value, ':');
             int ok = 0;
-            if (colon && colon != r.value) {
-                size_t hlen = (size_t)(colon - r.value);
-                if (hlen < cap) {
-                    memcpy(host_out, r.value, hlen);
-                    host_out[hlen] = 0;
+            if (colon && colon != resolve_res.value) {
+                size_t host_len = (size_t)(colon - resolve_res.value);
+                if (host_len < cap) {
+                    memcpy(host_out, resolve_res.value, host_len);
+                    host_out[host_len] = 0;
                     *port_out = atoi(colon + 1);
                     ok = (*port_out > 0);
                 }
             }
-            free(r.value);
+            free(resolve_res.value);
             if (ok) return 1;
         } else {
-            free(r.value); /* empty == not registered yet */
+            free(resolve_res.value); /* empty == not registered yet */
         }
         if (wait) nap_ms(100);
     }
@@ -214,16 +214,16 @@ int picomesh_serve_port_is_auto(struct picomesh_engine *engine, const char *name
     if (name && *name) {
         char path[256];
         snprintf(path, sizeof(path), "mesh.services.%s.port", name);
-        struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(engine), path);
-        if (PICOMESH_IS_OK(r) && r.value) node = r.value;
+        struct yconfig_node_ptr_result port_res = yconfig_get(picomesh_engine_config(engine), path);
+        if (PICOMESH_IS_OK(port_res) && port_res.value) node = port_res.value;
     }
     if (!node) {
-        struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(engine), "port");
-        if (PICOMESH_IS_OK(r) && r.value) node = r.value;
+        struct yconfig_node_ptr_result port_res = yconfig_get(picomesh_engine_config(engine), "port");
+        if (PICOMESH_IS_OK(port_res) && port_res.value) node = port_res.value;
     }
     if (!node || yconfig_node_kind(node) != YCONFIG_STRING) return 0;
-    const char *s = yconfig_node_as_string(node, NULL);
-    return s && strcmp(s, "auto") == 0;
+    const char *str = yconfig_node_as_string(node, NULL);
+    return str && strcmp(str, "auto") == 0;
 }
 
 int picomesh_autoport_allocate(struct picomesh_engine *engine, const char *name, const char *host)
@@ -233,7 +233,7 @@ int picomesh_autoport_allocate(struct picomesh_engine *engine, const char *name,
 
     struct ctx pctx = {0};
     struct object *pobj = NULL;
-    struct peer_channel *pa_channel = NULL;
+    struct peer_channel *portalloc_channel = NULL;
 
     /* Bootstrap case: THIS node provides portalloc. It cannot discover itself
      * through a registry it hasn't registered with yet, so allocate from its
@@ -241,13 +241,13 @@ int picomesh_autoport_allocate(struct picomesh_engine *engine, const char *name,
      * so the port portalloc takes for itself is never handed to a caller. */
     if (autoport_plugin_active(engine, name, "portalloc")) {
         pctx = picomesh_engine_service_ctx(engine, "portalloc");
-        struct object_ptr_result obj_r = portalloc_portalloc_create(&pctx);
-        if (PICOMESH_IS_ERR(obj_r)) {
-            picomesh_error_destroy(obj_r.error);
+        struct object_ptr_result obj_res = portalloc_portalloc_create(&pctx);
+        if (PICOMESH_IS_ERR(obj_res)) {
+            picomesh_error_destroy(obj_res.error);
             ywarn("autoport: portalloc node failed to create its local allocator");
             return -1;
         }
-        pobj = obj_r.value;
+        pobj = obj_res.value;
     }
 
     /* Normal case: discover the remote portalloc through the registry. */
@@ -257,9 +257,9 @@ int picomesh_autoport_allocate(struct picomesh_engine *engine, const char *name,
             ywarn("autoport: '%s' wants port:auto but the registry is unreachable", name);
             return -1;
         }
-        char ph[64];
-        int pp = 0;
-        int ok = reg_resolve(&session, "portalloc", 1, ph, sizeof(ph), &pp);
+        char portalloc_host[64];
+        int portalloc_port = 0;
+        int ok = reg_resolve(&session, "portalloc", 1, portalloc_host, sizeof(portalloc_host), &portalloc_port);
         reg_session_close(&session);
         if (!ok) {
             ywarn("autoport: portalloc not discoverable through registry for '%s'", name);
@@ -267,26 +267,26 @@ int picomesh_autoport_allocate(struct picomesh_engine *engine, const char *name,
         }
         int fd = -1;
         for (int attempt = 0; attempt < 100 && fd < 0; ++attempt) {
-            fd = autoport_connect(ph, pp);
+            fd = autoport_connect(portalloc_host, portalloc_port);
             if (fd < 0) nap_ms(100);
         }
         if (fd < 0) {
-            ywarn("autoport: portalloc %s:%d unreachable for '%s'", ph, pp, name);
+            ywarn("autoport: portalloc %s:%d unreachable for '%s'", portalloc_host, portalloc_port, name);
             return -1;
         }
-        pa_channel = peer_channel_create(fd);
-        if (!pa_channel) {
+        portalloc_channel = peer_channel_create(fd);
+        if (!portalloc_channel) {
             close(fd);
             return -1;
         }
-        pctx = (struct ctx){.peer = pa_channel};
-        struct object_ptr_result obj_r = portalloc_portalloc_create(&pctx);
-        if (PICOMESH_IS_ERR(obj_r)) {
-            picomesh_error_destroy(obj_r.error);
-            peer_channel_destroy(pa_channel);
+        pctx = (struct ctx){.peer = portalloc_channel};
+        struct object_ptr_result obj_res = portalloc_portalloc_create(&pctx);
+        if (PICOMESH_IS_ERR(obj_res)) {
+            picomesh_error_destroy(obj_res.error);
+            peer_channel_destroy(portalloc_channel);
             return -1;
         }
-        pobj = obj_r.value;
+        pobj = obj_res.value;
     }
 
     /* Allocate + bind-probe + retry: portalloc may hand out a port that a
@@ -294,27 +294,27 @@ int picomesh_autoport_allocate(struct picomesh_engine *engine, const char *name,
      * (portalloc's next probe skips it) and ask again. */
     int port = -1;
     for (int attempt = 0; attempt < 64; ++attempt) {
-        struct picomesh_uint32_result r =
+        struct picomesh_uint32_result alloc_res =
             portalloc_portalloc_allocate(&pctx, pobj, NULL, name, host);
-        if (PICOMESH_IS_ERR(r)) {
+        if (PICOMESH_IS_ERR(alloc_res)) {
             ywarn("autoport: portalloc.allocate('%s') failed: %s", name,
-                  r.error.msg ? r.error.msg : "?");
-            picomesh_error_destroy(r.error);
+                  alloc_res.error.msg ? alloc_res.error.msg : "?");
+            picomesh_error_destroy(alloc_res.error);
             break;
         }
-        uint32_t candidate = r.value;
+        uint32_t candidate = alloc_res.value;
         if (autoport_probe_bind(host, (int)candidate)) {
             port = (int)candidate;
             break;
         }
-        struct picomesh_int_result rel =
+        struct picomesh_int_result release_res =
             portalloc_portalloc_release(&pctx, pobj, NULL, candidate);
-        if (PICOMESH_IS_ERR(rel)) picomesh_error_destroy(rel.error);
+        if (PICOMESH_IS_ERR(release_res)) picomesh_error_destroy(release_res.error);
         nap_ms(20);
     }
 
     object_release_in_ctx(&pctx, pobj);
-    if (pa_channel) peer_channel_destroy(pa_channel);
+    if (portalloc_channel) peer_channel_destroy(portalloc_channel);
     if (port > 0) yinfo("autoport: '%s' allocated port %d", name, port);
     return port;
 }
@@ -335,14 +335,14 @@ void picomesh_autoport_register_self(struct picomesh_engine *engine, const char 
     struct reg_session session = {0};
     if (!reg_session_open(engine, &session)) return;
     const char *reg_host = (strcmp(host, "0.0.0.0") == 0) ? "127.0.0.1" : host;
-    struct picomesh_int_result r =
+    struct picomesh_int_result register_res =
         registry_registry_register_service(&session.ctx, session.obj, NULL, name, name, reg_host,
                                            (uint32_t)port);
-    if (PICOMESH_IS_OK(r)) {
+    if (PICOMESH_IS_OK(register_res)) {
         yinfo("autoport: registered '%s' -> %s:%d", name, reg_host, port);
     } else {
-        ywarn("autoport: register '%s' failed: %s", name, r.error.msg ? r.error.msg : "?");
-        picomesh_error_destroy(r.error);
+        ywarn("autoport: register '%s' failed: %s", name, register_res.error.msg ? register_res.error.msg : "?");
+        picomesh_error_destroy(register_res.error);
     }
     reg_session_close(&session);
 }
@@ -356,14 +356,14 @@ void picomesh_autoport_resolve_remotes(struct picomesh_engine *engine, const cha
 
     char path[256];
     snprintf(path, sizeof(path), "mesh.services.%s.config.remotes", name);
-    struct yconfig_node_ptr_result lr = yconfig_get(picomesh_engine_config(engine), path);
-    if (PICOMESH_IS_ERR(lr) || !lr.value || yconfig_node_kind(lr.value) != YCONFIG_LIST) return;
-    const struct yconfig_node *list = lr.value;
-    size_t n = yconfig_node_size(list);
+    struct yconfig_node_ptr_result list_res = yconfig_get(picomesh_engine_config(engine), path);
+    if (PICOMESH_IS_ERR(list_res) || !list_res.value || yconfig_node_kind(list_res.value) != YCONFIG_LIST) return;
+    const struct yconfig_node *list = list_res.value;
+    size_t count = yconfig_node_size(list);
 
     struct reg_session session = {0};
     int opened = 0;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < count; ++i) {
         const struct yconfig_node *entry = yconfig_node_at(list, i);
         if (!entry || yconfig_node_kind(entry) != YCONFIG_MAP) continue;
         const struct yconfig_node *svc_node = yconfig_node_get(entry, "service");
@@ -371,17 +371,17 @@ void picomesh_autoport_resolve_remotes(struct picomesh_engine *engine, const cha
         if (!svc || !*svc) continue;
         /* An explicit positive port is a fixed remote — nothing to discover. */
         const struct yconfig_node *port_node = yconfig_node_get(entry, "port");
-        int64_t pv = port_node ? yconfig_node_as_int(port_node, -1) : -1;
-        if (pv > 0) continue;
+        int64_t port_val = port_node ? yconfig_node_as_int(port_node, -1) : -1;
+        if (port_val > 0) continue;
         if (!opened) {
             if (!reg_session_open(engine, &session)) return;
             opened = 1;
         }
-        char h[64];
-        int p = 0;
-        if (reg_resolve(&session, svc, 1, h, sizeof(h), &p)) {
-            picomesh_engine_set_resolved_remote(engine, svc, h, p);
-            yinfo("autoport: remote '%s' -> %s:%d (registry)", svc, h, p);
+        char host[64];
+        int port = 0;
+        if (reg_resolve(&session, svc, 1, host, sizeof(host), &port)) {
+            picomesh_engine_set_resolved_remote(engine, svc, host, port);
+            yinfo("autoport: remote '%s' -> %s:%d (registry)", svc, host, port);
         } else {
             ywarn("autoport: remote '%s' (consumed by '%s') not resolvable via registry", svc, name);
         }

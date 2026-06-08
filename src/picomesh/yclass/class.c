@@ -60,11 +60,11 @@ struct domain_registry {
 
 static struct domain_registry *dreg(void)
 {
-    static struct domain_registry r = {0};
-    if (r.next_id == 0) {
-        r.next_id = 1; /* domain_id 0 reserved as invalid */
+    static struct domain_registry registry = {0};
+    if (registry.next_id == 0) {
+        registry.next_id = 1; /* domain_id 0 reserved as invalid */
     }
-    return &r;
+    return &registry;
 }
 
 static struct slot_entry **global_qname_root(void)
@@ -78,23 +78,23 @@ struct slot_table_ptr_result slot_table_get(const char *domain)
     ydebug("domain=%s", domain ? domain : "(null)");
     if (!domain) return PICOMESH_ERR(slot_table_ptr, "slot_table_get: NULL domain");
     struct domain_registry *reg = dreg();
-    struct slot_table *tbl = NULL;
-    HASH_FIND(hh_dom, reg->by_name, domain, strlen(domain), tbl);
-    if (tbl) return PICOMESH_OK(slot_table_ptr, tbl);
+    struct slot_table *table = NULL;
+    HASH_FIND(hh_dom, reg->by_name, domain, strlen(domain), table);
+    if (table) return PICOMESH_OK(slot_table_ptr, table);
     if (reg->next_id >= METHOD_SLOT_MAX_DOMAINS) {
         return PICOMESH_ERR(slot_table_ptr, "slot_table_get: domain id capacity exhausted");
     }
-    tbl = calloc(1, sizeof(*tbl));
-    if (!tbl) return PICOMESH_ERR(slot_table_ptr, "slot_table_get: calloc(slot_table) failed");
-    tbl->domain = strdup(domain);
-    if (!tbl->domain) {
-        free(tbl);
+    table = calloc(1, sizeof(*table));
+    if (!table) return PICOMESH_ERR(slot_table_ptr, "slot_table_get: calloc(slot_table) failed");
+    table->domain = strdup(domain);
+    if (!table->domain) {
+        free(table);
         return PICOMESH_ERR(slot_table_ptr, "slot_table_get: strdup(domain) failed");
     }
-    tbl->domain_id = reg->next_id++;
-    reg->by_id[tbl->domain_id] = tbl;
-    HASH_ADD_KEYPTR(hh_dom, reg->by_name, tbl->domain, strlen(tbl->domain), tbl);
-    return PICOMESH_OK(slot_table_ptr, tbl);
+    table->domain_id = reg->next_id++;
+    reg->by_id[table->domain_id] = table;
+    HASH_ADD_KEYPTR(hh_dom, reg->by_name, table->domain, strlen(table->domain), table);
+    return PICOMESH_OK(slot_table_ptr, table);
 }
 
 struct method_slot_result method_slot_register(const char *domain, const char *name,
@@ -105,50 +105,50 @@ struct method_slot_result method_slot_register(const char *domain, const char *n
     if (!domain || !name) {
         return PICOMESH_ERR(method_slot, "method_slot_register: NULL domain or name");
     }
-    struct slot_table_ptr_result tbl_r = slot_table_get(domain);
-    PICOMESH_RETURN_IF_ERR(method_slot, tbl_r, "method_slot_register: slot_table_get failed");
-    struct slot_table *tbl = tbl_r.value;
+    struct slot_table_ptr_result table_res = slot_table_get(domain);
+    PICOMESH_RETURN_IF_ERR(method_slot, table_res, "method_slot_register: slot_table_get failed");
+    struct slot_table *table = table_res.value;
 
-    struct slot_entry *e = NULL;
-    HASH_FIND(hh_lname, tbl->by_local_name, name, strlen(name), e);
-    if (e) return PICOMESH_OK(method_slot, e->slot_index);
+    struct slot_entry *entry = NULL;
+    HASH_FIND(hh_lname, table->by_local_name, name, strlen(name), entry);
+    if (entry) return PICOMESH_OK(method_slot, entry->slot_index);
 
-    e = calloc(1, sizeof(*e));
-    if (!e) return PICOMESH_ERR(method_slot, "method_slot_register: calloc(slot_entry) failed");
+    entry = calloc(1, sizeof(*entry));
+    if (!entry) return PICOMESH_ERR(method_slot, "method_slot_register: calloc(slot_entry) failed");
 
-    size_t dom_len = strlen(tbl->domain);
+    size_t dom_len = strlen(table->domain);
     size_t loc_len = strlen(name);
-    e->qname = malloc(dom_len + 1 + loc_len + 1);
-    if (!e->qname) {
-        free(e);
+    entry->qname = malloc(dom_len + 1 + loc_len + 1);
+    if (!entry->qname) {
+        free(entry);
         return PICOMESH_ERR(method_slot, "method_slot_register: malloc(qname) failed");
     }
-    memcpy(e->qname, tbl->domain, dom_len);
-    e->qname[dom_len] = '_';
-    memcpy(e->qname + dom_len + 1, name, loc_len + 1);
-    e->local_name = e->qname + dom_len + 1;
-    e->local_id = id;
+    memcpy(entry->qname, table->domain, dom_len);
+    entry->qname[dom_len] = '_';
+    memcpy(entry->qname + dom_len + 1, name, loc_len + 1);
+    entry->local_name = entry->qname + dom_len + 1;
+    entry->local_id = id;
 
-    if (tbl->count >= tbl->cap) {
-        size_t ncap = tbl->cap ? tbl->cap * 2 : 32;
-        while (ncap <= tbl->count) ncap *= 2;
-        struct slot_entry **na = realloc(tbl->by_index, ncap * sizeof(*na));
-        if (!na) {
-            free(e->qname);
-            free(e);
+    if (table->count >= table->cap) {
+        size_t ncap = table->cap ? table->cap * 2 : 32;
+        while (ncap <= table->count) ncap *= 2;
+        struct slot_entry **new_index = realloc(table->by_index, ncap * sizeof(*new_index));
+        if (!new_index) {
+            free(entry->qname);
+            free(entry);
             return PICOMESH_ERR(method_slot, "method_slot_register: realloc(by_index) failed");
         }
-        memset(na + tbl->cap, 0, (ncap - tbl->cap) * sizeof(*na));
-        tbl->by_index = na;
-        tbl->cap = ncap;
+        memset(new_index + table->cap, 0, (ncap - table->cap) * sizeof(*new_index));
+        table->by_index = new_index;
+        table->cap = ncap;
     }
-    e->slot_index = METHOD_SLOT_PACK(tbl->domain_id, tbl->count);
-    tbl->by_index[tbl->count++] = e;
+    entry->slot_index = METHOD_SLOT_PACK(table->domain_id, table->count);
+    table->by_index[table->count++] = entry;
 
-    HASH_ADD_KEYPTR(hh_lname, tbl->by_local_name, e->local_name, strlen(e->local_name), e);
-    HASH_ADD(hh_id, tbl->by_local_id, local_id, sizeof(method_id_t), e);
-    HASH_ADD_KEYPTR(hh_qname, *global_qname_root(), e->qname, strlen(e->qname), e);
-    return PICOMESH_OK(method_slot, e->slot_index);
+    HASH_ADD_KEYPTR(hh_lname, table->by_local_name, entry->local_name, strlen(entry->local_name), entry);
+    HASH_ADD(hh_id, table->by_local_id, local_id, sizeof(method_id_t), entry);
+    HASH_ADD_KEYPTR(hh_qname, *global_qname_root(), entry->qname, strlen(entry->qname), entry);
+    return PICOMESH_OK(method_slot, entry->slot_index);
 }
 
 struct method_slot_result method_slot_get(const char *domain, method_id_t id)
@@ -156,13 +156,13 @@ struct method_slot_result method_slot_get(const char *domain, method_id_t id)
     ydebug("domain=%s id=%p", domain ? domain : "(null)", (void *)id);
     if (!domain || !id) return PICOMESH_ERR(method_slot, "method_slot_get: NULL domain or id");
     struct domain_registry *reg = dreg();
-    struct slot_table *tbl = NULL;
-    HASH_FIND(hh_dom, reg->by_name, domain, strlen(domain), tbl);
-    if (!tbl) return PICOMESH_ERR(method_slot, "method_slot_get: domain not registered");
-    struct slot_entry *e = NULL;
-    HASH_FIND(hh_id, tbl->by_local_id, &id, sizeof(method_id_t), e);
-    if (!e) return PICOMESH_ERR(method_slot, "method_slot_get: id not in domain's slot table");
-    return PICOMESH_OK(method_slot, e->slot_index);
+    struct slot_table *table = NULL;
+    HASH_FIND(hh_dom, reg->by_name, domain, strlen(domain), table);
+    if (!table) return PICOMESH_ERR(method_slot, "method_slot_get: domain not registered");
+    struct slot_entry *entry = NULL;
+    HASH_FIND(hh_id, table->by_local_id, &id, sizeof(method_id_t), entry);
+    if (!entry) return PICOMESH_ERR(method_slot, "method_slot_get: id not in domain's slot table");
+    return PICOMESH_OK(method_slot, entry->slot_index);
 }
 
 struct method_slot_result method_slot_by_name(const char *domain, const char *name)
@@ -172,23 +172,23 @@ struct method_slot_result method_slot_by_name(const char *domain, const char *na
         return PICOMESH_ERR(method_slot, "method_slot_by_name: NULL domain or name");
     }
     struct domain_registry *reg = dreg();
-    struct slot_table *tbl = NULL;
-    HASH_FIND(hh_dom, reg->by_name, domain, strlen(domain), tbl);
-    if (!tbl) return PICOMESH_ERR(method_slot, "method_slot_by_name: domain not registered");
-    struct slot_entry *e = NULL;
-    HASH_FIND(hh_lname, tbl->by_local_name, name, strlen(name), e);
-    if (!e) return PICOMESH_ERR(method_slot, "method_slot_by_name: name not in slot table");
-    return PICOMESH_OK(method_slot, e->slot_index);
+    struct slot_table *table = NULL;
+    HASH_FIND(hh_dom, reg->by_name, domain, strlen(domain), table);
+    if (!table) return PICOMESH_ERR(method_slot, "method_slot_by_name: domain not registered");
+    struct slot_entry *entry = NULL;
+    HASH_FIND(hh_lname, table->by_local_name, name, strlen(name), entry);
+    if (!entry) return PICOMESH_ERR(method_slot, "method_slot_by_name: name not in slot table");
+    return PICOMESH_OK(method_slot, entry->slot_index);
 }
 
 struct method_slot_result method_slot_by_qname(const char *qname)
 {
     ydebug("qname=%s", qname ? qname : "(null)");
     if (!qname) return PICOMESH_ERR(method_slot, "method_slot_by_qname: NULL qname");
-    struct slot_entry *e = NULL;
-    HASH_FIND(hh_qname, *global_qname_root(), qname, strlen(qname), e);
-    if (!e) return PICOMESH_ERR(method_slot, "method_slot_by_qname: qname not registered");
-    return PICOMESH_OK(method_slot, e->slot_index);
+    struct slot_entry *entry = NULL;
+    HASH_FIND(hh_qname, *global_qname_root(), qname, strlen(qname), entry);
+    if (!entry) return PICOMESH_ERR(method_slot, "method_slot_by_qname: qname not registered");
+    return PICOMESH_OK(method_slot, entry->slot_index);
 }
 
 struct const_char_ptr_result method_slot_name(method_slot slot)
@@ -197,16 +197,16 @@ struct const_char_ptr_result method_slot_name(method_slot slot)
     if (slot == METHOD_SLOT_UNDEFINED) {
         return PICOMESH_ERR(const_char_ptr, "method_slot_name: METHOD_SLOT_UNDEFINED");
     }
-    uint8_t dom = METHOD_SLOT_DOMAIN_OF(slot);
-    uint32_t idx = METHOD_SLOT_INDEX_OF(slot);
-    if (dom == 0 || dom >= METHOD_SLOT_MAX_DOMAINS) {
+    uint8_t domain_id = METHOD_SLOT_DOMAIN_OF(slot);
+    uint32_t index = METHOD_SLOT_INDEX_OF(slot);
+    if (domain_id == 0 || domain_id >= METHOD_SLOT_MAX_DOMAINS) {
         return PICOMESH_ERR(const_char_ptr, "method_slot_name: invalid domain id");
     }
-    struct slot_table *tbl = dreg()->by_id[dom];
-    if (!tbl || idx >= tbl->count) {
+    struct slot_table *table = dreg()->by_id[domain_id];
+    if (!table || index >= table->count) {
         return PICOMESH_ERR(const_char_ptr, "method_slot_name: slot index out of range");
     }
-    return PICOMESH_OK(const_char_ptr, tbl->by_index[idx]->qname);
+    return PICOMESH_OK(const_char_ptr, table->by_index[index]->qname);
 }
 
 impl_t class_dispatch_lookup(const struct class *cls, method_slot slot)
@@ -214,12 +214,12 @@ impl_t class_dispatch_lookup(const struct class *cls, method_slot slot)
     /* Not Result — "this class does not override this slot" is a
      * normal flow, not an error. Returns NULL to indicate that. */
     if (!cls || slot == METHOD_SLOT_UNDEFINED) return NULL;
-    uint8_t dom = METHOD_SLOT_DOMAIN_OF(slot);
-    uint32_t idx = METHOD_SLOT_INDEX_OF(slot);
-    if (dom == 0 || dom >= METHOD_SLOT_MAX_DOMAINS) return NULL;
-    const struct dispatch_slice *ds = &cls->dispatch_by_domain[dom];
-    if (idx >= ds->count) return NULL;
-    return ds->impls[idx];
+    uint8_t domain_id = METHOD_SLOT_DOMAIN_OF(slot);
+    uint32_t index = METHOD_SLOT_INDEX_OF(slot);
+    if (domain_id == 0 || domain_id >= METHOD_SLOT_MAX_DOMAINS) return NULL;
+    const struct dispatch_slice *slice = &cls->dispatch_by_domain[domain_id];
+    if (index >= slice->count) return NULL;
+    return slice->impls[index];
 }
 
 const struct class *object_class(const struct object *obj)
@@ -248,9 +248,9 @@ static struct picomesh_void_result class_registry_add(struct class *cls)
     struct class_registry *reg = class_registry_get();
     if (reg->count == reg->cap) {
         size_t ncap = reg->cap ? reg->cap * 2 : 16;
-        struct class **na = realloc(reg->by_index, ncap * sizeof(*na));
-        if (!na) return PICOMESH_ERR(picomesh_void, "class_registry_add: realloc failed");
-        reg->by_index = na;
+        struct class **new_index = realloc(reg->by_index, ncap * sizeof(*new_index));
+        if (!new_index) return PICOMESH_ERR(picomesh_void, "class_registry_add: realloc failed");
+        reg->by_index = new_index;
         reg->cap = ncap;
     }
     reg->by_index[reg->count++] = cls;
@@ -258,27 +258,27 @@ static struct picomesh_void_result class_registry_add(struct class *cls)
     return PICOMESH_OK_VOID();
 }
 
-static struct picomesh_void_result dispatch_slice_grow(struct dispatch_slice *ds, size_t needed)
+static struct picomesh_void_result dispatch_slice_grow(struct dispatch_slice *slice, size_t needed)
 {
-    if (needed <= ds->count) return PICOMESH_OK_VOID();
-    impl_t *nd = realloc(ds->impls, needed * sizeof(*nd));
-    if (!nd) return PICOMESH_ERR(picomesh_void, "dispatch_slice_grow: realloc failed");
-    memset(nd + ds->count, 0, (needed - ds->count) * sizeof(*nd));
-    ds->impls = nd;
-    ds->count = needed;
+    if (needed <= slice->count) return PICOMESH_OK_VOID();
+    impl_t *new_impls = realloc(slice->impls, needed * sizeof(*new_impls));
+    if (!new_impls) return PICOMESH_ERR(picomesh_void, "dispatch_slice_grow: realloc failed");
+    memset(new_impls + slice->count, 0, (needed - slice->count) * sizeof(*new_impls));
+    slice->impls = new_impls;
+    slice->count = needed;
     return PICOMESH_OK_VOID();
 }
 
 static struct picomesh_void_result class_inherit_dispatch(struct class *cls, const struct class *src)
 {
-    for (uint8_t d = 0; d < METHOD_SLOT_MAX_DOMAINS; ++d) {
-        const struct dispatch_slice *sd = &src->dispatch_by_domain[d];
-        if (sd->count == 0) continue;
-        struct dispatch_slice *dd = &cls->dispatch_by_domain[d];
-        struct picomesh_void_result g = dispatch_slice_grow(dd, sd->count);
-        PICOMESH_RETURN_IF_ERR(picomesh_void, g, "class_inherit_dispatch: grow failed");
-        for (size_t i = 0; i < sd->count; ++i) {
-            if (sd->impls[i]) dd->impls[i] = sd->impls[i];
+    for (uint8_t domain_id = 0; domain_id < METHOD_SLOT_MAX_DOMAINS; ++domain_id) {
+        const struct dispatch_slice *src_slice = &src->dispatch_by_domain[domain_id];
+        if (src_slice->count == 0) continue;
+        struct dispatch_slice *dest_slice = &cls->dispatch_by_domain[domain_id];
+        struct picomesh_void_result grow_res = dispatch_slice_grow(dest_slice, src_slice->count);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, grow_res, "class_inherit_dispatch: grow failed");
+        for (size_t i = 0; i < src_slice->count; ++i) {
+            if (src_slice->impls[i]) dest_slice->impls[i] = src_slice->impls[i];
         }
     }
     return PICOMESH_OK_VOID();
@@ -287,7 +287,7 @@ static struct picomesh_void_result class_inherit_dispatch(struct class *cls, con
 static void class_destroy(struct class *cls)
 {
     if (!cls) return;
-    for (uint8_t d = 0; d < METHOD_SLOT_MAX_DOMAINS; ++d) free(cls->dispatch_by_domain[d].impls);
+    for (uint8_t domain_id = 0; domain_id < METHOD_SLOT_MAX_DOMAINS; ++domain_id) free(cls->dispatch_by_domain[domain_id].impls);
     free((void *)cls->mixins);
     free(cls);
 }
@@ -316,10 +316,10 @@ struct class_ptr_result class_register(const struct class_descriptor *desc, cons
     }
 
     size_t offset = sizeof(struct object);
-    for (const struct class *p = parent; p != NULL; p = p->parent) {
-        offset += p->desc->data_size;
-        for (size_t m = 0; m < p->mixin_count; ++m) {
-            offset += p->mixins[m]->desc->data_size;
+    for (const struct class *ancestor = parent; ancestor != NULL; ancestor = ancestor->parent) {
+        offset += ancestor->desc->data_size;
+        for (size_t m = 0; m < ancestor->mixin_count; ++m) {
+            offset += ancestor->mixins[m]->desc->data_size;
         }
     }
     offset += desc->data_size;
@@ -327,43 +327,43 @@ struct class_ptr_result class_register(const struct class_descriptor *desc, cons
     cls->instance_size = offset;
 
     if (parent) {
-        struct picomesh_void_result inh = class_inherit_dispatch(cls, parent);
-        if (PICOMESH_IS_ERR(inh)) {
+        struct picomesh_void_result inherit_res = class_inherit_dispatch(cls, parent);
+        if (PICOMESH_IS_ERR(inherit_res)) {
             class_destroy(cls);
-            return PICOMESH_ERR(class_ptr, "class_register: inherit parent dispatch failed", inh);
+            return PICOMESH_ERR(class_ptr, "class_register: inherit parent dispatch failed", inherit_res);
         }
     }
     for (size_t m = 0; m < mixin_count; ++m) {
-        struct picomesh_void_result inh = class_inherit_dispatch(cls, mixins[m]);
-        if (PICOMESH_IS_ERR(inh)) {
+        struct picomesh_void_result inherit_res = class_inherit_dispatch(cls, mixins[m]);
+        if (PICOMESH_IS_ERR(inherit_res)) {
             class_destroy(cls);
-            return PICOMESH_ERR(class_ptr, "class_register: inherit mixin dispatch failed", inh);
+            return PICOMESH_ERR(class_ptr, "class_register: inherit mixin dispatch failed", inherit_res);
         }
     }
 
     for (size_t i = 0; i < ops_count; ++i) {
-        struct method_slot_result sr =
+        struct method_slot_result slot_res =
             method_slot_register(ops[i].slot_domain, ops[i].name, ops[i].method_id);
-        if (PICOMESH_IS_ERR(sr)) {
+        if (PICOMESH_IS_ERR(slot_res)) {
             class_destroy(cls);
-            return PICOMESH_ERR(class_ptr, "class_register: method_slot_register failed", sr);
+            return PICOMESH_ERR(class_ptr, "class_register: method_slot_register failed", slot_res);
         }
-        method_slot slot = sr.value;
-        uint8_t dom = METHOD_SLOT_DOMAIN_OF(slot);
-        uint32_t idx = METHOD_SLOT_INDEX_OF(slot);
-        struct dispatch_slice *ds = &cls->dispatch_by_domain[dom];
-        struct picomesh_void_result g = dispatch_slice_grow(ds, (size_t)idx + 1);
-        if (PICOMESH_IS_ERR(g)) {
+        method_slot slot = slot_res.value;
+        uint8_t domain_id = METHOD_SLOT_DOMAIN_OF(slot);
+        uint32_t index = METHOD_SLOT_INDEX_OF(slot);
+        struct dispatch_slice *slice = &cls->dispatch_by_domain[domain_id];
+        struct picomesh_void_result grow_res = dispatch_slice_grow(slice, (size_t)index + 1);
+        if (PICOMESH_IS_ERR(grow_res)) {
             class_destroy(cls);
-            return PICOMESH_ERR(class_ptr, "class_register: dispatch slice grow failed", g);
+            return PICOMESH_ERR(class_ptr, "class_register: dispatch slice grow failed", grow_res);
         }
-        ds->impls[idx] = ops[i].impl;
+        slice->impls[index] = ops[i].impl;
     }
 
-    struct picomesh_void_result a = class_registry_add(cls);
-    if (PICOMESH_IS_ERR(a)) {
+    struct picomesh_void_result add_res = class_registry_add(cls);
+    if (PICOMESH_IS_ERR(add_res)) {
         class_destroy(cls);
-        return PICOMESH_ERR(class_ptr, "class_register: class_registry_add failed", a);
+        return PICOMESH_ERR(class_ptr, "class_register: class_registry_add failed", add_res);
     }
     return PICOMESH_OK(class_ptr, cls);
 }
@@ -402,12 +402,12 @@ struct class_ptr_result class_by_name(const char *name)
     struct class *cls = NULL;
     HASH_FIND_STR(reg->by_name, name, cls);
     if (cls) return PICOMESH_OK(class_ptr, cls);
-    for (struct accessor_node *n = *accessor_chain_head(); n; n = n->next) {
-        struct class_ptr_result r = n->fn(name);
-        if (PICOMESH_IS_ERR(r)) {
-            return PICOMESH_ERR(class_ptr, "class_by_name: accessor hook failed", r);
+    for (struct accessor_node *node = *accessor_chain_head(); node; node = node->next) {
+        struct class_ptr_result accessor_res = node->fn(name);
+        if (PICOMESH_IS_ERR(accessor_res)) {
+            return PICOMESH_ERR(class_ptr, "class_by_name: accessor hook failed", accessor_res);
         }
-        if (r.value) return r;
+        if (accessor_res.value) return accessor_res;
     }
     return PICOMESH_ERR(class_ptr, "class_by_name: class not found in registry or any hook");
 }
@@ -417,16 +417,16 @@ void class_for_each_slot(const struct class *cls,
 {
     ydebug("cls=%s", cls && cls->desc ? cls->desc->name : "(null)");
     if (!cls || !cb) return;
-    for (uint8_t d = 0; d < METHOD_SLOT_MAX_DOMAINS; ++d) {
-        const struct dispatch_slice *ds = &cls->dispatch_by_domain[d];
-        for (size_t i = 0; i < ds->count; ++i) {
-            if (!ds->impls[i]) continue;
-            method_slot slot = METHOD_SLOT_PACK(d, i);
-            struct const_char_ptr_result nr = method_slot_name(slot);
-            if (PICOMESH_IS_OK(nr) && nr.value) {
-                cb(nr.value, slot, userdata);
-            } else if (PICOMESH_IS_ERR(nr)) {
-                picomesh_error_destroy(nr.error);
+    for (uint8_t domain_id = 0; domain_id < METHOD_SLOT_MAX_DOMAINS; ++domain_id) {
+        const struct dispatch_slice *slice = &cls->dispatch_by_domain[domain_id];
+        for (size_t i = 0; i < slice->count; ++i) {
+            if (!slice->impls[i]) continue;
+            method_slot slot = METHOD_SLOT_PACK(domain_id, i);
+            struct const_char_ptr_result name_res = method_slot_name(slot);
+            if (PICOMESH_IS_OK(name_res) && name_res.value) {
+                cb(name_res.value, slot, userdata);
+            } else if (PICOMESH_IS_ERR(name_res)) {
+                picomesh_error_destroy(name_res.error);
             }
         }
     }

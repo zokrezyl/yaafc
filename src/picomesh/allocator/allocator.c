@@ -54,11 +54,11 @@ struct picomesh_allocator *picomesh_allocator_create(void)
 void picomesh_allocator_destroy(struct picomesh_allocator *pool)
 {
     if (!pool) return;
-    struct chunk *c = pool->chunks;
-    while (c) {
-        struct chunk *next = c->next;
-        free(c);
-        c = next;
+    struct chunk *chunk = pool->chunks;
+    while (chunk) {
+        struct chunk *next = chunk->next;
+        free(chunk);
+        chunk = next;
     }
     free(pool);
 }
@@ -80,11 +80,11 @@ static int grow(struct picomesh_allocator *pool, size_t need)
 {
     size_t body = PICOMESH_ALLOC_CHUNK_BYTES;
     if (need > body) body = need;
-    struct chunk *c = malloc(sizeof(struct chunk) + body);
-    if (!c) return 0;
-    c->next = pool->chunks;
-    pool->chunks = c;
-    pool->bump = (char *)c + sizeof(struct chunk);
+    struct chunk *chunk = malloc(sizeof(struct chunk) + body);
+    if (!chunk) return 0;
+    chunk->next = pool->chunks;
+    pool->chunks = chunk;
+    pool->bump = (char *)chunk + sizeof(struct chunk);
     pool->bump_end = pool->bump + body;
     return 1;
 }
@@ -98,12 +98,12 @@ void *picomesh_allocator_alloc(struct picomesh_allocator *pool, size_t size)
     /* Too large for any pooled class: hand off to the process allocator. The
      * KLASS_DIRECT header lets free() route it straight back to free(). */
     if (klass > PICOMESH_ALLOC_MAX_CLASS) {
-        struct block_header *h = malloc(total);
-        if (!h) return NULL;
-        h->klass = KLASS_DIRECT;
-        h->magic = BLOCK_MAGIC;
-        h->owner = pool;
-        return (char *)h + HEADER_BYTES;
+        struct block_header *header = malloc(total);
+        if (!header) return NULL;
+        header->klass = KLASS_DIRECT;
+        header->magic = BLOCK_MAGIC;
+        header->owner = pool;
+        return (char *)header + HEADER_BYTES;
     }
 
     /* Reuse a recycled block of this class if one is on the free-list. The
@@ -119,34 +119,34 @@ void *picomesh_allocator_alloc(struct picomesh_allocator *pool, size_t size)
     if ((size_t)(pool->bump_end - pool->bump) < block_bytes) {
         if (!grow(pool, block_bytes)) return NULL;
     }
-    struct block_header *h = (struct block_header *)pool->bump;
+    struct block_header *header = (struct block_header *)pool->bump;
     pool->bump += block_bytes;
-    h->klass = (uint32_t)klass;
-    h->magic = BLOCK_MAGIC;
-    h->owner = pool;
-    return (char *)h + HEADER_BYTES;
+    header->klass = (uint32_t)klass;
+    header->magic = BLOCK_MAGIC;
+    header->owner = pool;
+    return (char *)header + HEADER_BYTES;
 }
 
 void picomesh_allocator_free(struct picomesh_allocator *pool, void *ptr)
 {
     if (!ptr) return;
-    struct block_header *h = (struct block_header *)((char *)ptr - HEADER_BYTES);
-    if (h->magic != BLOCK_MAGIC) {
+    struct block_header *header = (struct block_header *)((char *)ptr - HEADER_BYTES);
+    if (header->magic != BLOCK_MAGIC) {
         ywarn("picomesh_allocator_free: bad/corrupt block header (double free or foreign ptr)");
         return;
     }
-    if (h->owner != pool) {
+    if (header->owner != pool) {
         /* Cross-thread free would corrupt another thread's free-list. Route it
          * to the owning pool instead and warn — this is a caller bug. */
         ywarn("picomesh_allocator_free: block freed on a different pool than it was allocated on");
-        pool = h->owner;
+        pool = header->owner;
     }
-    if (h->klass == KLASS_DIRECT) {
-        h->magic = 0;
-        free(h);
+    if (header->klass == KLASS_DIRECT) {
+        header->magic = 0;
+        free(header);
         return;
     }
     struct free_node *node = (struct free_node *)ptr;
-    node->next = pool->freelist[h->klass];
-    pool->freelist[h->klass] = node;
+    node->next = pool->freelist[header->klass];
+    pool->freelist[header->klass] = node;
 }

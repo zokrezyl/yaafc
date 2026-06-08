@@ -162,6 +162,13 @@ struct picomesh_void_result picomesh_engine_add_remote(struct picomesh_engine *e
                                                   const char *name,
                                                   const char *host, int port);
 
+/* As above, but `transport` selects the outbound wire: NULL/"yrpc" = native
+ * async binary RPC; "msgpack" = async MessagePack-envelope transport, for a
+ * foreign service reached via `remotes: [{transport: msgpack}]` (issue #22). */
+struct picomesh_void_result picomesh_engine_add_remote_transport(struct picomesh_engine *e,
+                                                                 const char *name, const char *host,
+                                                                 int port, const char *transport);
+
 /* Borrow the current worker's session registered under `name`, or NULL
  * if unknown. The session stays owned by the engine. */
 struct peer_channel *picomesh_engine_remote(struct picomesh_engine *e, const char *name);

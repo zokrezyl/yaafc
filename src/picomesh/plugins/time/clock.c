@@ -38,12 +38,12 @@ struct picomesh_int64_result time_clock_sleep_ms_impl(struct ctx *ctx, struct ob
                                                    uint32_t ms)
 {
     (void)ctx; (void)obj;
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return PICOMESH_ERR(picomesh_int64, "clock_sleep_ms: no active engine");
-    struct yloop *l = picomesh_engine_loop(e);
-    if (!l) return PICOMESH_ERR(picomesh_int64, "clock_sleep_ms: engine has no loop");
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return PICOMESH_ERR(picomesh_int64, "clock_sleep_ms: no active engine");
+    struct yloop *loop = picomesh_engine_loop(engine);
+    if (!loop) return PICOMESH_ERR(picomesh_int64, "clock_sleep_ms: engine has no loop");
     ydebug("clock_sleep_ms: sleeping %u ms", ms);
-    yloop_sleep_ms(l, ms);
+    yloop_sleep_ms(loop, ms);
     return PICOMESH_OK(picomesh_int64, (int64_t)ms);
 }
 

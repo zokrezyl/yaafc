@@ -115,8 +115,8 @@ struct rel_registry {
 
 static struct rel_registry *rel_registry(void)
 {
-    static struct rel_registry r = {.mu = PTHREAD_MUTEX_INITIALIZER};
-    return &r;
+    static struct rel_registry registry = {.mu = PTHREAD_MUTEX_INITIALIZER};
+    return &registry;
 }
 
 /* Find the shard set for `db_name`, allocating a fresh (unopened) slot the
@@ -154,13 +154,13 @@ static const char *rel_cfg_str(const struct yconfig *cfg, const char *db_name, c
     if (!cfg) return NULL;
     char key[160];
     snprintf(key, sizeof(key), "relational_storage.databases.%s.%s", db_name, leaf);
-    struct yconfig_node_ptr_result pr = yconfig_get(cfg, key);
-    if (PICOMESH_IS_OK(pr) && pr.value) return yconfig_node_as_string(pr.value, NULL);
-    if (PICOMESH_IS_ERR(pr)) picomesh_error_destroy(pr.error);
+    struct yconfig_node_ptr_result config_res = yconfig_get(cfg, key);
+    if (PICOMESH_IS_OK(config_res) && config_res.value) return yconfig_node_as_string(config_res.value, NULL);
+    if (PICOMESH_IS_ERR(config_res)) picomesh_error_destroy(config_res.error);
     snprintf(key, sizeof(key), "relational_storage.%s", leaf);
-    pr = yconfig_get(cfg, key);
-    if (PICOMESH_IS_OK(pr) && pr.value) return yconfig_node_as_string(pr.value, NULL);
-    if (PICOMESH_IS_ERR(pr)) picomesh_error_destroy(pr.error);
+    config_res = yconfig_get(cfg, key);
+    if (PICOMESH_IS_OK(config_res) && config_res.value) return yconfig_node_as_string(config_res.value, NULL);
+    if (PICOMESH_IS_ERR(config_res)) picomesh_error_destroy(config_res.error);
     return NULL;
 }
 
@@ -170,13 +170,13 @@ static int rel_cfg_int(const struct yconfig *cfg, const char *db_name, const cha
     if (!cfg) return fallback;
     char key[160];
     snprintf(key, sizeof(key), "relational_storage.databases.%s.%s", db_name, leaf);
-    struct yconfig_node_ptr_result pr = yconfig_get(cfg, key);
-    if (PICOMESH_IS_OK(pr) && pr.value) return (int)yconfig_node_as_int(pr.value, fallback);
-    if (PICOMESH_IS_ERR(pr)) picomesh_error_destroy(pr.error);
+    struct yconfig_node_ptr_result config_res = yconfig_get(cfg, key);
+    if (PICOMESH_IS_OK(config_res) && config_res.value) return (int)yconfig_node_as_int(config_res.value, fallback);
+    if (PICOMESH_IS_ERR(config_res)) picomesh_error_destroy(config_res.error);
     snprintf(key, sizeof(key), "relational_storage.%s", leaf);
-    pr = yconfig_get(cfg, key);
-    if (PICOMESH_IS_OK(pr) && pr.value) return (int)yconfig_node_as_int(pr.value, fallback);
-    if (PICOMESH_IS_ERR(pr)) picomesh_error_destroy(pr.error);
+    config_res = yconfig_get(cfg, key);
+    if (PICOMESH_IS_OK(config_res) && config_res.value) return (int)yconfig_node_as_int(config_res.value, fallback);
+    if (PICOMESH_IS_ERR(config_res)) picomesh_error_destroy(config_res.error);
     return fallback;
 }
 
@@ -186,11 +186,11 @@ static int rel_cfg_int(const struct yconfig *cfg, const char *db_name, const cha
 static void rel_mkdir_p(const char *dir)
 {
     char tmp[600];
-    size_t n = strlen(dir);
-    if (n == 0 || n >= sizeof(tmp)) return;
-    memcpy(tmp, dir, n + 1);
-    for (char *p = tmp + 1; *p; ++p) {
-        if (*p == '/') { *p = 0; mkdir(tmp, 0755); *p = '/'; }
+    size_t len = strlen(dir);
+    if (len == 0 || len >= sizeof(tmp)) return;
+    memcpy(tmp, dir, len + 1);
+    for (char *cursor = tmp + 1; *cursor; ++cursor) {
+        if (*cursor == '/') { *cursor = 0; mkdir(tmp, 0755); *cursor = '/'; }
     }
     mkdir(tmp, 0755);
 }
@@ -204,15 +204,15 @@ static void rel_mkdir_p(const char *dir)
 static int rel_pragma_text(sqlite3 *db, const char *pragma, char *out, size_t cap)
 {
     if (cap) out[0] = 0;
-    sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(db, pragma, -1, &st, NULL) != SQLITE_OK) return 0;
-    int got = 0;
-    if (sqlite3_step(st) == SQLITE_ROW) {
-        const unsigned char *text = sqlite3_column_text(st, 0);
-        if (text) { snprintf(out, cap, "%s", (const char *)text); got = 1; }
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db, pragma, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    int got_row = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char *text = sqlite3_column_text(stmt, 0);
+        if (text) { snprintf(out, cap, "%s", (const char *)text); got_row = 1; }
     }
-    sqlite3_finalize(st);
-    return got;
+    sqlite3_finalize(stmt);
+    return got_row;
 }
 
 /* Lazy one-shot open of the named database `db_name`: read its config, open N
@@ -222,20 +222,20 @@ static int rel_pragma_text(sqlite3 *db, const char *pragma, char *out, size_t ca
  * Returns NULL on failure (or if the registry is full). */
 static struct rel_set *rel_init(const char *db_name)
 {
-    struct rel_set *s = rel_set_for(db_name);
-    if (!s) {
+    struct rel_set *set = rel_set_for(db_name);
+    if (!set) {
         ytrace_output("error", __FILE__, __LINE__, __func__,
                       "relational_storage: too many distinct databases (raise REL_MAX_DBS)");
         return NULL;
     }
-    pthread_mutex_lock(&s->init_mu);
-    if (s->ready != 0) { pthread_mutex_unlock(&s->init_mu); return s->ready > 0 ? s : NULL; }
+    pthread_mutex_lock(&set->init_mu);
+    if (set->ready != 0) { pthread_mutex_unlock(&set->init_mu); return set->ready > 0 ? set : NULL; }
 
-    struct picomesh_engine *e = picomesh_active_engine();
-    const struct yconfig *cfg = e ? picomesh_engine_config(e) : NULL;
-    const char *dir = rel_cfg_str(cfg, s->name, "path");          /* shard dir */
-    const char *schema = rel_cfg_str(cfg, s->name, "schema");     /* DDL, verbatim */
-    int shards = rel_cfg_int(cfg, s->name, "shards", 8);
+    struct picomesh_engine *engine = picomesh_active_engine();
+    const struct yconfig *cfg = engine ? picomesh_engine_config(engine) : NULL;
+    const char *dir = rel_cfg_str(cfg, set->name, "path");          /* shard dir */
+    const char *schema = rel_cfg_str(cfg, set->name, "schema");     /* DDL, verbatim */
+    int shards = rel_cfg_int(cfg, set->name, "shards", 8);
     /* Durability/throughput knobs. Default is WAL (gh#29 engine policy). An
      * EPHEMERAL deploy on tmpfs — the webasm/qemu demo, where the whole DB tree
      * is in RAM and discarded on reboot — can set journal_mode=MEMORY +
@@ -243,18 +243,18 @@ static struct rel_set *rel_init(const char *db_name)
      * CPU emulation is the dominant boot/seed cost. Read with the same
      * per-db/flat fallback as path/shards (so `relational_storage.journal_mode`
      * sets it for all databases at once). */
-    const char *journal = rel_cfg_str(cfg, s->name, "journal_mode");
-    const char *synchronous = rel_cfg_str(cfg, s->name, "synchronous");
+    const char *journal = rel_cfg_str(cfg, set->name, "journal_mode");
+    const char *synchronous = rel_cfg_str(cfg, set->name, "synchronous");
     if (!journal || !*journal) journal = "WAL";
     if (!dir || !*dir) {
         char msg[220];
         snprintf(msg, sizeof(msg),
                  "relational_storage: path is REQUIRED for database '%s' "
                  "(set relational_storage.databases.%s.path or relational_storage.path) "
-                 "— refusing to start", s->name, s->name);
+                 "— refusing to start", set->name, set->name);
         ytrace_output("error", __FILE__, __LINE__, __func__, "%s", msg);
-        s->ready = -1;
-        pthread_mutex_unlock(&s->init_mu);
+        set->ready = -1;
+        pthread_mutex_unlock(&set->init_mu);
         return NULL;
     }
     if (shards < 1) shards = 1;
@@ -269,8 +269,8 @@ static struct rel_set *rel_init(const char *db_name)
             ywarn("relational_storage: open %s failed: %s", path,
                   db ? sqlite3_errmsg(db) : "(null)");
             sqlite3_close(db);
-            s->ready = -1;
-            pthread_mutex_unlock(&s->init_mu);
+            set->ready = -1;
+            pthread_mutex_unlock(&set->init_mu);
             return NULL;
         }
         /* WAL + FK are engine policy. A PRAGMA can "succeed" (sqlite3_exec
@@ -321,8 +321,8 @@ static struct rel_set *rel_init(const char *db_name)
             ywarn("relational_storage: %s foreign_keys could NOT be enabled (got '%s') — refusing "
                   "to start with FK enforcement off", path, foreign_keys[0] ? foreign_keys : "?");
             sqlite3_close(db);
-            s->ready = -1;
-            pthread_mutex_unlock(&s->init_mu);
+            set->ready = -1;
+            pthread_mutex_unlock(&set->init_mu);
             return NULL;
         }
         if (schema && *schema) {
@@ -331,19 +331,19 @@ static struct rel_set *rel_init(const char *db_name)
                 ywarn("relational_storage: configured schema on %s failed: %s", path, err ? err : "?");
                 sqlite3_free(err);
                 sqlite3_close(db);
-                s->ready = -1;
-                pthread_mutex_unlock(&s->init_mu);
+                set->ready = -1;
+                pthread_mutex_unlock(&set->init_mu);
                 return NULL;
             }
         }
-        s->shards[i].db = db;
-        pthread_mutex_init(&s->shards[i].mu, NULL);
+        set->shards[i].db = db;
+        pthread_mutex_init(&set->shards[i].mu, NULL);
     }
-    s->n = shards;
-    s->ready = 1;
-    yinfo("relational_storage: database '%s' opened %d SQLite shard(s) under %s", s->name, shards, dir);
-    pthread_mutex_unlock(&s->init_mu);
-    return s;
+    set->n = shards;
+    set->ready = 1;
+    yinfo("relational_storage: database '%s' opened %d SQLite shard(s) under %s", set->name, shards, dir);
+    pthread_mutex_unlock(&set->init_mu);
+    return set;
 }
 
 #define REL_MAX_BINDS 64
@@ -357,15 +357,15 @@ struct rel_bind { enum rel_bind_kind kind; int64_t i64; double f64; const char *
 /* Bind the extracted params onto a prepared statement (1-based). Returns the
  * first non-OK sqlite rc (so the caller fails the statement rather than stepping
  * a partially-bound query), or SQLITE_OK. */
-static int rel_bind_args(sqlite3_stmt *st, const struct rel_bind *b, int n)
+static int rel_bind_args(sqlite3_stmt *stmt, const struct rel_bind *binds, int count)
 {
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < count; ++i) {
         int idx = i + 1, rc;
-        switch (b[i].kind) {
-        case RB_INT:   rc = sqlite3_bind_int64(st, idx, b[i].i64); break;
-        case RB_FLOAT: rc = sqlite3_bind_double(st, idx, b[i].f64); break;
-        case RB_NULL:  rc = sqlite3_bind_null(st, idx); break;
-        case RB_TEXT:  rc = sqlite3_bind_text(st, idx, b[i].str ? b[i].str : "", -1, SQLITE_TRANSIENT); break;
+        switch (binds[i].kind) {
+        case RB_INT:   rc = sqlite3_bind_int64(stmt, idx, binds[i].i64); break;
+        case RB_FLOAT: rc = sqlite3_bind_double(stmt, idx, binds[i].f64); break;
+        case RB_NULL:  rc = sqlite3_bind_null(stmt, idx); break;
+        case RB_TEXT:  rc = sqlite3_bind_text(stmt, idx, binds[i].str ? binds[i].str : "", -1, SQLITE_TRANSIENT); break;
         default:       rc = SQLITE_OK; break;
         }
         if (rc != SQLITE_OK) return rc;
@@ -374,15 +374,15 @@ static int rel_bind_args(sqlite3_stmt *st, const struct rel_bind *b, int n)
 }
 
 /* Append one result column as a JSON value. */
-static void rel_emit_col(struct yjson_writer *w, sqlite3_stmt *st, int col)
+static void rel_emit_col(struct yjson_writer *writer, sqlite3_stmt *stmt, int col)
 {
-    switch (sqlite3_column_type(st, col)) {
-    case SQLITE_INTEGER: yjson_writer_int(w, sqlite3_column_int64(st, col)); break;
-    case SQLITE_FLOAT:   yjson_writer_float(w, sqlite3_column_double(st, col)); break;
-    case SQLITE_NULL:    yjson_writer_null(w); break;
+    switch (sqlite3_column_type(stmt, col)) {
+    case SQLITE_INTEGER: yjson_writer_int(writer, sqlite3_column_int64(stmt, col)); break;
+    case SQLITE_FLOAT:   yjson_writer_float(writer, sqlite3_column_double(stmt, col)); break;
+    case SQLITE_NULL:    yjson_writer_null(writer); break;
     default: {
-        const unsigned char *t = sqlite3_column_text(st, col);
-        yjson_writer_string(w, t ? (const char *)t : "");
+        const unsigned char *text = sqlite3_column_text(stmt, col);
+        yjson_writer_string(writer, text ? (const char *)text : "");
         break;
     }
     }
@@ -403,76 +403,76 @@ struct rel_work {
 };
 
 /* Return a prepared, reset+cleared statement for `sql` from the shard's cache,
- * preparing (and caching) it on first sight. Caller MUST hold sh->mu. Returns
+ * preparing (and caching) it on first sight. Caller MUST hold shard->mu. Returns
  * NULL and sets *errmsg on failure. The statement is owned by the cache (never
  * finalized by the caller — reset it after use); the cache + statements live
  * the process lifetime, matching the shard. */
-static sqlite3_stmt *rel_shard_stmt(struct rel_shard *sh, const char *sql, const char **errmsg)
+static sqlite3_stmt *rel_shard_stmt(struct rel_shard *shard, const char *sql, const char **errmsg)
 {
-    for (int i = 0; i < sh->cache_n; ++i) {
-        if (strcmp(sh->cache[i].sql, sql) == 0) {
-            sqlite3_reset(sh->cache[i].stmt);
-            sqlite3_clear_bindings(sh->cache[i].stmt);
-            return sh->cache[i].stmt;
+    for (int i = 0; i < shard->cache_n; ++i) {
+        if (strcmp(shard->cache[i].sql, sql) == 0) {
+            sqlite3_reset(shard->cache[i].stmt);
+            sqlite3_clear_bindings(shard->cache[i].stmt);
+            return shard->cache[i].stmt;
         }
     }
-    sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(sh->db, sql, -1, &st, NULL) != SQLITE_OK) {
-        if (errmsg) *errmsg = sqlite3_errmsg(sh->db);
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(shard->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        if (errmsg) *errmsg = sqlite3_errmsg(shard->db);
         return NULL;
     }
-    if (sh->cache_n == sh->cache_cap) {
-        int ncap = sh->cache_cap ? sh->cache_cap * 2 : 16;
-        struct rel_stmt *nc = realloc(sh->cache, (size_t)ncap * sizeof(*nc));
-        if (!nc) { sqlite3_finalize(st); if (errmsg) *errmsg = "stmt cache: out of memory"; return NULL; }
-        sh->cache = nc;
-        sh->cache_cap = ncap;
+    if (shard->cache_n == shard->cache_cap) {
+        int new_cap = shard->cache_cap ? shard->cache_cap * 2 : 16;
+        struct rel_stmt *new_cache = realloc(shard->cache, (size_t)new_cap * sizeof(*new_cache));
+        if (!new_cache) { sqlite3_finalize(stmt); if (errmsg) *errmsg = "stmt cache: out of memory"; return NULL; }
+        shard->cache = new_cache;
+        shard->cache_cap = new_cap;
     }
     char *sql_copy = strdup(sql);
-    if (!sql_copy) { sqlite3_finalize(st); if (errmsg) *errmsg = "stmt cache: out of memory"; return NULL; }
-    sh->cache[sh->cache_n].sql = sql_copy;
-    sh->cache[sh->cache_n].stmt = st;
-    sh->cache_n++;
-    return st;
+    if (!sql_copy) { sqlite3_finalize(stmt); if (errmsg) *errmsg = "stmt cache: out of memory"; return NULL; }
+    shard->cache[shard->cache_n].sql = sql_copy;
+    shard->cache[shard->cache_n].stmt = stmt;
+    shard->cache_n++;
+    return stmt;
 }
 
 /* Runs on a worker-pool thread: bind + step a (cached) prepared statement on
  * the shard_key's shard, serialized by the shard mutex; build the JSON result. */
 static void rel_work_fn(void *arg)
 {
-    struct rel_work *w = arg;
-    w->ok = 0;
-    struct rel_set *s = rel_init(w->db_name);
-    if (!s) { snprintf(w->err, sizeof(w->err), "relational_storage: database '%s' not configured",
-                       w->db_name ? w->db_name : "default"); return; }
-    struct rel_shard *sh = &s->shards[(uint64_t)w->shard_key % (uint64_t)s->n];
+    struct rel_work *work = arg;
+    work->ok = 0;
+    struct rel_set *set = rel_init(work->db_name);
+    if (!set) { snprintf(work->err, sizeof(work->err), "relational_storage: database '%s' not configured",
+                       work->db_name ? work->db_name : "default"); return; }
+    struct rel_shard *shard = &set->shards[(uint64_t)work->shard_key % (uint64_t)set->n];
 
-    pthread_mutex_lock(&sh->mu);
+    pthread_mutex_lock(&shard->mu);
     /* Cached prepared statement (parsed once per distinct SQL, then reset+
      * rebound) — avoids re-running the SQLite parser/planner on every call. */
     const char *prep_err = NULL;
-    sqlite3_stmt *st = rel_shard_stmt(sh, w->sql, &prep_err);
-    if (!st) {
-        snprintf(w->err, sizeof(w->err), "prepare: %s", prep_err ? prep_err : "?");
-        pthread_mutex_unlock(&sh->mu);
+    sqlite3_stmt *stmt = rel_shard_stmt(shard, work->sql, &prep_err);
+    if (!stmt) {
+        snprintf(work->err, sizeof(work->err), "prepare: %s", prep_err ? prep_err : "?");
+        pthread_mutex_unlock(&shard->mu);
         return;
     }
     /* The number of supplied binds must match the statement's `?` placeholder
      * count exactly — too few would leave trailing params silently NULL, too
      * many would bind past the statement. Reject the mismatch rather than
      * stepping a half-bound query. */
-    int want = sqlite3_bind_parameter_count(st);
-    if (want != w->nbinds) {
-        snprintf(w->err, sizeof(w->err),
-                 "bind count mismatch: SQL has %d parameter(s), got %d", want, w->nbinds);
-        sqlite3_reset(st);
-        pthread_mutex_unlock(&sh->mu);
+    int want = sqlite3_bind_parameter_count(stmt);
+    if (want != work->nbinds) {
+        snprintf(work->err, sizeof(work->err),
+                 "bind count mismatch: SQL has %d parameter(s), got %d", want, work->nbinds);
+        sqlite3_reset(stmt);
+        pthread_mutex_unlock(&shard->mu);
         return;
     }
-    if (rel_bind_args(st, w->binds, w->nbinds) != SQLITE_OK) {
-        snprintf(w->err, sizeof(w->err), "bind: %s", sqlite3_errmsg(sh->db));
-        sqlite3_reset(st);
-        pthread_mutex_unlock(&sh->mu);
+    if (rel_bind_args(stmt, work->binds, work->nbinds) != SQLITE_OK) {
+        snprintf(work->err, sizeof(work->err), "bind: %s", sqlite3_errmsg(shard->db));
+        sqlite3_reset(stmt);
+        pthread_mutex_unlock(&shard->mu);
         return;
     }
 
@@ -485,71 +485,71 @@ static void rel_work_fn(void *arg)
      * the writer under the lock (columns are only valid while stepping); the
      * final strdup happens after unlock. For an exec the counters are captured
      * into locals and the JSON is built entirely after unlock. */
-    struct yjson_writer *jw = NULL;
+    struct yjson_writer *writer = NULL;
     int64_t exec_changes = 0, exec_rowid = 0;
 
-    if (w->op == REL_QUERY) {
-        jw = yjson_writer_new();
-        if (!jw) { sqlite3_reset(st); pthread_mutex_unlock(&sh->mu);
-                   snprintf(w->err, sizeof(w->err), "writer alloc"); return; }
-        yjson_writer_begin_array(jw);
-        int ncol = sqlite3_column_count(st);
+    if (work->op == REL_QUERY) {
+        writer = yjson_writer_new();
+        if (!writer) { sqlite3_reset(stmt); pthread_mutex_unlock(&shard->mu);
+                   snprintf(work->err, sizeof(work->err), "writer alloc"); return; }
+        yjson_writer_begin_array(writer);
+        int ncol = sqlite3_column_count(stmt);
         int rc;
-        while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
-            yjson_writer_begin_object(jw);
+        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+            yjson_writer_begin_object(writer);
             for (int c = 0; c < ncol; ++c) {
-                yjson_writer_key(jw, sqlite3_column_name(st, c));
-                rel_emit_col(jw, st, c);
+                yjson_writer_key(writer, sqlite3_column_name(stmt, c));
+                rel_emit_col(writer, stmt, c);
             }
-            yjson_writer_end_object(jw);
+            yjson_writer_end_object(writer);
         }
-        yjson_writer_end_array(jw);
+        yjson_writer_end_array(writer);
         if (rc != SQLITE_DONE) {
-            snprintf(w->err, sizeof(w->err), "step: %s", sqlite3_errmsg(sh->db));
-            yjson_writer_free(jw); sqlite3_reset(st); pthread_mutex_unlock(&sh->mu);
+            snprintf(work->err, sizeof(work->err), "step: %s", sqlite3_errmsg(shard->db));
+            yjson_writer_free(writer); sqlite3_reset(stmt); pthread_mutex_unlock(&shard->mu);
             return;
         }
     } else { /* REL_EXEC */
-        int rc = sqlite3_step(st);
+        int rc = sqlite3_step(stmt);
         if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
-            snprintf(w->err, sizeof(w->err), "exec: %s", sqlite3_errmsg(sh->db));
-            sqlite3_reset(st); pthread_mutex_unlock(&sh->mu);
+            snprintf(work->err, sizeof(work->err), "exec: %s", sqlite3_errmsg(shard->db));
+            sqlite3_reset(stmt); pthread_mutex_unlock(&shard->mu);
             return;
         }
-        exec_changes = sqlite3_changes(sh->db);
-        exec_rowid   = sqlite3_last_insert_rowid(sh->db);
+        exec_changes = sqlite3_changes(shard->db);
+        exec_rowid   = sqlite3_last_insert_rowid(shard->db);
     }
 
-    sqlite3_reset(st);
-    pthread_mutex_unlock(&sh->mu);
+    sqlite3_reset(stmt);
+    pthread_mutex_unlock(&shard->mu);
     /* --- DB lock released: serialize + allocate the result OUTSIDE it. --- */
 
-    if (w->op == REL_EXEC) {
-        jw = yjson_writer_new();
-        if (!jw) { snprintf(w->err, sizeof(w->err), "writer alloc"); return; }
-        yjson_writer_begin_object(jw);
-        yjson_writer_key(jw, "changes");           yjson_writer_int(jw, exec_changes);
-        yjson_writer_key(jw, "last_insert_rowid"); yjson_writer_int(jw, exec_rowid);
-        yjson_writer_end_object(jw);
+    if (work->op == REL_EXEC) {
+        writer = yjson_writer_new();
+        if (!writer) { snprintf(work->err, sizeof(work->err), "writer alloc"); return; }
+        yjson_writer_begin_object(writer);
+        yjson_writer_key(writer, "changes");           yjson_writer_int(writer, exec_changes);
+        yjson_writer_key(writer, "last_insert_rowid"); yjson_writer_int(writer, exec_rowid);
+        yjson_writer_end_object(writer);
     }
 
     size_t len = 0;
-    const char *data = yjson_writer_data(jw, &len);
-    w->out_json = strdup(data ? data : (w->op == REL_QUERY ? "[]" : "{}"));
-    yjson_writer_free(jw);
-    w->ok = w->out_json != NULL;
+    const char *data = yjson_writer_data(writer, &len);
+    work->out_json = strdup(data ? data : (work->op == REL_QUERY ? "[]" : "{}"));
+    yjson_writer_free(writer);
+    work->ok = work->out_json != NULL;
 }
 
 /* Offload the (potentially fsync-blocking) DB work to the worker pool so the
  * serving coroutine yields and the loop keeps running — mirrors
  * sharded_storage's shard_run. Falls back to inline outside a loop. */
-static void rel_run(struct rel_work *w)
+static void rel_run(struct rel_work *work)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    struct yloop *l = e ? picomesh_engine_loop(e) : NULL;
-    if (!l) { rel_work_fn(w); return; }
-    struct picomesh_void_result r = yloop_run_blocking(l, rel_work_fn, w);
-    if (PICOMESH_IS_ERR(r)) { picomesh_error_destroy(r.error); rel_work_fn(w); }
+    struct picomesh_engine *engine = picomesh_active_engine();
+    struct yloop *loop = engine ? picomesh_engine_loop(engine) : NULL;
+    if (!loop) { rel_work_fn(work); return; }
+    struct picomesh_void_result run_res = yloop_run_blocking(loop, rel_work_fn, work);
+    if (PICOMESH_IS_ERR(run_res)) { picomesh_error_destroy(run_res.error); rel_work_fn(work); }
 }
 
 /* ---- class + methods ------------------------------------------------- */
@@ -584,37 +584,37 @@ static struct picomesh_json_result rel_call(enum rel_op op, const char *db_name,
             yjson_doc_free(doc);
             return PICOMESH_ERR(picomesh_json, "relational_storage: args_json must be a JSON array");
         }
-        size_t n = yjson_array_size(arr);
-        if (n > REL_MAX_BINDS) {
+        size_t array_count = yjson_array_size(arr);
+        if (array_count > REL_MAX_BINDS) {
             yjson_doc_free(doc);
             char msg[96];
-            snprintf(msg, sizeof(msg), "relational_storage: too many bind args (%zu > max %d)", n, REL_MAX_BINDS);
+            snprintf(msg, sizeof(msg), "relational_storage: too many bind args (%zu > max %d)", array_count, REL_MAX_BINDS);
             return PICOMESH_ERR(picomesh_json, msg);
         }
-        for (size_t i = 0; i < n; ++i) {
-            const struct yjson_value *a = yjson_array_at(arr, i);
-            struct rel_bind *b = &binds[nbinds++];
-            if (yjson_is_int(a))        { b->kind = RB_INT;   b->i64 = yjson_as_int(a, 0); }
-            else if (yjson_is_float(a)) { b->kind = RB_FLOAT; b->f64 = yjson_as_float(a, 0); }
-            else if (yjson_is_bool(a))  { b->kind = RB_INT;   b->i64 = yjson_as_bool(a, 0); }
-            else if (yjson_is_null(a))  { b->kind = RB_NULL;  b->str = NULL; }
-            else                        { b->kind = RB_TEXT;  b->str = yjson_as_string(a, ""); }
+        for (size_t i = 0; i < array_count; ++i) {
+            const struct yjson_value *elem = yjson_array_at(arr, i);
+            struct rel_bind *bind = &binds[nbinds++];
+            if (yjson_is_int(elem))        { bind->kind = RB_INT;   bind->i64 = yjson_as_int(elem, 0); }
+            else if (yjson_is_float(elem)) { bind->kind = RB_FLOAT; bind->f64 = yjson_as_float(elem, 0); }
+            else if (yjson_is_bool(elem))  { bind->kind = RB_INT;   bind->i64 = yjson_as_bool(elem, 0); }
+            else if (yjson_is_null(elem))  { bind->kind = RB_NULL;  bind->str = NULL; }
+            else                           { bind->kind = RB_TEXT;  bind->str = yjson_as_string(elem, ""); }
         }
     }
 
-    struct rel_work w = {.op = op, .db_name = db_name, .shard_key = shard_key, .sql = sql,
+    struct rel_work work = {.op = op, .db_name = db_name, .shard_key = shard_key, .sql = sql,
                          .binds = binds, .nbinds = nbinds};
-    rel_run(&w);
+    rel_run(&work);
     if (doc) yjson_doc_free(doc);
 
-    if (!w.ok) {
-        free(w.out_json);
+    if (!work.ok) {
+        free(work.out_json);
         char msg[300];
         snprintf(msg, sizeof(msg), "relational_storage: %s",
-                 w.err[0] ? w.err : "query failed");
+                 work.err[0] ? work.err : "query failed");
         return PICOMESH_ERR(picomesh_json, msg);
     }
-    return PICOMESH_OK(picomesh_json, w.out_json);
+    return PICOMESH_OK(picomesh_json, work.out_json);
 }
 
 /* Run a write/DDL statement against database `db_name`, shard `shard_key`%N.
@@ -653,9 +653,9 @@ struct picomesh_int_result relational_storage_db_shard_count_impl(struct ctx *ct
                                                                   struct yheaders *hdrs, const char *db_name)
 {
     (void)ctx; (void)obj; (void)hdrs;
-    struct rel_set *s = rel_init(db_name);
-    if (!s) return PICOMESH_ERR(picomesh_int, "relational_storage: database not configured");
-    return PICOMESH_OK(picomesh_int, s->n);
+    struct rel_set *set = rel_init(db_name);
+    if (!set) return PICOMESH_ERR(picomesh_int, "relational_storage: database not configured");
+    return PICOMESH_OK(picomesh_int, set->n);
 }
 
 #include "relational_storage.gen.c"

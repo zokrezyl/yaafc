@@ -125,7 +125,10 @@ at that point.
   `ctx->peer` is a msgpack channel, the `methods.gen.c` stub encodes args,
   calls `peer_channel_msgpack_call`, decodes the result.
 - `ymain.c`: `client --transport msgpack`.
-- `tools/msgpack-client/echo_server.py` — **hand-written** foreign service.
+- `tools/msgpack-client/calculator_server_impl.py` — foreign service built on the
+  **generated** server skeleton (only the four arithmetic bodies are hand-written;
+  `tools/msgpack-client/echo_server.py` is kept as the fully-hand-written
+  reference).
 - `tools/picoforge/msgpack-outbound-smoke.sh` — **3/3**: picomesh C → foreign
   Python service: `6+7=13`, `6*7=42`.
 
@@ -136,9 +139,14 @@ at that point.
 - `tools/msgpack-codegen/`:
   - `model.py` — load `model.yaml` → normalized IR (dotted path, arg kinds, ret
     kind); C-type → neutral-kind maps.
-  - `gen.py` — CLI: `gen.py --lang <L> --out DIR --module NAME model.yaml...`.
-  - `emit_python.py emit_go.py emit_rust.py emit_cpp.py emit_lua.py`.
+  - `gen.py` — CLI: `gen.py --role <client|server> --lang <L> --out DIR --module
+    NAME model.yaml...`.
+  - clients: `emit_python.py emit_go.py emit_rust.py emit_cpp.py emit_lua.py`.
+  - servers: `emit_python_server.py` (foreign-service skeleton — framing,
+    envelope validation, path dispatch, describe, structured errors; typed
+    handler stubs the developer fills in; gh#23).
 - `bindings/{python,go,rust,cpp,lua}/calculator_client.*` — generated demo.
+- `bindings/python/calculator_server.py` — generated server skeleton.
 - **Verified:** python client end-to-end vs a live frontend (add 5 / mul 42 /
   sub 6); go parses (`gofmt -e`); c++ compiles vs cmp (`g++ -fsyntax-only`).
   rust + lua are generate-only here (rustc libz broken, lua absent).
@@ -170,13 +178,13 @@ bash tools/picoforge/msgpack-outbound-smoke.sh   # outbound 3/3
 
 ## Missing / deferred
 
-1. **Foreign server-skeleton generators — the biggest gap.** The reverse
-   direction's *server* half is hand-written today
-   (`tools/msgpack-client/echo_server.py`). Need `emit_python_server` /
-   `emit_go_server` / … : from `model.yaml`, emit decode → dispatch-on-path →
-   encode with typed handler stubs the developer fills in. Then "C calls a
-   foreign implementation" is generated end-to-end. (This was the #17 open
-   question — server skeletons vs client stubs only; only **clients** exist.)
+1. **Foreign server-skeleton generators — DONE for Python (gh#23).**
+   `gen.py --role server --lang python` emits `<module>_server.py`: framing,
+   envelope validation (incl. v1 kwargs rejection), dispatch-on-path, `describe`,
+   structured errors, and typed handler stubs the developer fills in. The outbound
+   smoke now runs against the generated skeleton
+   (`tools/msgpack-client/calculator_server_impl.py`), not a hand-written server.
+   Remaining: `emit_go_server` / `emit_rust_server` / … follow the same model.
 
 2. **C client stubs from a hand-authored `model.yaml` (no-C-class / IDL
    case).** For a foreign service picomesh has no annotated C class for, you
@@ -187,14 +195,18 @@ bash tools/picoforge/msgpack-outbound-smoke.sh   # outbound 3/3
    convention. (The foreign *client* generators already consume `model.yaml`
    directly, so only the C-client side of this case is missing.)
 
-3. **Engine config `transport: msgpack` for remotes (async integration).**
-   Outbound works over a *blocking* peer channel (CLI / worker-pool). The
-   engine's remote sessions run on the yloop via an async multiplexing mux
-   (`rpc_async_client` in `engine.c`). Selecting msgpack for a config remote
-   (`remotes: [{transport: msgpack}]`) needs an async yloop msgpack mux
-   mirroring that — a blocking channel must not be dropped onto the event loop.
-   So a C *service* on the loop calling out via config isn't wired yet; the
-   generated glue itself works over the blocking path.
+3. **Engine config `transport: msgpack` for remotes — DONE (gh#22).**
+   `remotes: [{service, host, port, transport: msgpack}]` now opens a yloop-aware
+   async MessagePack transport per worker (`msgpack_async_client` in `engine.c`):
+   lazy connect, framed coroutine-yielding read/write (never blocks the loop),
+   reconnect on drop, and a cooperative serial gate (the envelope carries no
+   req_id, so calls on one channel are serialised rather than multiplexed). The
+   envelope build/parse stays in `rpc.c`; the framed I/O is injected via
+   `peer_channel_set_msgpack_async`. Because the msgpack wire is stateless
+   path-invoke, `rpc_object_acquire` hands back a handle-less proxy (no
+   `RPC_OP_CREATE`). Verified: `tools/picoforge/msgpack-config-remote-smoke.sh` —
+   a C node forwards `/_rpc calculator.calc.*` to a foreign Python msgpack server
+   declared purely as a config remote (4/4).
 
 4. **Build wiring for bindings (automation).** `model.yaml` regenerates with
    the build, but the polyglot clients do **not** — `gen.py` is invoked by

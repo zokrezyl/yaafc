@@ -235,40 +235,43 @@ static struct picomesh_void_result store_mapping(struct yheaders *hdrs, uint32_t
                                                  int64_t github_id, const char *username,
                                                  const char *access_token)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e || !access_token || !*access_token || github_id <= 0)
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine || !access_token || !*access_token || github_id <= 0)
         return PICOMESH_ERR(picomesh_void, "store_mapping: bad args or no active engine");
-    struct ctx c = picomesh_engine_service_ctx(e, "sharded_storage");
-    struct object_ptr_result o = sharded_storage_db_create(&c);
-    if (PICOMESH_IS_ERR(o))
-        return PICOMESH_ERR(picomesh_void, "store_mapping: storage handle create failed", o);
+    struct ctx storage_ctx = picomesh_engine_service_ctx(engine, "sharded_storage");
+    struct object_ptr_result db_handle_res = sharded_storage_db_create(&storage_ctx);
+    if (PICOMESH_IS_ERR(db_handle_res))
+        return PICOMESH_ERR(picomesh_void, "store_mapping: storage handle create failed",
+                            db_handle_res);
+    struct object *db_handle = db_handle_res.value;
 
     struct picomesh_void_result result = PICOMESH_OK_VOID();
-    char key[96], val[512];
+    char key[96], value[512];
     struct picomesh_int_result set_res;
 
     snprintf(key, sizeof(key), "github:%lld:token", (long long)github_id);
-    set_res = sharded_storage_db_set(&c, o.value, hdrs, "github_authn", key, access_token);
+    set_res = sharded_storage_db_set(&storage_ctx, db_handle, hdrs, "github_authn", key,
+                                     access_token);
     if (PICOMESH_IS_ERR(set_res)) {
         result = PICOMESH_ERR(picomesh_void, "store_mapping: github token write failed", set_res);
         goto done;
     }
     snprintf(key, sizeof(key), "github:%lld:uid", (long long)github_id);
-    snprintf(val, sizeof(val), "%u", uid);
-    set_res = sharded_storage_db_set(&c, o.value, hdrs, "github_authn", key, val);
+    snprintf(value, sizeof(value), "%u", uid);
+    set_res = sharded_storage_db_set(&storage_ctx, db_handle, hdrs, "github_authn", key, value);
     if (PICOMESH_IS_ERR(set_res)) {
         result = PICOMESH_ERR(picomesh_void, "store_mapping: github_id->uid write failed", set_res);
         goto done;
     }
     snprintf(key, sizeof(key), "uid:%u:github_id", uid);
-    snprintf(val, sizeof(val), "%lld", (long long)github_id);
-    set_res = sharded_storage_db_set(&c, o.value, hdrs, "github_authn", key, val);
+    snprintf(value, sizeof(value), "%lld", (long long)github_id);
+    set_res = sharded_storage_db_set(&storage_ctx, db_handle, hdrs, "github_authn", key, value);
     if (PICOMESH_IS_ERR(set_res)) {
         result = PICOMESH_ERR(picomesh_void, "store_mapping: uid->github_id write failed", set_res);
         goto done;
     }
     snprintf(key, sizeof(key), "uid:%u:username", uid);
-    set_res = sharded_storage_db_set(&c, o.value, hdrs, "github_authn", key,
+    set_res = sharded_storage_db_set(&storage_ctx, db_handle, hdrs, "github_authn", key,
                                      username ? username : "");
     if (PICOMESH_IS_ERR(set_res)) {
         result = PICOMESH_ERR(picomesh_void, "store_mapping: uid->username write failed", set_res);
@@ -276,7 +279,7 @@ static struct picomesh_void_result store_mapping(struct yheaders *hdrs, uint32_t
     }
 
 done:
-    object_release_in_ctx(&c, o.value);
+    object_release_in_ctx(&storage_ctx, db_handle);
     return result;
 }
 

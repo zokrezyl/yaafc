@@ -224,6 +224,18 @@ int picomesh_role_rank(const char *role)
     return -1;
 }
 
+const char *picomesh_role_name(int rank)
+{
+    switch (rank) {
+    case 0: return "guest";
+    case 1: return "reporter";
+    case 2: return "developer";
+    case 3: return "maintainer";
+    case 4: return "owner";
+    default: return NULL;
+    }
+}
+
 int picomesh_groups_max_role(const char *groups_csv, const char *account)
 {
     if (!groups_csv || !account) return -1;

@@ -59,9 +59,9 @@ static int alloc_token(char *out, size_t cap)
     uint8_t raw[16];
     size_t got = 0;
     while (got < sizeof(raw)) {
-        ssize_t n = getrandom(raw + got, sizeof(raw) - got, 0);
-        if (n < 0) { if (errno == EINTR) continue; return 0; }
-        got += (size_t)n;
+        ssize_t read_len = getrandom(raw + got, sizeof(raw) - got, 0);
+        if (read_len < 0) { if (errno == EINTR) continue; return 0; }
+        got += (size_t)read_len;
     }
     static const char hex[] = "0123456789abcdef";
     size_t k = 0;
@@ -74,11 +74,11 @@ static int alloc_token(char *out, size_t cap)
 }
 
 /* Open relational_storage and ensure this plugin's table exists. */
-static struct picomesh_void_result session_open(struct rel_handle *h, struct yheaders *hdrs, struct object *obj)
+static struct picomesh_void_result session_open(struct rel_handle *rel_handle, struct yheaders *hdrs, struct object *obj)
 {
-    struct picomesh_void_result o = rel_open(h, "rstore_session", "session");
-    if (PICOMESH_IS_ERR(o)) return PICOMESH_ERR(picomesh_void, "session: open relational_storage failed", o);
-    return rel_ensure_schema(h, hdrs, &sess(obj)->schema_ensured, SESSION_DDL);
+    struct picomesh_void_result open_res = rel_open(rel_handle, "rstore_session", "session");
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_void, "session: open relational_storage failed", open_res);
+    return rel_ensure_schema(rel_handle, hdrs, &sess(obj)->schema_ensured, SESSION_DDL);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@session:session:session_start")
@@ -93,20 +93,20 @@ struct picomesh_string_result session_session_start_impl(struct ctx *ctx, struct
     if (!alloc_token(sid, sizeof(sid)))
         return PICOMESH_ERR(picomesh_string, "session_start: secure random unavailable");
 
-    struct rel_handle h;
-    struct picomesh_void_result oh = session_open(&h, hdrs, obj);
-    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_string, "session_start: open failed", oh);
-    h.shard = picomesh_fnv1a32(sid); /* lookup cluster: shard by the sid we issue */
+    struct rel_handle rel_handle;
+    struct picomesh_void_result open_res = session_open(&rel_handle, hdrs, obj);
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_string, "session_start: open failed", open_res);
+    rel_handle.shard = picomesh_fnv1a32(sid); /* lookup cluster: shard by the sid we issue */
 
-    struct yjson_writer *aw = yjson_writer_new();
-    yjson_writer_begin_array(aw);
-    yjson_writer_string(aw, sid);
-    yjson_writer_int(aw, (int64_t)user_id);
-    yjson_writer_string(aw, access_jwt);
-    yjson_writer_string(aw, refresh_token);
-    yjson_writer_int(aw, picomesh_yplatform_time_wall_ms() / 1000);
-    char *args = rel_args_take(aw);
-    int changes = rel_exec_changes(&h, hdrs,
+    struct yjson_writer *args_writer = yjson_writer_new();
+    yjson_writer_begin_array(args_writer);
+    yjson_writer_string(args_writer, sid);
+    yjson_writer_int(args_writer, (int64_t)user_id);
+    yjson_writer_string(args_writer, access_jwt);
+    yjson_writer_string(args_writer, refresh_token);
+    yjson_writer_int(args_writer, picomesh_yplatform_time_wall_ms() / 1000);
+    char *args = rel_args_take(args_writer);
+    int changes = rel_exec_changes(&rel_handle, hdrs,
         "INSERT INTO sessions(sid,uid,access_jwt,refresh_token,created_at) VALUES(?,?,?,?,?)", args);
     free(args);
     if (changes < 1) return PICOMESH_ERR(picomesh_string, "session_start: insert failed");
@@ -123,12 +123,12 @@ struct picomesh_string_result session_session_jwt_impl(struct ctx *ctx, struct o
                                                        const char *sid)
 {
     (void)ctx;
-    struct rel_handle h;
-    struct picomesh_void_result oh = session_open(&h, hdrs, obj);
-    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_string, "session_jwt: open failed", oh);
-    h.shard = picomesh_fnv1a32(sid ? sid : "");
+    struct rel_handle rel_handle;
+    struct picomesh_void_result open_res = session_open(&rel_handle, hdrs, obj);
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_string, "session_jwt: open failed", open_res);
+    rel_handle.shard = picomesh_fnv1a32(sid ? sid : "");
     char *args = rel_args1s(sid ? sid : "");
-    char *jwt = rel_query_str(&h, hdrs, "SELECT access_jwt FROM sessions WHERE sid=?", args, "access_jwt");
+    char *jwt = rel_query_str(&rel_handle, hdrs, "SELECT access_jwt FROM sessions WHERE sid=?", args, "access_jwt");
     free(args);
     if (!jwt) {
         char *empty = strdup("");
@@ -143,12 +143,12 @@ struct picomesh_uint32_result session_session_lookup_impl(struct ctx *ctx, struc
 {
     (void)ctx;
     if (!sid || !*sid) return PICOMESH_OK(picomesh_uint32, 0);
-    struct rel_handle h;
-    struct picomesh_void_result oh = session_open(&h, hdrs, obj);
-    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_uint32, "session_lookup: open failed", oh);
-    h.shard = picomesh_fnv1a32(sid);
+    struct rel_handle rel_handle;
+    struct picomesh_void_result open_res = session_open(&rel_handle, hdrs, obj);
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_uint32, "session_lookup: open failed", open_res);
+    rel_handle.shard = picomesh_fnv1a32(sid);
     char *args = rel_args1s(sid);
-    int64_t uid = rel_query_int(&h, hdrs, "SELECT uid FROM sessions WHERE sid=?", args, "uid", 0, NULL);
+    int64_t uid = rel_query_int(&rel_handle, hdrs, "SELECT uid FROM sessions WHERE sid=?", args, "uid", 0, NULL);
     free(args);
     return PICOMESH_OK(picomesh_uint32, (uint32_t)uid);
 }
@@ -159,12 +159,12 @@ struct picomesh_int_result session_session_destroy_impl(struct ctx *ctx, struct 
 {
     (void)ctx;
     if (!sid || !*sid) return PICOMESH_OK(picomesh_int, 0);
-    struct rel_handle h;
-    struct picomesh_void_result oh = session_open(&h, hdrs, obj);
-    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_int, "session_destroy: open failed", oh);
-    h.shard = picomesh_fnv1a32(sid);
+    struct rel_handle rel_handle;
+    struct picomesh_void_result open_res = session_open(&rel_handle, hdrs, obj);
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_int, "session_destroy: open failed", open_res);
+    rel_handle.shard = picomesh_fnv1a32(sid);
     char *args = rel_args1s(sid);
-    int changes = rel_exec_changes(&h, hdrs, "DELETE FROM sessions WHERE sid=?", args);
+    int changes = rel_exec_changes(&rel_handle, hdrs, "DELETE FROM sessions WHERE sid=?", args);
     free(args);
     if (changes < 0) return PICOMESH_ERR(picomesh_int, "session_destroy: delete failed");
     return PICOMESH_OK(picomesh_int, changes > 0 ? 1 : 0);
@@ -174,12 +174,12 @@ PICOMESH_CLASS_ANNOTATE("override@session:session:session_count_active")
 struct picomesh_size_result session_session_count_active_impl(struct ctx *ctx, struct object *obj, struct yheaders *hdrs)
 {
     (void)ctx;
-    struct rel_handle h;
-    struct picomesh_void_result oh = session_open(&h, hdrs, obj);
-    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_size, "session_count: open failed", oh);
-    struct picomesh_int64_result n = rel_query_int_all(&h, hdrs, "SELECT COUNT(*) AS n FROM sessions", "[]", "n");
-    if (PICOMESH_IS_ERR(n)) return PICOMESH_ERR(picomesh_size, "session_count: aggregate failed", n);
-    return PICOMESH_OK(picomesh_size, (size_t)(n.value < 0 ? 0 : n.value));
+    struct rel_handle rel_handle;
+    struct picomesh_void_result open_res = session_open(&rel_handle, hdrs, obj);
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_size, "session_count: open failed", open_res);
+    struct picomesh_int64_result count_res = rel_query_int_all(&rel_handle, hdrs, "SELECT COUNT(*) AS n FROM sessions", "[]", "n");
+    if (PICOMESH_IS_ERR(count_res)) return PICOMESH_ERR(picomesh_size, "session_count: aggregate failed", count_res);
+    return PICOMESH_OK(picomesh_size, (size_t)(count_res.value < 0 ? 0 : count_res.value));
 }
 
 /* List sessions as `[{"uid":…,"created_at":…}, …]` — non-secret metadata only.
@@ -192,11 +192,11 @@ struct picomesh_json_result session_session_list_impl(struct ctx *ctx, struct ob
                                                     int64_t offset, int64_t limit)
 {
     (void)ctx;
-    struct rel_handle h;
-    struct picomesh_void_result oh = session_open(&h, hdrs, obj);
-    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_json, "session_list: open failed", oh);
+    struct rel_handle rel_handle;
+    struct picomesh_void_result open_res = session_open(&rel_handle, hdrs, obj);
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_json, "session_list: open failed", open_res);
     /* Globally ordered + paginated across shards by created_at. */
-    return rel_query_page(&h, hdrs, "SELECT uid,created_at FROM sessions", "[]", "created_at", 0, offset, limit);
+    return rel_query_page(&rel_handle, hdrs, "SELECT uid,created_at FROM sessions", "[]", "created_at", 0, offset, limit);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@session:session:session_list_all")
@@ -204,11 +204,11 @@ struct picomesh_json_result session_session_list_all_impl(struct ctx *ctx, struc
                                                           struct yheaders *hdrs)
 {
     (void)ctx;
-    struct rel_handle h;
-    struct picomesh_void_result oh = session_open(&h, hdrs, obj);
-    if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_json, "session_list_all: open failed", oh);
+    struct rel_handle rel_handle;
+    struct picomesh_void_result open_res = session_open(&rel_handle, hdrs, obj);
+    if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_json, "session_list_all: open failed", open_res);
     /* Unbounded but GLOBALLY ordered by created_at (limit<=0). */
-    return rel_query_page(&h, hdrs, "SELECT uid,created_at FROM sessions", "[]", "created_at", 0, 0, 0);
+    return rel_query_page(&rel_handle, hdrs, "SELECT uid,created_at FROM sessions", "[]", "created_at", 0, 0, 0);
 }
 
 #include "session.gen.c"

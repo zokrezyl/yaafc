@@ -277,11 +277,11 @@ static const char ALPINE_CONSOLE_HTML[] =
 
 extern size_t yloop_write(struct yloop_stream *s, const void *buf, size_t n);
 
-static void send_resp(struct yloop_stream *s, int status, const char *reason,
+static void send_resp(struct yloop_stream *stream, int status, const char *reason,
                       const char *ctype, const char *body, size_t blen)
 {
-    char hdr[512];
-    int n = snprintf(hdr, sizeof(hdr),
+    char header[512];
+    int header_len = snprintf(header, sizeof(header),
         "HTTP/1.1 %d %s\r\n"
         "Content-Type: %s\r\n"
         "Content-Length: %zu\r\n"
@@ -293,251 +293,251 @@ static void send_resp(struct yloop_stream *s, int status, const char *reason,
         "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
         "\r\n",
         status, reason, ctype, blen);
-    if (n <= 0) return;
-    yloop_write(s, hdr, (size_t)n);
-    if (blen) yloop_write(s, body, blen);
+    if (header_len <= 0) return;
+    yloop_write(stream, header, (size_t)header_len);
+    if (blen) yloop_write(stream, body, blen);
 }
 
-static int hdr_match(const struct phr_header *hdrs, size_t n, const char *want,
+static int hdr_match(const struct phr_header *hdrs, size_t count, const char *want,
                      char *out, size_t out_cap)
 {
-    size_t wl = strlen(want);
-    for (size_t i = 0; i < n; ++i) {
-        if (hdrs[i].name_len != wl) continue;
-        if (strncasecmp(hdrs[i].name, want, wl) != 0) continue;
-        size_t copy = hdrs[i].value_len < out_cap - 1 ? hdrs[i].value_len : out_cap - 1;
-        memcpy(out, hdrs[i].value, copy);
-        out[copy] = 0;
+    size_t want_len = strlen(want);
+    for (size_t i = 0; i < count; ++i) {
+        if (hdrs[i].name_len != want_len) continue;
+        if (strncasecmp(hdrs[i].name, want, want_len) != 0) continue;
+        size_t copy_len = hdrs[i].value_len < out_cap - 1 ? hdrs[i].value_len : out_cap - 1;
+        memcpy(out, hdrs[i].value, copy_len);
+        out[copy_len] = 0;
         return 1;
     }
     return 0;
 }
 
 /* Compare request path (ignoring any ?query) to a literal. */
-static int path_eq(const char *p, const char *target)
+static int path_eq(const char *path, const char *target)
 {
-    const char *q = strchr(p, '?');
-    size_t n = q ? (size_t)(q - p) : strlen(p);
-    return n == strlen(target) && memcmp(p, target, n) == 0;
+    const char *query = strchr(path, '?');
+    size_t path_len = query ? (size_t)(query - path) : strlen(path);
+    return path_len == strlen(target) && memcmp(path, target, path_len) == 0;
 }
 
-static int path_ends(const char *p, const char *suffix)
+static int path_ends(const char *path, const char *suffix)
 {
-    const char *q = strchr(p, '?');
-    size_t n = q ? (size_t)(q - p) : strlen(p);
-    size_t sl = strlen(suffix);
-    return n > sl && memcmp(p + n - sl, suffix, sl) == 0;
+    const char *query = strchr(path, '?');
+    size_t path_len = query ? (size_t)(query - path) : strlen(path);
+    size_t suffix_len = strlen(suffix);
+    return path_len > suffix_len && memcmp(path + path_len - suffix_len, suffix, suffix_len) == 0;
 }
 
 /* Extract ?key=value from the path. Returns 1 on hit. */
 static int query_get(const char *path, const char *key, char *out, size_t out_cap)
 {
-    const char *q = strchr(path, '?');
-    if (!q) return 0;
-    size_t kl = strlen(key);
-    const char *p = q + 1;
-    while (*p) {
-        const char *eq = strchr(p, '=');
-        const char *amp = strchr(p, '&');
-        if (eq && (!amp || eq < amp) && (size_t)(eq - p) == kl && memcmp(p, key, kl) == 0) {
-            const char *vend = amp ? amp : p + strlen(p);
-            size_t vl = (size_t)(vend - eq - 1);
-            if (vl >= out_cap) vl = out_cap - 1;
-            memcpy(out, eq + 1, vl);
-            out[vl] = 0;
+    const char *query = strchr(path, '?');
+    if (!query) return 0;
+    size_t key_len = strlen(key);
+    const char *scan = query + 1;
+    while (*scan) {
+        const char *equals = strchr(scan, '=');
+        const char *ampersand = strchr(scan, '&');
+        if (equals && (!ampersand || equals < ampersand) && (size_t)(equals - scan) == key_len && memcmp(scan, key, key_len) == 0) {
+            const char *value_end = ampersand ? ampersand : scan + strlen(scan);
+            size_t value_len = (size_t)(value_end - equals - 1);
+            if (value_len >= out_cap) value_len = out_cap - 1;
+            memcpy(out, equals + 1, value_len);
+            out[value_len] = 0;
             return 1;
         }
-        if (!amp) break;
-        p = amp + 1;
+        if (!ampersand) break;
+        scan = ampersand + 1;
     }
     return 0;
 }
 
 /* True for the JSON API surface the console drives — proxied upstream. */
-static int wants_proxy(const char *p, int is_get, int is_post)
+static int wants_proxy(const char *path, int is_get, int is_post)
 {
-    if (is_post && path_eq(p, "/_rpc")) return 1;
+    if (is_post && path_eq(path, "/_rpc")) return 1;
     if (is_get || is_post) {
-        if (path_eq(p, "/_describe") || path_eq(p, "/_describe_tree")) return 1;
-        if (path_ends(p, "/_describe") || path_ends(p, "/_describe_tree")) return 1;
+        if (path_eq(path, "/_describe") || path_eq(path, "/_describe_tree")) return 1;
+        if (path_ends(path, "/_describe") || path_ends(path, "/_describe_tree")) return 1;
     }
     return 0;
 }
 
-static int authorized(const struct alpine_frontend *f, const struct phr_header *hdrs,
-                      size_t nh, const char *path)
+static int authorized(const struct alpine_frontend *frontend, const struct phr_header *hdrs,
+                      size_t header_count, const char *path)
 {
-    if (!f->token) return 1; /* no token configured: open (loopback admin tool) */
+    if (!frontend->token) return 1; /* no token configured: open (loopback admin tool) */
     char got[300] = {0};
     char auth[300] = {0};
-    if (hdr_match(hdrs, nh, "authorization", auth, sizeof(auth))) {
-        const char *v = auth;
-        if (strncasecmp(v, "Bearer ", 7) == 0) v += 7;
-        while (*v == ' ') ++v;
-        snprintf(got, sizeof(got), "%s", v);
+    if (hdr_match(hdrs, header_count, "authorization", auth, sizeof(auth))) {
+        const char *value = auth;
+        if (strncasecmp(value, "Bearer ", 7) == 0) value += 7;
+        while (*value == ' ') ++value;
+        snprintf(got, sizeof(got), "%s", value);
     }
     if (!got[0]) query_get(path, "token", got, sizeof(got));
-    return got[0] && strcmp(got, f->token) == 0;
+    return got[0] && strcmp(got, frontend->token) == 0;
 }
 
 /* Open a fresh upstream connection, forward the request, relay the full
  * close-delimited response back to the browser. The console token (if any)
  * is NOT forwarded — it gates the console, not the upstream. */
-static void proxy_upstream(struct yloop *l, struct yloop_stream *client,
-                           const struct alpine_frontend *f,
+static void proxy_upstream(struct yloop *loop, struct yloop_stream *client,
+                           const struct alpine_frontend *frontend,
                            const char *method, const char *path,
                            const char *ctype, const char *body, size_t blen)
 {
-    struct yloop_stream_ptr_result ur = yloop_connect_tcp(l, f->up_host, f->up_port);
-    if (PICOMESH_IS_ERR(ur)) {
-        picomesh_error_destroy(ur.error);
+    struct yloop_stream_ptr_result upstream_res = yloop_connect_tcp(loop, frontend->up_host, frontend->up_port);
+    if (PICOMESH_IS_ERR(upstream_res)) {
+        picomesh_error_destroy(upstream_res.error);
         static const char msg[] = "{\"error\":\"alpine: upstream connect failed\"}";
         send_resp(client, 502, "Bad Gateway", "application/json", msg, sizeof(msg) - 1);
         return;
     }
-    struct yloop_stream *up = ur.value;
+    struct yloop_stream *upstream = upstream_res.value;
 
     char head[4096];
-    int hn = snprintf(head, sizeof(head),
+    int head_len = snprintf(head, sizeof(head),
         "%s %s HTTP/1.1\r\n"
         "Host: %s:%d\r\n"
         "Connection: close\r\n",
-        method, path, f->up_host, f->up_port);
-    if (hn > 0 && ctype && *ctype)
-        hn += snprintf(head + hn, sizeof(head) - (size_t)hn, "Content-Type: %s\r\n", ctype);
-    if (hn > 0)
-        hn += snprintf(head + hn, sizeof(head) - (size_t)hn, "Content-Length: %zu\r\n\r\n", blen);
-    if (hn <= 0 || (size_t)hn >= sizeof(head)) {
-        yloop_close(up);
+        method, path, frontend->up_host, frontend->up_port);
+    if (head_len > 0 && ctype && *ctype)
+        head_len += snprintf(head + head_len, sizeof(head) - (size_t)head_len, "Content-Type: %s\r\n", ctype);
+    if (head_len > 0)
+        head_len += snprintf(head + head_len, sizeof(head) - (size_t)head_len, "Content-Length: %zu\r\n\r\n", blen);
+    if (head_len <= 0 || (size_t)head_len >= sizeof(head)) {
+        yloop_close(upstream);
         static const char msg[] = "{\"error\":\"alpine: request too large to proxy\"}";
         send_resp(client, 502, "Bad Gateway", "application/json", msg, sizeof(msg) - 1);
         return;
     }
-    yloop_write(up, head, (size_t)hn);
-    if (blen) yloop_write(up, body, blen);
+    yloop_write(upstream, head, (size_t)head_len);
+    if (blen) yloop_write(upstream, body, blen);
 
     /* Upstream was asked to close, so read to EOF == full response. */
-    char *resp = malloc(ALPINE_RESP_BUF);
-    if (!resp) { yloop_close(up); yloop_close(client); return; }
-    size_t rl = 0;
+    char *response = malloc(ALPINE_RESP_BUF);
+    if (!response) { yloop_close(upstream); yloop_close(client); return; }
+    size_t response_len = 0;
     for (;;) {
-        if (rl >= ALPINE_RESP_BUF) break;
-        size_t got = yloop_read_some(up, resp + rl, ALPINE_RESP_BUF - rl);
+        if (response_len >= ALPINE_RESP_BUF) break;
+        size_t got = yloop_read_some(upstream, response + response_len, ALPINE_RESP_BUF - response_len);
         if (got == 0) break;
-        rl += got;
+        response_len += got;
     }
-    yloop_close(up);
-    if (rl) yloop_write(client, resp, rl);
-    free(resp);
+    yloop_close(upstream);
+    if (response_len) yloop_write(client, response, response_len);
+    free(response);
 }
 
 /* ---- per-connection serve coroutine (one request, then close) -------- */
 
-static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
+static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
 {
-    struct alpine_frontend *f = ud;
+    struct alpine_frontend *frontend = ud;
     char *buf = malloc(ALPINE_REQ_BUF);
-    if (!buf) { yloop_close(s); return; }
+    if (!buf) { yloop_close(stream); return; }
 
     size_t buf_len = 0;
     int minor = 0;
-    const char *m = NULL, *p = NULL;
-    size_t ml = 0, pl = 0;
+    const char *method_ptr = NULL, *path = NULL;
+    size_t method_len = 0, path_len = 0;
     struct phr_header hdrs[ALPINE_MAX_HEADERS];
-    size_t nh = 0;
+    size_t header_count = 0;
     int parsed = -2;
 
     while (parsed == -2) {
         if (buf_len >= ALPINE_REQ_BUF) goto done;
         size_t chunk = ALPINE_REQ_BUF - buf_len;
         if (chunk > 4096) chunk = 4096;
-        size_t got = yloop_read_some(s, buf + buf_len, chunk);
+        size_t got = yloop_read_some(stream, buf + buf_len, chunk);
         if (got == 0) goto done;
         buf_len += got;
-        nh = ALPINE_MAX_HEADERS;
-        parsed = phr_parse_request(buf, buf_len, &m, &ml, &p, &pl, &minor, hdrs, &nh, 0);
+        header_count = ALPINE_MAX_HEADERS;
+        parsed = phr_parse_request(buf, buf_len, &method_ptr, &method_len, &path, &path_len, &minor, hdrs, &header_count, 0);
     }
     if (parsed < 0) goto done;
     size_t header_end = (size_t)parsed;
 
     long clen = 0;
-    char cl[32] = {0};
-    if (hdr_match(hdrs, nh, "Content-Length", cl, sizeof(cl))) clen = strtol(cl, NULL, 10);
+    char content_len_str[32] = {0};
+    if (hdr_match(hdrs, header_count, "Content-Length", content_len_str, sizeof(content_len_str))) clen = strtol(content_len_str, NULL, 10);
     if (clen > 0) {
         size_t have = buf_len - header_end;
         while ((long)have < clen) {
             if (header_end + (size_t)clen > ALPINE_REQ_BUF) goto done;
-            size_t got = yloop_read_some(s, buf + buf_len, (size_t)clen - have);
+            size_t got = yloop_read_some(stream, buf + buf_len, (size_t)clen - have);
             if (got == 0) goto done;
             buf_len += got;
             have += got;
         }
     }
     const char *body = buf + header_end;
-    ((char *)p)[pl] = 0; /* NUL-terminate path (byte after is part of HTTP/1.1) */
+    ((char *)path)[path_len] = 0; /* NUL-terminate path (byte after is part of HTTP/1.1) */
 
     char method[16] = {0};
-    memcpy(method, m, ml < sizeof(method) - 1 ? ml : sizeof(method) - 1);
+    memcpy(method, method_ptr, method_len < sizeof(method) - 1 ? method_len : sizeof(method) - 1);
     int is_get = strcmp(method, "GET") == 0;
     int is_post = strcmp(method, "POST") == 0;
     int is_opt = strcmp(method, "OPTIONS") == 0;
 
-    if (!authorized(f, hdrs, nh, p)) {
+    if (!authorized(frontend, hdrs, header_count, path)) {
         static const char msg[] =
             "{\"error\":\"unauthorized: pass ?token= or Authorization: Bearer <token>\"}";
-        send_resp(s, 401, "Unauthorized", "application/json", msg, sizeof(msg) - 1);
+        send_resp(stream, 401, "Unauthorized", "application/json", msg, sizeof(msg) - 1);
         goto done;
     }
 
     if (is_opt) {
-        send_resp(s, 200, "OK", "text/plain", "", 0);
+        send_resp(stream, 200, "OK", "text/plain", "", 0);
         goto done;
     }
-    if (is_get && (path_eq(p, "/") || path_eq(p, "/_alpine"))) {
-        send_resp(s, 200, "OK", "text/html; charset=utf-8",
+    if (is_get && (path_eq(path, "/") || path_eq(path, "/_alpine"))) {
+        send_resp(stream, 200, "OK", "text/html; charset=utf-8",
                   ALPINE_CONSOLE_HTML, sizeof(ALPINE_CONSOLE_HTML) - 1);
         goto done;
     }
-    if (wants_proxy(p, is_get, is_post)) {
+    if (wants_proxy(path, is_get, is_post)) {
         char ctype[128] = {0};
-        hdr_match(hdrs, nh, "Content-Type", ctype, sizeof(ctype));
-        proxy_upstream(l, s, f, method, p, ctype[0] ? ctype : "application/json",
+        hdr_match(hdrs, header_count, "Content-Type", ctype, sizeof(ctype));
+        proxy_upstream(loop, stream, frontend, method, path, ctype[0] ? ctype : "application/json",
                        body, (size_t)clen);
         goto done;
     }
 
     {
-        static const char nf[] =
+        static const char not_found[] =
             "{\"error\":\"alpine: no such route (serves /_alpine; proxies /_describe and /_rpc)\"}";
-        send_resp(s, 404, "Not Found", "application/json", nf, sizeof(nf) - 1);
+        send_resp(stream, 404, "Not Found", "application/json", not_found, sizeof(not_found) - 1);
     }
 
 done:
     free(buf);
-    yloop_close(s);
+    yloop_close(stream);
 }
 
 /* ---- config + start -------------------------------------------------- */
 
 /* Fetch `alpine.<suffix>` for this node, honoring the engine's service
  * projection (top level) with a fallback to the un-projected parent path. */
-static const struct yconfig_node *alpine_cfg(struct picomesh_engine *e, const char *suffix)
+static const struct yconfig_node *alpine_cfg(struct picomesh_engine *engine, const char *suffix)
 {
-    const struct yconfig *cfg = picomesh_engine_config(e);
+    const struct yconfig *cfg = picomesh_engine_config(engine);
     if (!cfg) return NULL;
-    struct yargv_chain *cli = picomesh_engine_cli(e);
+    struct yargv_chain *cli = picomesh_engine_cli(engine);
     const char *name = cli ? yargv_get_string(cli, "name", NULL) : NULL;
     char path[256];
     if (name && *name) {
         snprintf(path, sizeof(path), "mesh.services.%s.config.alpine.%s", name, suffix);
-        struct yconfig_node_ptr_result r = yconfig_get(cfg, path);
-        if (PICOMESH_IS_OK(r) && r.value) return r.value;
-        if (PICOMESH_IS_ERR(r)) picomesh_error_destroy(r.error);
+        struct yconfig_node_ptr_result node_res = yconfig_get(cfg, path);
+        if (PICOMESH_IS_OK(node_res) && node_res.value) return node_res.value;
+        if (PICOMESH_IS_ERR(node_res)) picomesh_error_destroy(node_res.error);
     }
     snprintf(path, sizeof(path), "alpine.%s", suffix);
-    struct yconfig_node_ptr_result r = yconfig_get(cfg, path);
-    if (PICOMESH_IS_OK(r) && r.value) return r.value;
-    if (PICOMESH_IS_ERR(r)) picomesh_error_destroy(r.error);
+    struct yconfig_node_ptr_result node_res = yconfig_get(cfg, path);
+    if (PICOMESH_IS_OK(node_res) && node_res.value) return node_res.value;
+    if (PICOMESH_IS_ERR(node_res)) picomesh_error_destroy(node_res.error);
     return NULL;
 }
 
@@ -548,63 +548,63 @@ struct alpine_upstream_fields {
 
 static int alpine_upstream_cb(const char *key, const struct yconfig_node *val, void *ud)
 {
-    struct alpine_upstream_fields *u = ud;
+    struct alpine_upstream_fields *upstream = ud;
     if (strcmp(key, "host") == 0) {
-        const char *h = yconfig_node_as_string(val, NULL);
-        if (h) snprintf(u->host, sizeof(u->host), "%s", h);
+        const char *host = yconfig_node_as_string(val, NULL);
+        if (host) snprintf(upstream->host, sizeof(upstream->host), "%s", host);
     } else if (strcmp(key, "port") == 0) {
-        u->port = (int)yconfig_node_as_int(val, 0);
+        upstream->port = (int)yconfig_node_as_int(val, 0);
     }
     return 0;
 }
 
-struct alpine_frontend_ptr_result alpine_start(struct picomesh_engine *e,
+struct alpine_frontend_ptr_result alpine_start(struct picomesh_engine *engine,
                                                const struct alpine_config *cfg)
 {
-    if (!e) return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: NULL engine");
+    if (!engine) return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: NULL engine");
     const char *host = (cfg && cfg->host) ? cfg->host : "127.0.0.1";
     int port = (cfg && cfg->port > 0) ? cfg->port : 8231;
 
-    struct yloop *l = picomesh_engine_loop(e);
-    if (!l) return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: engine has no loop");
+    struct yloop *loop = picomesh_engine_loop(engine);
+    if (!loop) return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: engine has no loop");
 
     /* Resolve the upstream yhttp endpoint this console proxies to. */
-    struct alpine_upstream_fields up = {.host = "127.0.0.1", .port = 0};
-    const struct yconfig_node *un = alpine_cfg(e, "upstream");
-    if (un && yconfig_node_kind(un) == YCONFIG_MAP)
-        yconfig_node_for_each(un, alpine_upstream_cb, &up);
-    if (up.port <= 0)
+    struct alpine_upstream_fields upstream = {.host = "127.0.0.1", .port = 0};
+    const struct yconfig_node *upstream_node = alpine_cfg(engine, "upstream");
+    if (upstream_node && yconfig_node_kind(upstream_node) == YCONFIG_MAP)
+        yconfig_node_for_each(upstream_node, alpine_upstream_cb, &upstream);
+    if (upstream.port <= 0)
         return PICOMESH_ERR(alpine_frontend_ptr,
                             "alpine_start: config.alpine.upstream.port is required "
                             "(the yhttp endpoint the console proxies to)");
 
-    struct alpine_frontend *f = calloc(1, sizeof(*f));
-    if (!f) return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: calloc failed");
-    f->engine = e;
-    snprintf(f->up_host, sizeof(f->up_host), "%s", up.host[0] ? up.host : "127.0.0.1");
-    f->up_port = up.port;
+    struct alpine_frontend *frontend = calloc(1, sizeof(*frontend));
+    if (!frontend) return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: calloc failed");
+    frontend->engine = engine;
+    snprintf(frontend->up_host, sizeof(frontend->up_host), "%s", upstream.host[0] ? upstream.host : "127.0.0.1");
+    frontend->up_port = upstream.port;
 
-    const struct yconfig_node *tn = alpine_cfg(e, "token");
-    const char *tok = tn ? yconfig_node_as_string(tn, NULL) : NULL;
-    if (tok && *tok) {
-        f->token = strdup(tok);
-        if (!f->token) { free(f); return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: strdup failed"); }
+    const struct yconfig_node *token_node = alpine_cfg(engine, "token");
+    const char *token = token_node ? yconfig_node_as_string(token_node, NULL) : NULL;
+    if (token && *token) {
+        frontend->token = strdup(token);
+        if (!frontend->token) { free(frontend); return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: strdup failed"); }
     }
 
-    struct picomesh_void_result lr = yloop_listen_tcp(l, host, port, serve_one, f);
-    if (PICOMESH_IS_ERR(lr)) {
-        free(f->token);
-        free(f);
-        return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: yloop_listen_tcp failed", lr);
+    struct picomesh_void_result listen_res = yloop_listen_tcp(loop, host, port, serve_one, frontend);
+    if (PICOMESH_IS_ERR(listen_res)) {
+        free(frontend->token);
+        free(frontend);
+        return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: yloop_listen_tcp failed", listen_res);
     }
     yinfo("alpine: console on %s:%d -> upstream %s:%d (%s)",
-          host, port, f->up_host, f->up_port, f->token ? "token-gated" : "open");
-    return PICOMESH_OK(alpine_frontend_ptr, f);
+          host, port, frontend->up_host, frontend->up_port, frontend->token ? "token-gated" : "open");
+    return PICOMESH_OK(alpine_frontend_ptr, frontend);
 }
 
-void alpine_stop(struct alpine_frontend *f)
+void alpine_stop(struct alpine_frontend *frontend)
 {
-    if (!f) return;
-    free(f->token);
-    free(f);
+    if (!frontend) return;
+    free(frontend->token);
+    free(frontend);
 }

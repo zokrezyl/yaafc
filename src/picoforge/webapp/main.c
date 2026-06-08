@@ -146,14 +146,14 @@ int main(int argc, char **argv)
 
     yinfo("picoforge-webapp: listening on %s:%d (gateway=%s)",
           host, port, gateway_url);
-    struct picomesh_void_result rr = yloop_run(loop);
-    int run_failed = PICOMESH_IS_ERR(rr);
+    struct picomesh_void_result run_res = yloop_run(loop);
+    int run_failed = PICOMESH_IS_ERR(run_res);
     if (run_failed) {
         /* Process root: a failed event loop must be logged with its full cause
          * chain and surfaced as a non-zero exit, never mistaken for a clean
          * shutdown. */
-        picomesh_error_print(stderr, "picoforge-webapp: yloop_run", rr.error);
-        picomesh_error_destroy(rr.error);
+        picomesh_error_print(stderr, "picoforge-webapp: yloop_run", run_res.error);
+        picomesh_error_destroy(run_res.error);
     }
 
     yloop_destroy(loop);
