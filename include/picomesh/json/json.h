@@ -28,13 +28,13 @@ struct json_doc;
 struct json_value;
 
 enum json_kind {
-    JSON_NULL,
-    JSON_BOOL,
-    JSON_INT,
-    JSON_FLOAT,
-    JSON_STRING,
-    JSON_ARRAY,
-    JSON_OBJECT,
+  JSON_NULL,
+  JSON_BOOL,
+  JSON_INT,
+  JSON_FLOAT,
+  JSON_STRING,
+  JSON_ARRAY,
+  JSON_OBJECT,
 };
 
 /* --- parse ----------------------------------------------------------- */
@@ -53,19 +53,19 @@ const char *json_last_error(void);
 /* --- type queries ---------------------------------------------------- */
 
 enum json_kind json_kind(const struct json_value *v);
-int json_is_null  (const struct json_value *v);
-int json_is_bool  (const struct json_value *v);
-int json_is_int   (const struct json_value *v);
-int json_is_float (const struct json_value *v);
+int json_is_null(const struct json_value *v);
+int json_is_bool(const struct json_value *v);
+int json_is_int(const struct json_value *v);
+int json_is_float(const struct json_value *v);
 int json_is_string(const struct json_value *v);
-int json_is_array (const struct json_value *v);
+int json_is_array(const struct json_value *v);
 int json_is_object(const struct json_value *v);
 
 /* --- scalar getters -------------------------------------------------- */
 
-int     json_as_bool  (const struct json_value *v, int fallback);
-int64_t json_as_int   (const struct json_value *v, int64_t fallback);
-double  json_as_float (const struct json_value *v, double fallback);
+int json_as_bool(const struct json_value *v, int fallback);
+int64_t json_as_int(const struct json_value *v, int64_t fallback);
+double json_as_float(const struct json_value *v, double fallback);
 /* Returned pointer is valid until json_doc_free. */
 const char *json_as_string(const struct json_value *v, const char *fallback);
 
@@ -74,7 +74,8 @@ const char *json_as_string(const struct json_value *v, const char *fallback);
 size_t json_array_size(const struct json_value *v);
 const struct json_value *json_array_at(const struct json_value *v, size_t idx);
 
-const struct json_value *json_object_get(const struct json_value *v, const char *key);
+const struct json_value *json_object_get(const struct json_value *v,
+                                         const char *key);
 
 /* --- writer (hand-rolled; no simdjson involved) --------------------- */
 
@@ -84,22 +85,22 @@ struct json_writer *json_writer_new(void);
 void json_writer_free(struct json_writer *w);
 
 void json_writer_begin_object(struct json_writer *w);
-void json_writer_end_object  (struct json_writer *w);
-void json_writer_begin_array (struct json_writer *w);
-void json_writer_end_array   (struct json_writer *w);
+void json_writer_end_object(struct json_writer *w);
+void json_writer_begin_array(struct json_writer *w);
+void json_writer_end_array(struct json_writer *w);
 
-void json_writer_key   (struct json_writer *w, const char *key);
-void json_writer_null  (struct json_writer *w);
-void json_writer_bool  (struct json_writer *w, int v);
-void json_writer_int   (struct json_writer *w, int64_t v);
-void json_writer_float (struct json_writer *w, double v);
+void json_writer_key(struct json_writer *w, const char *key);
+void json_writer_null(struct json_writer *w);
+void json_writer_bool(struct json_writer *w, int v);
+void json_writer_int(struct json_writer *w, int64_t v);
+void json_writer_float(struct json_writer *w, double v);
 void json_writer_string(struct json_writer *w, const char *s);
 
 /* Emit an already-serialized JSON fragment as a value, verbatim (no
  * quoting, no escaping). The caller guarantees `json` is well-formed JSON;
  * a NULL or empty fragment is written as `null`. Used to splice a value a
  * method already produced as JSON text (e.g. a list) into the response. */
-void json_writer_raw   (struct json_writer *w, const char *json);
+void json_writer_raw(struct json_writer *w, const char *json);
 
 /* Borrow the assembled buffer (no copy). NUL-terminated. Valid until
  * the writer is freed or another write happens. `*len_out` (if non-

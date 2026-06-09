@@ -40,9 +40,11 @@ const char *yheaders_get(const struct yheaders *h, const char *key);
  * stays a uniform key→string vector. get_* return `fallback` when the
  * key is absent or unparseable. */
 int yheaders_set_u32(struct yheaders *h, const char *key, uint32_t v);
-uint32_t yheaders_get_u32(const struct yheaders *h, const char *key, uint32_t fallback);
+uint32_t yheaders_get_u32(const struct yheaders *h, const char *key,
+                          uint32_t fallback);
 int yheaders_set_u64(struct yheaders *h, const char *key, uint64_t v);
-uint64_t yheaders_get_u64(const struct yheaders *h, const char *key, uint64_t fallback);
+uint64_t yheaders_get_u64(const struct yheaders *h, const char *key,
+                          uint64_t fallback);
 
 size_t yheaders_count(const struct yheaders *h);
 void yheaders_for_each(const struct yheaders *h,

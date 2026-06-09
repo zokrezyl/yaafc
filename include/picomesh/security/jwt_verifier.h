@@ -20,13 +20,15 @@ struct picomesh_engine;
 struct picomesh_jwt_verifier;
 
 /* Build a verifier bound to `engine`'s configured signing key. */
-struct picomesh_void_ptr_result picomesh_jwt_verifier_create(struct picomesh_engine *engine);
+struct picomesh_void_ptr_result
+picomesh_jwt_verifier_create(struct picomesh_engine *engine);
 
 /* Verify `jwt` (signature + expiry). On success the OK value is the malloc'd
  * claims-payload JSON (caller frees). Fails closed on a bad/expired/malformed
  * token or missing key material. */
-struct picomesh_string_result picomesh_jwt_verifier_verify(struct picomesh_jwt_verifier *verifier,
-                                                           const char *jwt);
+struct picomesh_string_result
+picomesh_jwt_verifier_verify(struct picomesh_jwt_verifier *verifier,
+                             const char *jwt);
 
 void picomesh_jwt_verifier_destroy(struct picomesh_jwt_verifier *verifier);
 

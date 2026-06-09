@@ -35,18 +35,19 @@ extern "C" {
 #endif
 
 enum argv_kind {
-    ARGV_BOOL,
-    ARGV_VALUE,
-    ARGV_KEY_VALUE,
+  ARGV_BOOL,
+  ARGV_VALUE,
+  ARGV_KEY_VALUE,
 };
 
 struct argv_option_def {
-    const char *long_name;   /* e.g. "--port" (without value); NULL = no long form */
-    const char *short_name;  /* e.g. "-p"; NULL = no short form */
-    const char *dest;        /* destination key. Defaults to long_name minus "--". */
-    const char *help;        /* shown in --help */
-    enum argv_kind kind;
-    int multiple;            /* repeatable? key_value usually wants this */
+  const char
+      *long_name; /* e.g. "--port" (without value); NULL = no long form */
+  const char *short_name; /* e.g. "-p"; NULL = no short form */
+  const char *dest; /* destination key. Defaults to long_name minus "--". */
+  const char *help; /* shown in --help */
+  enum argv_kind kind;
+  int multiple; /* repeatable? key_value usually wants this */
 };
 
 struct argv_cmd;
@@ -55,7 +56,8 @@ struct argv_chain;
 PICOMESH_RESULT_DECLARE(argv_chain_ptr, struct argv_chain *);
 
 struct argv_chain_ptr_result argv_parse(const struct argv_option_def *defs,
-                                          size_t def_count, int argc, char **argv);
+                                        size_t def_count, int argc,
+                                        char **argv);
 void argv_chain_destroy(struct argv_chain *c);
 
 /* Print one aligned line per option in `defs` to `out`: long/short forms, a
@@ -64,19 +66,22 @@ void argv_chain_destroy(struct argv_chain *c);
  * very table it passes to argv_parse(), so the help can never drift from the
  * flags that are actually parsed. The caller prints its own usage/synopsis
  * line and subcommand list around this options block. */
-void argv_print_options(const struct argv_option_def *defs, size_t def_count, FILE *out);
+void argv_print_options(const struct argv_option_def *defs, size_t def_count,
+                        FILE *out);
 
 /* Accessors against the root cmd (where every recognised option lives). */
-const char *argv_get_string(const struct argv_chain *c, const char *dest, const char *fallback);
+const char *argv_get_string(const struct argv_chain *c, const char *dest,
+                            const char *fallback);
 int argv_get_bool(const struct argv_chain *c, const char *dest, int fallback);
-int64_t argv_get_int(const struct argv_chain *c, const char *dest, int64_t fallback);
+int64_t argv_get_int(const struct argv_chain *c, const char *dest,
+                     int64_t fallback);
 
 /* Multi-value (KEY_VALUE with multiple=1) accessor: writes pointers to
  * the parsed `key=value` strings into `out` (up to `out_cap`), returns
  * the count (clamped to out_cap). Pointers are valid for the lifetime
  * of the chain. */
 size_t argv_get_kv_list(const struct argv_chain *c, const char *dest,
-                         const char **out, size_t out_cap);
+                        const char **out, size_t out_cap);
 
 /* Subcommand name (NULL if none was given) and its remaining tokens. */
 const char *argv_subcommand(const struct argv_chain *c);

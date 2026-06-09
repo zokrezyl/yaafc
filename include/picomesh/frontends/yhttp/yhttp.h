@@ -35,8 +35,8 @@ struct yhttp_frontend;
 PICOMESH_RESULT_DECLARE(yhttp_frontend_ptr, struct yhttp_frontend *);
 
 struct yhttp_config {
-    const char *host; /* default 127.0.0.1 */
-    int port;         /* default 8080 */
+  const char *host; /* default 127.0.0.1 */
+  int port;         /* default 8080 */
 };
 
 struct yhttp_frontend_ptr_result yhttp_start(struct picomesh_engine *e,

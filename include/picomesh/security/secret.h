@@ -30,17 +30,20 @@ struct yheaders;
  * context (uid 0, authenticated 0). There is NO uid-header fallback; a stale
  * yheaders["uid"] is never trusted. Always returns ok; `out` is populated
  * accordingly, and resource checks must reject uid 0. */
-struct picomesh_void_result picomesh_authctx_from_headers(struct yheaders *hdrs,
-                                                          struct picomesh_engine *engine,
-                                                          struct picomesh_authctx *out);
+struct picomesh_void_result
+picomesh_authctx_from_headers(struct yheaders *hdrs,
+                              struct picomesh_engine *engine,
+                              struct picomesh_authctx *out);
 
 /* OK value is a malloc'd NUL-terminated secret (caller frees). Error if the
  * engine has no config or `security.jwt_secret` is missing/empty. */
-struct picomesh_string_result picomesh_security_jwt_secret(struct picomesh_engine *engine);
+struct picomesh_string_result
+picomesh_security_jwt_secret(struct picomesh_engine *engine);
 
 /* Access-token lifetime in seconds. Reads `security.access_ttl_seconds`,
  * defaulting to 900 (15 min) when absent; a config-read failure propagates. */
-struct picomesh_int64_result picomesh_security_access_ttl(struct picomesh_engine *engine);
+struct picomesh_int64_result
+picomesh_security_access_ttl(struct picomesh_engine *engine);
 
 #ifdef __cplusplus
 }

@@ -45,7 +45,8 @@ struct picomesh_void_result loop_run(struct loop *l);
  * blocking work — DB queries, libgit2, filesystem — off the loop thread
  * so other coroutines keep running. `work` runs on another thread: it
  * must touch only `arg`. Outside a coroutine it runs inline. */
-struct picomesh_void_result loop_run_blocking(struct loop *l, void (*work)(void *), void *arg);
+struct picomesh_void_result loop_run_blocking(struct loop *l,
+                                              void (*work)(void *), void *arg);
 
 /* Resume `coro` (parked via picomesh_coro_yield) from ANOTHER thread: queue it
  * and wake the loop; the loop thread performs the actual picomesh_coro_resume.
@@ -61,33 +62,37 @@ void loop_stop(struct loop *l);
  * coroutine running `serve(loop, stream, ud)`. The serve function owns
  * the stream and must call loop_close before returning (or loop will
  * leak it). */
-struct picomesh_void_result loop_listen_tcp(struct loop *l, const char *host, int port,
-                                          loop_serve_fn serve, void *ud);
+struct picomesh_void_result loop_listen_tcp(struct loop *l, const char *host,
+                                            int port, loop_serve_fn serve,
+                                            void *ud);
 
 /* Outgoing TCP. Connects to host:port; the calling coroutine yields
  * until the handshake completes. On success returns the stream (caller
  * owns; must loop_close); on failure returns an error result. Must be
  * called from inside a coroutine running on `l`. */
 PICOMESH_RESULT_DECLARE(loop_stream_ptr, struct loop_stream *);
-struct loop_stream_ptr_result loop_connect_tcp(struct loop *l,
-                                                 const char *host, int port);
+struct loop_stream_ptr_result loop_connect_tcp(struct loop *l, const char *host,
+                                               int port);
 
 /* Read exactly n bytes into buf. Yields the calling coro until satisfied.
  * OK carries the number of bytes actually read — `n` normally, fewer (down to
  * 0) only at a clean end-of-stream. ERR carries a real read error (libuv
  * status text) so callers can tell a transport failure from a clean EOF. */
-struct picomesh_size_result loop_read(struct loop_stream *s, void *buf, size_t n);
+struct picomesh_size_result loop_read(struct loop_stream *s, void *buf,
+                                      size_t n);
 
 /* Read up to `cap` bytes into buf — OK carries whatever is available once at
  * least one byte arrives (0 only at a clean end-of-stream). ERR carries a real
  * read error. For stream parsers (HTTP, line protocols) where you don't know
  * the exact frame length ahead of time. */
-struct picomesh_size_result loop_read_some(struct loop_stream *s, void *buf, size_t cap);
+struct picomesh_size_result loop_read_some(struct loop_stream *s, void *buf,
+                                           size_t cap);
 
 /* Write all n bytes. Yields the calling coro until the write completes.
  * OK carries `n` on success; ERR carries the libuv write failure (status
  * text) — allocation failure, dispatch failure, or a failed completion. */
-struct picomesh_size_result loop_write(struct loop_stream *s, const void *buf, size_t n);
+struct picomesh_size_result loop_write(struct loop_stream *s, const void *buf,
+                                       size_t n);
 
 /* Tear the stream down. Idempotent. */
 void loop_close(struct loop_stream *s);
@@ -115,8 +120,9 @@ typedef void (*loop_timer_cb)(void *ud);
  * caller owns; stop and free it with loop_timer_stop. Used by long-lived
  * housekeeping (e.g. periodic perf-counter sampling) that wants a wakeup
  * without standing up a coroutine. */
-struct loop_timer_ptr_result loop_timer_start(struct loop *l, unsigned int interval_ms,
-                                                loop_timer_cb cb, void *ud);
+struct loop_timer_ptr_result loop_timer_start(struct loop *l,
+                                              unsigned int interval_ms,
+                                              loop_timer_cb cb, void *ud);
 
 /* Stop the timer and release it. After this no further `cb` runs. The
  * underlying libuv handle is closed asynchronously and freed on a later
@@ -132,9 +138,8 @@ struct loop_process;
  * child's exit code; `term_signal` is non-zero if killed by signal.
  * The loop_process is freed AFTER the callback returns. */
 typedef void (*loop_process_exit_cb)(struct loop_process *p,
-                                      int64_t exit_status,
-                                      int term_signal,
-                                      void *ud);
+                                     int64_t exit_status, int term_signal,
+                                     void *ud);
 
 /* Spawn `file` with `argv` (NULL-terminated). OK carries the child PID; ERR
  * carries the libuv spawn failure (with uv_strerror text). The loop owns the
@@ -142,8 +147,9 @@ typedef void (*loop_process_exit_cb)(struct loop_process *p,
  *
  * stdin/stdout/stderr are inherited from the parent — the child can
  * print to the parent's terminal. */
-struct picomesh_int_result loop_spawn(struct loop *l, const char *file, char *const argv[],
-                loop_process_exit_cb on_exit, void *ud);
+struct picomesh_int_result loop_spawn(struct loop *l, const char *file,
+                                      char *const argv[],
+                                      loop_process_exit_cb on_exit, void *ud);
 
 /* Send `signum` to the named pid (which the loop's spawn returned). OK on
  * success; ERR carries the libuv error (e.g. ESRCH/EPERM) with text. */

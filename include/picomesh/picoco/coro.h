@@ -33,8 +33,10 @@ typedef void (*picomesh_coro_entry)(void *arg);
 
 /* Spawn a coroutine. Does not start it; call picomesh_coro_resume to run.
  * stack_hint of 0 → libco default. name is copied; may be NULL. */
-struct picomesh_coro_ptr_result picomesh_coro_spawn(picomesh_coro_entry entry, void *arg,
-                                              size_t stack_hint, const char *name);
+struct picomesh_coro_ptr_result picomesh_coro_spawn(picomesh_coro_entry entry,
+                                                    void *arg,
+                                                    size_t stack_hint,
+                                                    const char *name);
 
 void picomesh_coro_yield(void);
 void picomesh_coro_resume(struct picomesh_coro *coro);

@@ -44,33 +44,33 @@ PICOMESH_RESULT_DECLARE(config_ptr, struct config *);
 PICOMESH_RESULT_DECLARE(config_node_ptr, const struct config_node *);
 
 enum config_kind {
-    CONFIG_NULL,
-    CONFIG_BOOL,
-    CONFIG_INT,
-    CONFIG_FLOAT,
-    CONFIG_STRING,
-    CONFIG_LIST,
-    CONFIG_MAP,
+  CONFIG_NULL,
+  CONFIG_BOOL,
+  CONFIG_INT,
+  CONFIG_FLOAT,
+  CONFIG_STRING,
+  CONFIG_LIST,
+  CONFIG_MAP,
 };
 
 struct config_create_args {
-    /* Optional explicit config file (highest precedence). */
-    const char *config_file;
+  /* Optional explicit config file (highest precedence). */
+  const char *config_file;
 
-    /* Optional list of "key=value" CLI overrides (lowest precedence —
-     * applied as defaults, then every file can override). */
-    const char *const *cli_overrides;
-    size_t cli_override_count;
+  /* Optional list of "key=value" CLI overrides (lowest precedence —
+   * applied as defaults, then every file can override). */
+  const char *const *cli_overrides;
+  size_t cli_override_count;
 
-    /* App name decides the XDG path: ~/.config/<app_name>/<app_name>.yaml
-     * and the project-root filename (<app_name>.yaml). Defaults to "picomesh"
-     * when NULL. */
-    const char *app_name;
+  /* App name decides the XDG path: ~/.config/<app_name>/<app_name>.yaml
+   * and the project-root filename (<app_name>.yaml). Defaults to "picomesh"
+   * when NULL. */
+  const char *app_name;
 
-    /* Skip the host-filesystem search (XDG / project / cwd). Useful for
-     * unit tests that want a hermetic config from `defaults` + an explicit
-     * `config_file` only. */
-    int no_filesystem_search;
+  /* Skip the host-filesystem search (XDG / project / cwd). Useful for
+   * unit tests that want a hermetic config from `defaults` + an explicit
+   * `config_file` only. */
+  int no_filesystem_search;
 };
 
 struct config_ptr_result config_create(const struct config_create_args *args);
@@ -86,22 +86,27 @@ const struct config_node *config_root(const struct config *c);
  * `<head>.<rest>` is missing, retry as `<rest>` against the root.
  * Returns NULL inside the result (not an error) when the path is not
  * present anywhere. Prefer the typed getters below for new code. */
-struct config_node_ptr_result config_get(const struct config *c, const char *dot_path);
+struct config_node_ptr_result config_get(const struct config *c,
+                                         const char *dot_path);
 
 /* Optional dot-path lookup: the node, or NULL when absent (NULL is the
  * "default" — absence is not an error here). Non-Result by design. */
-const struct config_node *config_get_node(const struct config *c, const char *dot_path);
+const struct config_node *config_get_node(const struct config *c,
+                                          const char *dot_path);
 
 /* REQUIRED dot-path lookup: a missing key IS an error and the cause chain says
  * which key. Use this when there is no sensible default. */
-struct config_node_ptr_result config_require(const struct config *c, const char *dot_path);
+struct config_node_ptr_result config_require(const struct config *c,
+                                             const char *dot_path);
 
 /* Default-aware scalar getters. Because the caller supplies a fallback, a
  * missing key is not an error — these return the value (or the fallback)
  * directly, no Result. For a required value with no default, use
  * config_require and read the node. */
-const char *config_get_string(const struct config *c, const char *dot_path, const char *fallback);
-int64_t config_get_int(const struct config *c, const char *dot_path, int64_t fallback);
+const char *config_get_string(const struct config *c, const char *dot_path,
+                              const char *fallback);
+int64_t config_get_int(const struct config *c, const char *dot_path,
+                       int64_t fallback);
 int config_get_bool(const struct config *c, const char *dot_path, int fallback);
 
 /* Sub-tree shortcut for plugins:
@@ -110,7 +115,8 @@ int config_get_bool(const struct config *c, const char *dot_path, int fallback);
  *
  * Returns the top-level `<name>` subtree or NULL if absent. Equivalent
  * to `yaapp_engine.get_config('<name>')`. */
-const struct config_node *config_section(const struct config *c, const char *name);
+const struct config_node *config_section(const struct config *c,
+                                         const char *name);
 
 /* Deep-merge the subtree at `dot_path` ONTO the root. After this,
  * every key inside that subtree also resolves at the root, with
@@ -123,7 +129,8 @@ const struct config_node *config_section(const struct config *c, const char *nam
  *
  * No-op if the path is missing or not a map. Returns Ok in either
  * case; only out-of-memory failures error out. */
-struct picomesh_void_result config_promote_subtree(struct config *c, const char *dot_path);
+struct picomesh_void_result config_promote_subtree(struct config *c,
+                                                   const char *dot_path);
 
 /* --- typed accessors ------------------------------------------------- */
 
@@ -133,7 +140,8 @@ size_t config_node_size(const struct config_node *n); /* map/list count */
 /* Scalar getters. They walk the inheritance chain only when called
  * via config_get; once you have a node, they read straight off it.
  * Each returns the supplied `fallback` for kind mismatch / NULL node. */
-const char *config_node_as_string(const struct config_node *n, const char *fallback);
+const char *config_node_as_string(const struct config_node *n,
+                                  const char *fallback);
 int64_t config_node_as_int(const struct config_node *n, int64_t fallback);
 double config_node_as_float(const struct config_node *n, double fallback);
 int config_node_as_bool(const struct config_node *n, int fallback);
@@ -141,16 +149,19 @@ int config_node_as_bool(const struct config_node *n, int fallback);
 /* Map iteration — invokes cb for each (key, value) pair in source
  * order. Stop early by returning non-zero from cb. */
 int config_node_for_each(const struct config_node *n,
-                          int (*cb)(const char *key, const struct config_node *val, void *ud),
-                          void *ud);
+                         int (*cb)(const char *key,
+                                   const struct config_node *val, void *ud),
+                         void *ud);
 
 /* Look up `key` directly in a MAP node (no dot-path traversal, so the key may
  * itself contain dots — e.g. a policy keyed by "service.class.method"). Returns
  * the child node or NULL when `n` is not a map or the key is absent. */
-const struct config_node *config_node_get(const struct config_node *n, const char *key);
+const struct config_node *config_node_get(const struct config_node *n,
+                                          const char *key);
 
 /* List iteration. */
-const struct config_node *config_node_at(const struct config_node *n, size_t idx);
+const struct config_node *config_node_at(const struct config_node *n,
+                                         size_t idx);
 
 /* Pretty-print for debugging. Returns the number of bytes written (no
  * trailing NUL). */

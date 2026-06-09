@@ -20,8 +20,8 @@ struct yrpc_frontend;
 PICOMESH_RESULT_DECLARE(yrpc_frontend_ptr, struct yrpc_frontend *);
 
 struct yrpc_config {
-    const char *host; /* default "127.0.0.1" */
-    int port;         /* default 7777 */
+  const char *host; /* default "127.0.0.1" */
+  int port;         /* default 7777 */
 };
 
 struct yrpc_frontend_ptr_result yrpc_start(struct picomesh_engine *e,

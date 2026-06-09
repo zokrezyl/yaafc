@@ -25,7 +25,8 @@
  * per-thread lock, never the shared sink), and a background collector
  * periodically swaps each thread's buffer, k-way merges all lines by timestamp,
  * and writes the batch in one go. Logging never serializes worker threads on a
- * global stderr lock, and never back-pressures a worker (overflow drops + counts).
+ * global stderr lock, and never back-pressures a worker (overflow drops +
+ * counts).
  */
 
 #include <stdbool.h>
@@ -67,22 +68,22 @@ double picomesh_ytime_monotonic_sec(void);
 #endif
 
 typedef struct {
-    bool *enabled;
-    const char *file;
-    int line;
-    const char *function;
-    const char *level;
-    const char *message;
+  bool *enabled;
+  const char *file;
+  int line;
+  const char *function;
+  const char *level;
+  const char *message;
 } ytrace_point_t;
 
 void ytrace_init(void);
 void ytrace_shutdown(void);
 
-bool ytrace_register(bool *enabled, const char *file, int line, const char *func,
-                     const char *level, const char *message);
+bool ytrace_register(bool *enabled, const char *file, int line,
+                     const char *func, const char *level, const char *message);
 
-void ytrace_output(const char *level, const char *file, int line, const char *func,
-                   const char *fmt, ...)
+void ytrace_output(const char *level, const char *file, int line,
+                   const char *func, const char *fmt, ...)
 #ifndef _MSC_VER
     __attribute__((format(printf, 5, 6)))
 #endif
@@ -102,39 +103,41 @@ void ytrace_list(void);
 #endif
 
 struct ytime_timer {
-    const char *name;
-    const char *file;
-    int line;
-    const char *function;
-    bool registered;
-    uint64_t count;
-    double sum_ms;
-    double last_ms;
-    double min_ms;
-    double max_ms;
-    double avg_ms;
+  const char *name;
+  const char *file;
+  int line;
+  const char *function;
+  bool registered;
+  uint64_t count;
+  double sum_ms;
+  double last_ms;
+  double min_ms;
+  double max_ms;
+  double avg_ms;
 };
 
-void ytime_timer_observe(struct ytime_timer *t, const char *name, const char *file, int line,
-                         const char *function, double elapsed_ms);
+void ytime_timer_observe(struct ytime_timer *t, const char *name,
+                         const char *file, int line, const char *function,
+                         double elapsed_ms);
 size_t ytime_timer_get_count(void);
 const struct ytime_timer *const *ytime_timer_get_all(void);
 void ytime_timer_list(void);
 void ytime_timer_reset_all(void);
 
-#define PICOMESH_TRACE_EMIT(level_str, fmt, ...)                                                      \
-    do {                                                                                           \
-        static bool _ytrace_enabled_ = false;                                                      \
-        static bool _ytrace_registered_ = false;                                                   \
-        if (!_ytrace_registered_) {                                                                \
-            _ytrace_enabled_ = ytrace_register(&_ytrace_enabled_, __FILE__, __LINE__, __func__,    \
-                                               level_str, fmt);                                    \
-            _ytrace_registered_ = true;                                                            \
-        }                                                                                          \
-        if (_ytrace_enabled_) {                                                                    \
-            ytrace_output(level_str, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__);            \
-        }                                                                                          \
-    } while (0)
+#define PICOMESH_TRACE_EMIT(level_str, fmt, ...)                               \
+  do {                                                                         \
+    static bool _ytrace_enabled_ = false;                                      \
+    static bool _ytrace_registered_ = false;                                   \
+    if (!_ytrace_registered_) {                                                \
+      _ytrace_enabled_ = ytrace_register(&_ytrace_enabled_, __FILE__,          \
+                                         __LINE__, __func__, level_str, fmt);  \
+      _ytrace_registered_ = true;                                              \
+    }                                                                          \
+    if (_ytrace_enabled_) {                                                    \
+      ytrace_output(level_str, __FILE__, __LINE__, __func__, fmt,              \
+                    ##__VA_ARGS__);                                            \
+    }                                                                          \
+  } while (0)
 
 #if YTRACE_C_ENABLE_TRACE
 #define ytrace(fmt, ...) PICOMESH_TRACE_EMIT("trace", fmt, ##__VA_ARGS__)
@@ -170,17 +173,18 @@ void ytime_timer_reset_all(void);
 
 #define ytime_start(name) double ytime_##name = picomesh_ytime_monotonic_sec()
 
-#define ytime_report(name)                                                                         \
-    do {                                                                                           \
-        static struct ytime_timer _ytime_timer_##name;                                             \
-        double _ytime_elapsed_ms_ =                                                                \
-            (picomesh_ytime_monotonic_sec() - ytime_##name) * 1000.0;                                 \
-        ytime_timer_observe(&_ytime_timer_##name, #name, __FILE__, __LINE__, __func__,             \
-                            _ytime_elapsed_ms_);                                                   \
-        yinfo(#name ": %.3f ms  (avg %.3f ms, min %.3f, max %.3f, n=%llu)", _ytime_elapsed_ms_,    \
-              _ytime_timer_##name.avg_ms, _ytime_timer_##name.min_ms, _ytime_timer_##name.max_ms,  \
-              (unsigned long long)_ytime_timer_##name.count);                                      \
-    } while (0)
+#define ytime_report(name)                                                     \
+  do {                                                                         \
+    static struct ytime_timer _ytime_timer_##name;                             \
+    double _ytime_elapsed_ms_ =                                                \
+        (picomesh_ytime_monotonic_sec() - ytime_##name) * 1000.0;              \
+    ytime_timer_observe(&_ytime_timer_##name, #name, __FILE__, __LINE__,       \
+                        __func__, _ytime_elapsed_ms_);                         \
+    yinfo(#name ": %.3f ms  (avg %.3f ms, min %.3f, max %.3f, n=%llu)",        \
+          _ytime_elapsed_ms_, _ytime_timer_##name.avg_ms,                      \
+          _ytime_timer_##name.min_ms, _ytime_timer_##name.max_ms,              \
+          (unsigned long long)_ytime_timer_##name.count);                      \
+  } while (0)
 
 #else /* !YTRACE_C_ENABLED */
 
@@ -196,15 +200,26 @@ void ytime_timer_reset_all(void);
 static inline void ytrace_init(void) {}
 static inline void ytrace_shutdown(void) {}
 static inline void ytrace_set_all_enabled(bool e) { (void)e; }
-static inline void ytrace_set_level_enabled(const char *l, bool e) { (void)l; (void)e; }
-static inline void ytrace_set_file_enabled(const char *f, bool e) { (void)f; (void)e; }
-static inline void ytrace_set_function_enabled(const char *f, bool e) { (void)f; (void)e; }
+static inline void ytrace_set_level_enabled(const char *l, bool e) {
+  (void)l;
+  (void)e;
+}
+static inline void ytrace_set_file_enabled(const char *f, bool e) {
+  (void)f;
+  (void)e;
+}
+static inline void ytrace_set_function_enabled(const char *f, bool e) {
+  (void)f;
+  (void)e;
+}
 static inline size_t ytrace_get_point_count(void) { return 0; }
 static inline const ytrace_point_t *ytrace_get_points(void) { return NULL; }
 static inline void ytrace_list(void) {}
 struct ytime_timer;
 static inline size_t ytime_timer_get_count(void) { return 0; }
-static inline const struct ytime_timer *const *ytime_timer_get_all(void) { return NULL; }
+static inline const struct ytime_timer *const *ytime_timer_get_all(void) {
+  return NULL;
+}
 static inline void ytime_timer_list(void) {}
 static inline void ytime_timer_reset_all(void) {}
 

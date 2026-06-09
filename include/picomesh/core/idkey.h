@@ -8,7 +8,8 @@
  *
  * It deliberately does NOT define application identity (e.g. "uid from
  * username"): how a uid is derived or assigned is the accounts plugin's domain,
- * not a globally-shared primitive and never the transport frontend's concern. */
+ * not a globally-shared primitive and never the transport frontend's concern.
+ */
 
 #ifndef PICOMESH_CORE_IDKEY_H
 #define PICOMESH_CORE_IDKEY_H
@@ -16,15 +17,14 @@
 #include <stdint.h>
 
 /* 32-bit FNV-1a over the NUL-terminated bytes of `s` (NULL → offset basis). */
-static inline uint32_t picomesh_fnv1a32(const char *s)
-{
-    uint32_t hash = 2166136261u;
-    if (s)
-        for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
-            hash ^= (uint32_t)*p;
-            hash *= 16777619u;
-        }
-    return hash;
+static inline uint32_t picomesh_fnv1a32(const char *s) {
+  uint32_t hash = 2166136261u;
+  if (s)
+    for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
+      hash ^= (uint32_t)*p;
+      hash *= 16777619u;
+    }
+  return hash;
 }
 
 #endif /* PICOMESH_CORE_IDKEY_H */

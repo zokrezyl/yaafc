@@ -29,23 +29,25 @@ struct json_writer;
 /* Tunables for the in-memory store. Any field left 0 takes its built-in
  * default. All are read from the collector's `telemetry:` config block. */
 struct ytelemetry_store_config {
-    size_t max_spans;         /* total capacity across all shards (default 50000) */
-    uint64_t max_age_seconds; /* drop spans older than this (0 = no age limit) */
-    unsigned shards;          /* parallel ingest partitions (default 16) */
-    size_t bucket_spans;      /* per-shard arena batch before a flush (default 256) */
-    uint64_t flush_ms;        /* periodic arena flush interval (default 50) */
+  size_t max_spans; /* total capacity across all shards (default 50000) */
+  uint64_t max_age_seconds; /* drop spans older than this (0 = no age limit) */
+  unsigned shards;          /* parallel ingest partitions (default 16) */
+  size_t bucket_spans; /* per-shard arena batch before a flush (default 256) */
+  uint64_t flush_ms;   /* periodic arena flush interval (default 50) */
 };
 
 /* Size and configure the store. First call wins (idempotent). */
 void ytelemetry_store_init_config(const struct ytelemetry_store_config *config);
 
-/* Back-compat shorthand: only the two retention knobs, defaults for the rest. */
+/* Back-compat shorthand: only the two retention knobs, defaults for the rest.
+ */
 void ytelemetry_store_init(size_t max_spans, uint64_t max_age_seconds);
 
 /* Ingest one JSON span object (the body of one NDJSON line). Returns 1 if
  * accepted, 0 if malformed/missing required fields. Accepted spans land in the
  * calling thread's lock-free arena and become visible to queries on the next
- * flush (bucket-full, the periodic time flush, or ytelemetry_store_flush_local). */
+ * flush (bucket-full, the periodic time flush, or
+ * ytelemetry_store_flush_local). */
 int ytelemetry_store_ingest_json(const char *json, size_t len);
 
 /* Ingest a batch payload: a JSON array of span objects (the batched sender
@@ -67,14 +69,15 @@ void ytelemetry_store_write_trace(struct json_writer *w, const char *trace_id);
  *           span_count, status}...]} filtered by service/since/status. Any
  * filter NULL/0 means "any". */
 void ytelemetry_store_write_traces(struct json_writer *w, const char *service,
-                             uint64_t since_ns, const char *status);
+                                   uint64_t since_ns, const char *status);
 /* {services:[{service_name, span_count}...]} */
 void ytelemetry_store_write_services(struct json_writer *w);
 /* {service, operations:[{name, count}...]} */
-void ytelemetry_store_write_operations(struct json_writer *w, const char *service);
+void ytelemetry_store_write_operations(struct json_writer *w,
+                                       const char *service);
 /* {service, operation, window_ns, count, p50_ns, p90_ns, p99_ns, max_ns} */
 void ytelemetry_store_write_latency(struct json_writer *w, const char *service,
-                             const char *operation, uint64_t window_ns);
+                                    const char *operation, uint64_t window_ns);
 /* {errors:[{...span...}...]} with status=error and start >= since_ns. */
 void ytelemetry_store_write_errors(struct json_writer *w, uint64_t since_ns);
 /* {ingested, malformed, evicted, stored, capacity, max_age_seconds} — health

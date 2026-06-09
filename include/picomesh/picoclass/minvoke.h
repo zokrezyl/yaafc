@@ -42,9 +42,9 @@ struct yheaders;
  * On failure the invoker writes a diagnostic into `err_msg` (NUL-terminated,
  * of `err_cap` bytes), writes nothing to `result`, and returns the error
  * Result carrying the upstream cause chain. */
-typedef struct picomesh_void_result (*minvoke_fn)(struct ctx *ctx, struct object *obj,
-                          struct yheaders *hdrs, cmp_ctx_t *args, uint32_t args_count,
-                          cmp_ctx_t *result, char *err_msg, size_t err_cap);
+typedef struct picomesh_void_result (*minvoke_fn)(
+    struct ctx *ctx, struct object *obj, struct yheaders *hdrs, cmp_ctx_t *args,
+    uint32_t args_count, cmp_ctx_t *result, char *err_msg, size_t err_cap);
 
 typedef minvoke_fn (*minvoke_lookup_fn)(const char *qname);
 void minvoke_add_lookup(minvoke_lookup_fn fn);

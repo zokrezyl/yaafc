@@ -1,8 +1,8 @@
 #ifndef PICOMESH_ENGINE_RESOLVE_H
 #define PICOMESH_ENGINE_RESOLVE_H
 
-#include <picomesh/picoclass/class.h> /* struct ctx, struct object */
 #include <picomesh/core/result.h>
+#include <picomesh/picoclass/class.h> /* struct ctx, struct object */
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,11 +21,12 @@ struct jinvoke_params;
  * gate guarantees it names a method of an ACTIVE service on this node, so a
  * transport may look the typed leaf up directly with it. */
 struct picomesh_service_call {
-    struct ctx ctx;                      /* peer set if the service is remote */
-    struct object *obj;                  /* acquired receiver (local or proxy) */
-    char class_qname[160];
-    char method_qname[192];
-    const struct jinvoke_params *params; /* call-signature metadata, may be NULL */
+  struct ctx ctx;     /* peer set if the service is remote */
+  struct object *obj; /* acquired receiver (local or proxy) */
+  char class_qname[160];
+  char method_qname[192];
+  const struct jinvoke_params
+      *params; /* call-signature metadata, may be NULL */
 };
 
 PICOMESH_RESULT_DECLARE(picomesh_service_call, struct picomesh_service_call);
@@ -44,7 +45,8 @@ PICOMESH_RESULT_DECLARE(picomesh_service_call, struct picomesh_service_call);
  * The error message is the contract a transport maps to a wire code:
  *   "resolve: bad path …"           malformed (want service.class.method)
  *   "resolve: service not active …" not an activated plugin or remote here
- *   "resolve: no such class …"      the receiver class is not registered/reachable
+ *   "resolve: no such class …"      the receiver class is not
+ * registered/reachable
  */
 struct picomesh_service_call_result
 picomesh_resolve_service_call(struct picomesh_engine *engine, const char *path);

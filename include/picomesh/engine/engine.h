@@ -28,20 +28,20 @@ PICOMESH_RESULT_DECLARE(picomesh_engine_ptr, struct picomesh_engine *);
 
 /* Engine construction inputs. NULL → defaults. */
 struct picomesh_engine_args {
-    /* Pre-parsed CLI chain (owned by caller before create, owned by
-     * the engine after — engine destroys it on picomesh_engine_destroy). */
-    struct argv_chain *cli;
+  /* Pre-parsed CLI chain (owned by caller before create, owned by
+   * the engine after — engine destroys it on picomesh_engine_destroy). */
+  struct argv_chain *cli;
 
-    /* Explicit config file path (highest precedence). NULL → check
-     * the CLI chain for --config-file. */
-    const char *config_file;
+  /* Explicit config file path (highest precedence). NULL → check
+   * the CLI chain for --config-file. */
+  const char *config_file;
 
-    /* App name → drives ~/.config/<name>/<name>.yaml etc. Default
-     * "picomesh". */
-    const char *app_name;
+  /* App name → drives ~/.config/<name>/<name>.yaml etc. Default
+   * "picomesh". */
+  const char *app_name;
 
-    /* Skip filesystem search (XDG / git-root / cwd). */
-    int no_filesystem_search;
+  /* Skip filesystem search (XDG / git-root / cwd). */
+  int no_filesystem_search;
 };
 
 /* Create + initialize. Sets up tracing, the RPC server state, the
@@ -51,7 +51,8 @@ struct picomesh_engine_args {
  * When `args->cli` is non-NULL, the engine reads its `--config-file`,
  * `--config K=V`, and `--env K=V` options to drive config. The CLI
  * chain becomes owned by the engine. */
-struct picomesh_engine_ptr_result picomesh_engine_create(const struct picomesh_engine_args *args);
+struct picomesh_engine_ptr_result
+picomesh_engine_create(const struct picomesh_engine_args *args);
 
 void picomesh_engine_destroy(struct picomesh_engine *e);
 
@@ -71,8 +72,8 @@ struct picomesh_void_result picomesh_engine_run(struct picomesh_engine *e);
  * on picomesh_engine_loop(e) (which binds with SO_REUSEPORT, so all N
  * workers share the same port). `worker_index` is 0 for the worker that
  * runs on the calling thread, 1..N-1 for the spawned threads. */
-typedef struct picomesh_void_result (*picomesh_worker_setup_fn)(struct picomesh_engine *e,
-                                                          int worker_index, void *ud);
+typedef struct picomesh_void_result (*picomesh_worker_setup_fn)(
+    struct picomesh_engine *e, int worker_index, void *ud);
 
 /* Spin up `workers` worker threads (clamped to >= 1) in ONE process,
  * each owning its own libuv event loop AND its own libco coroutine
@@ -89,10 +90,9 @@ typedef struct picomesh_void_result (*picomesh_worker_setup_fn)(struct picomesh_
  * setup runs before any thread is spawned, so a worker-0 setup failure
  * is reported directly; a failure in a spawned worker's setup is logged
  * and that worker bows out while the rest keep serving. */
-struct picomesh_void_result picomesh_engine_run_workers(struct picomesh_engine *e,
-                                                  size_t workers,
-                                                  picomesh_worker_setup_fn setup,
-                                                  void *ud);
+struct picomesh_void_result
+picomesh_engine_run_workers(struct picomesh_engine *e, size_t workers,
+                            picomesh_worker_setup_fn setup, void *ud);
 
 /* Ask the engine to wind down — best effort across all worker loops. */
 void picomesh_engine_stop(struct picomesh_engine *e);
@@ -110,8 +110,8 @@ void picomesh_engine_stop(struct picomesh_engine *e);
  * but the kernel refused it (permission / unknown event) — the caller
  * decides whether that is fatal. The opened sampler is owned by the worker
  * and torn down at engine destroy. */
-struct picomesh_void_result picomesh_engine_perf_start(struct picomesh_engine *e,
-                                                       const char *service);
+struct picomesh_void_result
+picomesh_engine_perf_start(struct picomesh_engine *e, const char *service);
 
 /* Borrow the loop for frontend code (loop_listen_tcp etc.). Returns
  * the CURRENT worker thread's loop (worker 0 on the main/bootstrap
@@ -134,14 +134,16 @@ const struct config *picomesh_engine_config(struct picomesh_engine *e);
  * on the worker's first gated request and stashes it here; subsequent requests
  * on the same worker reuse it. The slot is per-worker (thread-confined), so no
  * locking is needed. `set` stores `ptr` with `free_fn`, invoked at engine
- * destroy (and when replacing an existing value). `get` returns NULL if unset. */
+ * destroy (and when replacing an existing value). `get` returns NULL if unset.
+ */
 void *picomesh_engine_worker_security(struct picomesh_engine *e);
 void picomesh_engine_worker_set_security(struct picomesh_engine *e, void *ptr,
                                          void (*free_fn)(void *));
 
 /* Plugin shortcut: return the top-level `<plugin>` subtree, or NULL.
  * Mirrors `yaapp_engine.get_config('<plugin>')`. */
-const struct config_node *picomesh_engine_plugin_config(struct picomesh_engine *e, const char *plugin);
+const struct config_node *
+picomesh_engine_plugin_config(struct picomesh_engine *e, const char *plugin);
 
 /* CLI chain — engine owns it, may be NULL. */
 struct argv_chain *picomesh_engine_cli(struct picomesh_engine *e);
@@ -158,20 +160,22 @@ struct argv_chain *picomesh_engine_cli(struct picomesh_engine *e);
  *
  * Idempotent: a second call with the same name closes the previous
  * session before opening the new one — useful for reconnect logic. */
-struct picomesh_void_result picomesh_engine_add_remote(struct picomesh_engine *e,
-                                                  const char *name,
-                                                  const char *host, int port);
+struct picomesh_void_result
+picomesh_engine_add_remote(struct picomesh_engine *e, const char *name,
+                           const char *host, int port);
 
 /* As above, but `transport` selects the outbound wire: NULL/"yrpc" = native
  * async binary RPC; "msgpack" = async MessagePack-envelope transport, for a
  * foreign service reached via `remotes: [{transport: msgpack}]` (issue #22). */
-struct picomesh_void_result picomesh_engine_add_remote_transport(struct picomesh_engine *e,
-                                                                 const char *name, const char *host,
-                                                                 int port, const char *transport);
+struct picomesh_void_result
+picomesh_engine_add_remote_transport(struct picomesh_engine *e,
+                                     const char *name, const char *host,
+                                     int port, const char *transport);
 
 /* Borrow the current worker's session registered under `name`, or NULL
  * if unknown. The session stays owned by the engine. */
-struct peer_channel *picomesh_engine_remote(struct picomesh_engine *e, const char *name);
+struct peer_channel *picomesh_engine_remote(struct picomesh_engine *e,
+                                            const char *name);
 
 /* Auto-dispatch helper: produce a `struct ctx` for talking to `service`.
  * If the engine has a registered remote with that name, `ctx.peer`
@@ -185,15 +189,17 @@ struct peer_channel *picomesh_engine_remote(struct picomesh_engine *e, const cha
  *
  * which removes the manual `c.peer = picomesh_engine_remote(...)`
  * boilerplate at every call site (gh#2). */
-struct ctx picomesh_engine_service_ctx(struct picomesh_engine *e, const char *service);
+struct ctx picomesh_engine_service_ctx(struct picomesh_engine *e,
+                                       const char *service);
 
 /* Resolve a backend service's bind address from config
  * (mesh.services.<svc>.host/port). Returns 1 and fills host_out/port_out
  * on success, 0 otherwise. Used to open a plain blocking connection to a
  * backend from a worker-pool thread (where the loop-bound async mux can't
  * be used). */
-struct picomesh_int_result picomesh_engine_service_addr(struct picomesh_engine *e, const char *service,
-                              char *host_out, size_t host_cap, int *port_out);
+struct picomesh_int_result
+picomesh_engine_service_addr(struct picomesh_engine *e, const char *service,
+                             char *host_out, size_t host_cap, int *port_out);
 
 /* Walk the engine's config for `<plugin>.remotes.<idx>.{service,host,port}`
  * entries and call `picomesh_engine_add_remote` for each. Returns the
@@ -203,7 +209,8 @@ struct picomesh_int_result picomesh_engine_service_addr(struct picomesh_engine *
  * If `host`/`port` are absent in the config, the function looks up
  * `<service>.bind.host` / `<service>.bind.port` at the config root —
  * matching the scenario YAML's `mesh.services.<svc>.host/port` shape. */
-struct picomesh_size_result picomesh_engine_open_remotes(struct picomesh_engine *e, const char *plugin);
+struct picomesh_size_result
+picomesh_engine_open_remotes(struct picomesh_engine *e, const char *plugin);
 
 /* ---- resolved-remote side table (port: auto discovery) ----------- *
  *
@@ -214,17 +221,20 @@ struct picomesh_size_result picomesh_engine_open_remotes(struct picomesh_engine 
  * threads spin. `picomesh_engine_open_remotes` then consults this table
  * for any remote that lacks an explicit port. The table is write-once at
  * bootstrap and read-only thereafter, so worker reads need no locking. */
-void picomesh_engine_set_resolved_remote(struct picomesh_engine *e, const char *name,
-                                         const char *host, int port);
-int picomesh_engine_get_resolved_remote(struct picomesh_engine *e, const char *name,
-                                        char *host_out, size_t host_cap, int *port_out);
+void picomesh_engine_set_resolved_remote(struct picomesh_engine *e,
+                                         const char *name, const char *host,
+                                         int port);
+int picomesh_engine_get_resolved_remote(struct picomesh_engine *e,
+                                        const char *name, char *host_out,
+                                        size_t host_cap, int *port_out);
 
 /* Iterate every registered plugin class. The engine walks the class
  * registry's accessor-lookup chain by name pattern — by default,
  * everything registered as a `class@*:*` annotation. Returns names
  * suitable for passing to `class_by_name`. */
-struct picomesh_void_result picomesh_engine_for_each_plugin(struct picomesh_engine *e,
-                                                     void (*cb)(const char *qname, void *ud),
-                                                     void *ud);
+struct picomesh_void_result
+picomesh_engine_for_each_plugin(struct picomesh_engine *e,
+                                void (*cb)(const char *qname, void *ud),
+                                void *ud);
 
 #endif /* PICOMESH_ENGINE_ENGINE_H */

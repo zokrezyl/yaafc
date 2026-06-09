@@ -29,12 +29,12 @@ struct msgpack_frontend;
 PICOMESH_RESULT_DECLARE(msgpack_frontend_ptr, struct msgpack_frontend *);
 
 struct msgpack_config {
-    const char *host; /* default "127.0.0.1" */
-    int port;         /* default 7900 */
+  const char *host; /* default "127.0.0.1" */
+  int port;         /* default 7900 */
 };
 
-struct msgpack_frontend_ptr_result msgpack_start(struct picomesh_engine *e,
-                                                 const struct msgpack_config *cfg);
+struct msgpack_frontend_ptr_result
+msgpack_start(struct picomesh_engine *e, const struct msgpack_config *cfg);
 void msgpack_stop(struct msgpack_frontend *f);
 
 #endif /* PICOMESH_FRONTENDS_MSGPACK_MSGPACK_H */

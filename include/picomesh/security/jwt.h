@@ -32,8 +32,9 @@ int64_t picomesh_security_now(void);
  * of "<account>:<role>" strings (may be NULL/empty); it is emitted as a JSON
  * array. Returns a malloc'd NUL-terminated string the caller frees, or NULL on
  * allocation failure. */
-char *picomesh_jwt_build_claims(const char *issuer, uint32_t sub, const char *username,
-                                const char *groups_csv, int64_t issued_at, int64_t expires_at);
+char *picomesh_jwt_build_claims(const char *issuer, uint32_t sub,
+                                const char *username, const char *groups_csv,
+                                int64_t issued_at, int64_t expires_at);
 
 /* Sign `claims_json` with HS256 under `secret`. Returns a malloc'd JWT
  * (header.payload.signature, base64url), or NULL on failure. */
@@ -43,7 +44,8 @@ char *picomesh_jwt_encode(const char *claims_json, const char *secret);
  * On success the OK value is the malloc'd payload-claims JSON (caller frees).
  * Fails closed on a bad signature, a non-HS256 alg header, a malformed token,
  * or an expired token. */
-struct picomesh_string_result picomesh_jwt_verify(const char *jwt, const char *secret, int64_t now);
+struct picomesh_string_result
+picomesh_jwt_verify(const char *jwt, const char *secret, int64_t now);
 
 /* The reserved INTERNAL-capability group. The gateway (which holds the signing
  * secret) mints a short-lived JWT carrying this group for its own trusted
@@ -54,7 +56,8 @@ struct picomesh_string_result picomesh_jwt_verify(const char *jwt, const char *s
  * trusted" assumption with a signed, verifiable marker. */
 #define PICOMESH_GROUP_SYSTEM "system:internal"
 
-/* 1 if the comma-separated `groups_csv` contains the exact membership `group`. */
+/* 1 if the comma-separated `groups_csv` contains the exact membership `group`.
+ */
 int picomesh_groups_contains(const char *groups_csv, const char *group);
 
 /* Role ladder: rank of a role name, or -1 if unknown. */
@@ -73,22 +76,24 @@ int picomesh_groups_max_role(const char *groups_csv, const char *account);
  * path is walked from the full namespace up to its root (`acme/platform/api` ->
  * `acme/platform` -> `acme`), so a membership on a parent namespace applies to
  * a child resource. Returns -1 when no applicable membership is held. */
-int picomesh_groups_effective_role(const char *groups_csv, const char *namespace_path);
+int picomesh_groups_effective_role(const char *groups_csv,
+                                   const char *namespace_path);
 
 /* Verified auth context extracted from a JWT. */
 struct picomesh_authctx {
-    int authenticated;     /* 1 if a valid JWT was present */
-    uint32_t uid;          /* sub */
-    char username[64];
-    char groups_csv[512];  /* flattened "<account>:<role>,..." */
+  int authenticated; /* 1 if a valid JWT was present */
+  uint32_t uid;      /* sub */
+  char username[64];
+  char groups_csv[512]; /* flattened "<account>:<role>,..." */
 };
 
 /* Verify `jwt` under `secret` and fill `out`. On success returns ok=1 with the
  * context populated; on any verification failure returns an error Result and
  * leaves out->authenticated = 0. A NULL/empty jwt yields ok=1 with
  * authenticated=0 (anonymous), not an error. */
-struct picomesh_void_result picomesh_authctx_from_jwt(const char *jwt, const char *secret,
-                                                      struct picomesh_authctx *out);
+struct picomesh_void_result
+picomesh_authctx_from_jwt(const char *jwt, const char *secret,
+                          struct picomesh_authctx *out);
 
 #ifdef __cplusplus
 }

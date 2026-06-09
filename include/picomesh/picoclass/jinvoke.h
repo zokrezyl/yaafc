@@ -38,9 +38,10 @@ struct yheaders;
  * and returns OK; on failure it writes a diagnostic into `err_msg`
  * (NUL-terminated, of `err_cap` bytes) and returns the error Result,
  * carrying the upstream cause chain. */
-typedef struct picomesh_void_result (*jinvoke_fn)(struct ctx *ctx, struct object *obj,
-                          struct yheaders *hdrs, const struct json_value *args,
-                          struct json_writer *result, char *err_msg, size_t err_cap);
+typedef struct picomesh_void_result (*jinvoke_fn)(
+    struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
+    const struct json_value *args, struct json_writer *result, char *err_msg,
+    size_t err_cap);
 
 typedef jinvoke_fn (*jinvoke_lookup_fn)(const char *qname);
 void jinvoke_add_lookup(jinvoke_lookup_fn fn);
@@ -54,14 +55,15 @@ jinvoke_fn jinvoke_for(const char *qname);
  * image. The args stay positional on the wire; this just names/types them
  * in declared order so a generic console can render one field per param. */
 struct jinvoke_param {
-    const char *name; /* parameter name, e.g. "key" */
-    const char *type; /* C type spelling, e.g. "const char *" */
+  const char *name; /* parameter name, e.g. "key" */
+  const char *type; /* C type spelling, e.g. "const char *" */
 };
 struct jinvoke_params {
-    const struct jinvoke_param *items;
-    size_t count;
+  const struct jinvoke_param *items;
+  size_t count;
 };
-typedef const struct jinvoke_params *(*jinvoke_params_lookup_fn)(const char *qname);
+typedef const struct jinvoke_params *(*jinvoke_params_lookup_fn)(
+    const char *qname);
 void jinvoke_params_add_lookup(jinvoke_params_lookup_fn fn);
 /* NULL when the method qname is unknown; a row with count==0 means the
  * method takes no user parameters (codegen always emits a row). */

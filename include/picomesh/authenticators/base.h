@@ -35,27 +35,27 @@ struct config_node;
  * it; a yrpc/msgpack frontend would adapt its own metadata to the same view).
  * `endpoint` is for log lines only, never for the authn decision. */
 struct picomesh_authn_request {
-    struct picomesh_engine *engine;
-    const char *headers_raw;
-    size_t headers_raw_len;
-    const char *endpoint;
+  struct picomesh_engine *engine;
+  const char *headers_raw;
+  size_t headers_raw_len;
+  const char *endpoint;
 };
 
 /* Result of one authenticator (and, after run, of the whole chain). `jwt` and
  * `error` are owned (malloc'd); `source` is the matching type's static name. */
 struct picomesh_authn_outcome {
-    char *jwt;          /* verified JWT to forward, or NULL when no match */
-    const char *source; /* type_name of the matching authenticator (static) */
-    char *error;        /* failure reason when a credential matched but was invalid */
+  char *jwt;          /* verified JWT to forward, or NULL when no match */
+  const char *source; /* type_name of the matching authenticator (static) */
+  char *error; /* failure reason when a credential matched but was invalid */
 };
 
-static inline int picomesh_authn_outcome_matched(const struct picomesh_authn_outcome *outcome)
-{
-    return outcome && outcome->jwt != NULL;
+static inline int
+picomesh_authn_outcome_matched(const struct picomesh_authn_outcome *outcome) {
+  return outcome && outcome->jwt != NULL;
 }
-static inline int picomesh_authn_outcome_failed(const struct picomesh_authn_outcome *outcome)
-{
-    return outcome && outcome->error != NULL;
+static inline int
+picomesh_authn_outcome_failed(const struct picomesh_authn_outcome *outcome) {
+  return outcome && outcome->error != NULL;
 }
 
 /* OK carries the outcome (match / denial / no-match — all normal authn data);
@@ -65,17 +65,17 @@ PICOMESH_RESULT_DECLARE(picomesh_authn_outcome, struct picomesh_authn_outcome);
 
 /* The ops a concrete authenticator type implements. */
 struct picomesh_authenticator_ops {
-    const char *type_name;
-    /* Parse `config` (the yaml entry under `authenticators:`) into instance
-     * state. OK value is the owned state pointer (freed via destroy). */
-    struct picomesh_void_ptr_result (*create)(struct picomesh_engine *engine,
-                                              const struct config_node *config);
-    /* Inspect the request; fill an outcome per the contract above. ERR is
-     * reserved for infrastructure failures (the cause chain propagates up to
-     * a 500); an auth denial is a normal OK outcome carrying `.error`. */
-    struct picomesh_authn_outcome_result (*authenticate)(void *state,
-                                                  const struct picomesh_authn_request *request);
-    void (*destroy)(void *state);
+  const char *type_name;
+  /* Parse `config` (the yaml entry under `authenticators:`) into instance
+   * state. OK value is the owned state pointer (freed via destroy). */
+  struct picomesh_void_ptr_result (*create)(struct picomesh_engine *engine,
+                                            const struct config_node *config);
+  /* Inspect the request; fill an outcome per the contract above. ERR is
+   * reserved for infrastructure failures (the cause chain propagates up to
+   * a 500); an auth denial is a normal OK outcome carrying `.error`. */
+  struct picomesh_authn_outcome_result (*authenticate)(
+      void *state, const struct picomesh_authn_request *request);
+  void (*destroy)(void *state);
 };
 
 #ifdef __cplusplus

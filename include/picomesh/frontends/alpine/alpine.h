@@ -36,8 +36,8 @@ struct alpine_frontend;
 PICOMESH_RESULT_DECLARE(alpine_frontend_ptr, struct alpine_frontend *);
 
 struct alpine_config {
-    const char *host; /* bind host, default 127.0.0.1 */
-    int port;         /* bind port, default 8231 */
+  const char *host; /* bind host, default 127.0.0.1 */
+  int port;         /* bind port, default 8231 */
 };
 
 struct alpine_frontend_ptr_result alpine_start(struct picomesh_engine *e,

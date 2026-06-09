@@ -21,22 +21,25 @@ extern "C" {
 #define PICOMESH_SHA256_BLOCK_LEN 64u
 
 struct picomesh_sha256_ctx {
-    uint64_t total_len;
-    uint32_t state[8];
-    uint8_t block[PICOMESH_SHA256_BLOCK_LEN];
-    size_t block_len;
+  uint64_t total_len;
+  uint32_t state[8];
+  uint8_t block[PICOMESH_SHA256_BLOCK_LEN];
+  size_t block_len;
 };
 
 void picomesh_sha256_init(struct picomesh_sha256_ctx *ctx);
-void picomesh_sha256_update(struct picomesh_sha256_ctx *ctx, const void *data, size_t len);
-void picomesh_sha256_final(struct picomesh_sha256_ctx *ctx, uint8_t out_digest[PICOMESH_SHA256_DIGEST_LEN]);
+void picomesh_sha256_update(struct picomesh_sha256_ctx *ctx, const void *data,
+                            size_t len);
+void picomesh_sha256_final(struct picomesh_sha256_ctx *ctx,
+                           uint8_t out_digest[PICOMESH_SHA256_DIGEST_LEN]);
 
 /* One-shot convenience. */
-void picomesh_sha256(const void *data, size_t len, uint8_t out_digest[PICOMESH_SHA256_DIGEST_LEN]);
+void picomesh_sha256(const void *data, size_t len,
+                     uint8_t out_digest[PICOMESH_SHA256_DIGEST_LEN]);
 
 /* HMAC-SHA256 over `message` keyed by `key`. */
-void picomesh_hmac_sha256(const void *key, size_t key_len,
-                          const void *message, size_t message_len,
+void picomesh_hmac_sha256(const void *key, size_t key_len, const void *message,
+                          size_t message_len,
                           uint8_t out_mac[PICOMESH_SHA256_DIGEST_LEN]);
 
 #ifdef __cplusplus

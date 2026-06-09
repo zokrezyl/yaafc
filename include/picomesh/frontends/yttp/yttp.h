@@ -37,8 +37,8 @@ struct yttp_frontend;
 PICOMESH_RESULT_DECLARE(yttp_frontend_ptr, struct yttp_frontend *);
 
 struct yttp_config {
-    const char *host; /* default "127.0.0.1" */
-    int port;         /* default 8800 */
+  const char *host; /* default "127.0.0.1" */
+  int port;         /* default 8800 */
 };
 
 struct yttp_frontend_ptr_result yttp_start(struct picomesh_engine *e,
