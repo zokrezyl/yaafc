@@ -1,8 +1,8 @@
 /* Authenticator registry: build the chain from config, run it. */
 
 #include <picomesh/authenticators/registry.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/config/config.h>
+#include <picomesh/core/ytrace.h>
 
 #include "types.h"
 
@@ -36,14 +36,14 @@ static const struct picomesh_authenticator_ops *find_ops(const char *type_name)
 }
 
 struct picomesh_void_ptr_result
-picomesh_authn_chain_build(struct picomesh_engine *engine, const struct yconfig_node *list)
+picomesh_authn_chain_build(struct picomesh_engine *engine, const struct config_node *list)
 {
     struct picomesh_authn_chain *chain = calloc(1, sizeof(*chain));
     if (!chain) return PICOMESH_ERR(picomesh_void_ptr, "authn_chain_build: out of memory");
-    if (!list || yconfig_node_kind(list) != YCONFIG_LIST)
+    if (!list || config_node_kind(list) != CONFIG_LIST)
         return PICOMESH_OK(picomesh_void_ptr, chain); /* empty chain → always anonymous */
 
-    size_t count = yconfig_node_size(list);
+    size_t count = config_node_size(list);
     if (count) {
         chain->entries = calloc(count, sizeof(*chain->entries));
         if (!chain->entries) {
@@ -52,13 +52,13 @@ picomesh_authn_chain_build(struct picomesh_engine *engine, const struct yconfig_
         }
     }
     for (size_t i = 0; i < count; ++i) {
-        const struct yconfig_node *entry = yconfig_node_at(list, i);
-        if (!entry || yconfig_node_kind(entry) != YCONFIG_MAP) {
+        const struct config_node *entry = config_node_at(list, i);
+        if (!entry || config_node_kind(entry) != CONFIG_MAP) {
             picomesh_authn_chain_free(chain);
             return PICOMESH_ERR(picomesh_void_ptr, "authn_chain_build: authenticator entry must be a map");
         }
-        const struct yconfig_node *type_node = yconfig_node_get(entry, "type");
-        const char *type_name = type_node ? yconfig_node_as_string(type_node, NULL) : NULL;
+        const struct config_node *type_node = config_node_get(entry, "type");
+        const char *type_name = type_node ? config_node_as_string(type_node, NULL) : NULL;
         if (!type_name) {
             picomesh_authn_chain_free(chain);
             return PICOMESH_ERR(picomesh_void_ptr, "authn_chain_build: authenticator entry missing `type`");
@@ -81,19 +81,24 @@ picomesh_authn_chain_build(struct picomesh_engine *engine, const struct yconfig_
     return PICOMESH_OK(picomesh_void_ptr, chain);
 }
 
-struct picomesh_authn_outcome
+struct picomesh_authn_outcome_result
 picomesh_authn_chain_run(struct picomesh_authn_chain *chain,
                          const struct picomesh_authn_request *request)
 {
     struct picomesh_authn_outcome outcome = {0};
-    if (!chain) return outcome;
+    if (!chain) return PICOMESH_OK(picomesh_authn_outcome, outcome);
     for (size_t i = 0; i < chain->count; ++i) {
-        outcome = chain->entries[i].ops->authenticate(chain->entries[i].state, request);
+        struct picomesh_authn_outcome_result one =
+            chain->entries[i].ops->authenticate(chain->entries[i].state, request);
+        /* An authenticator's infrastructure failure aborts the chain with its
+         * full cause chain — never silently downgraded to anonymous. */
+        PICOMESH_RETURN_IF_ERR(picomesh_authn_outcome, one, "authn chain: authenticator failed");
+        outcome = one.value;
         if (picomesh_authn_outcome_matched(&outcome) || picomesh_authn_outcome_failed(&outcome))
-            return outcome; /* first match wins; a failure short-circuits */
+            return PICOMESH_OK(picomesh_authn_outcome, outcome); /* first match wins; a failure short-circuits */
         /* no match → try the next authenticator */
     }
-    return outcome; /* anonymous */
+    return PICOMESH_OK(picomesh_authn_outcome, outcome); /* anonymous */
 }
 
 void picomesh_authn_outcome_free(struct picomesh_authn_outcome *outcome)

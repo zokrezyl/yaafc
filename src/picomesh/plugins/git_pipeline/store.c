@@ -16,22 +16,22 @@
  * Status: 0=queued, 1=running, 2=succeeded, 3=failed.
  *
  * State is RELATIONAL ROWS in the `rstore_uid` cluster's `pipeline_runs` table
- * (id, repo_id, runner_id, status, ref, pipeline_path, timeout, lease_expiry,
- * log, summary, …), provisioned by that cluster's schema. This replaces the
+ * (id, repo_id, runner_id, status, ref, pipeline_path, attempt, timeout,
+ * lease_expiry, log, summary, …), provisioned by that cluster's schema. This replaces the
  * previous `sharded_storage` KV layout — the hand-kept pending/running/done
  * counters are now `COUNT(… status=…)` so they can't drift from the rows; the
  * FIFO lease and the queued→running / *→terminal transitions are single atomic
  * `UPDATE … WHERE status=…` statements instead of read-modify-write CAS. Like
  * the other migrated services the table lives on the cluster's global shard. */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ysecurity/jwt.h>
-#include <picomesh/ysecurity/secret.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/json/json.h>
+#include <picomesh/security/jwt.h>
+#include <picomesh/security/secret.h>
 #include <picomesh/plugin/relational_storage/relational_sql.h>
 #include <picomesh/plugin/git_repo/git_repo.h>
 
@@ -66,10 +66,10 @@ static struct picomesh_int64_result gp_exec_field(struct rel_handle *handle, str
 {
     struct picomesh_json_result exec_res = rel_exec(handle, hdrs, sql, args ? args : "[]");
     if (PICOMESH_IS_ERR(exec_res)) return PICOMESH_ERR(picomesh_int64, "git_pipeline: exec failed", exec_res);
-    struct yjson_doc *doc = yjson_parse(exec_res.value ? exec_res.value : "{}",
+    struct json_doc *doc = json_parse(exec_res.value ? exec_res.value : "{}",
                                         exec_res.value ? strlen(exec_res.value) : 2);
-    int64_t value = doc ? yjson_as_int(yjson_object_get(yjson_doc_root(doc), field), 0) : 0;
-    if (doc) yjson_doc_free(doc);
+    int64_t value = doc ? json_as_int(json_object_get(json_doc_root(doc), field), 0) : 0;
+    if (doc) json_doc_free(doc);
     free(exec_res.value);
     return PICOMESH_OK(picomesh_int64, value);
 }
@@ -84,98 +84,112 @@ static struct picomesh_int_result job_load(struct rel_handle *handle, struct yhe
         rel_query(handle, hdrs, "SELECT repo_id, runner_id, status FROM pipeline_runs WHERE id=?", args);
     free(args);
     if (PICOMESH_IS_ERR(row_res)) return PICOMESH_ERR(picomesh_int, "git_pipeline: job read failed", row_res);
-    struct yjson_doc *doc = yjson_parse(row_res.value ? row_res.value : "[]",
+    struct json_doc *doc = json_parse(row_res.value ? row_res.value : "[]",
                                         row_res.value ? strlen(row_res.value) : 2);
     free(row_res.value);
-    const struct yjson_value *array = doc ? yjson_doc_root(doc) : NULL;
-    if (!array || !yjson_is_array(array) || yjson_array_size(array) == 0) {
-        if (doc) yjson_doc_free(doc);
+    const struct json_value *array = doc ? json_doc_root(doc) : NULL;
+    if (!array || !json_is_array(array) || json_array_size(array) == 0) {
+        if (doc) json_doc_free(doc);
         return PICOMESH_OK(picomesh_int, 0);
     }
-    const struct yjson_value *row = yjson_array_at(array, 0);
-    if (repo_id) *repo_id = (uint32_t)yjson_as_int(yjson_object_get(row, "repo_id"), 0);
-    if (runner_id) *runner_id = (uint32_t)yjson_as_int(yjson_object_get(row, "runner_id"), 0);
-    if (status) *status = (int)yjson_as_int(yjson_object_get(row, "status"), -1);
-    yjson_doc_free(doc);
+    const struct json_value *row = json_array_at(array, 0);
+    if (repo_id) *repo_id = (uint32_t)json_as_int(json_object_get(row, "repo_id"), 0);
+    if (runner_id) *runner_id = (uint32_t)json_as_int(json_object_get(row, "runner_id"), 0);
+    if (status) *status = (int)json_as_int(json_object_get(row, "status"), -1);
+    json_doc_free(doc);
     return PICOMESH_OK(picomesh_int, 1);
 }
 
 /* Does the caller own this job's lease? Identity comes ONLY from the verified
  * runner JWT (its sub = runner_id), never the bare yheaders["uid"], and never an
  * unauthenticated request. NO `caller == 0` bypass. */
-static int gp_caller_owns(struct yheaders *hdrs, uint32_t leased_runner)
+static struct picomesh_int_result gp_caller_owns(struct yheaders *hdrs, uint32_t leased_runner)
 {
     struct picomesh_authctx caller;
-    picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
-    if (!caller.authenticated || caller.uid == 0) return 0;
-    return caller.uid == leased_runner;
+    struct picomesh_void_result authctx_res = picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, authctx_res, "gp_caller_owns: authctx failed");
+    if (!caller.authenticated || caller.uid == 0) return PICOMESH_OK(picomesh_int, 0);
+    return PICOMESH_OK(picomesh_int, caller.uid == leased_runner ? 1 : 0);
 }
 
 /* Site admin / internal capability — gates the global job scans. Fail closed. */
-static int gp_caller_site_admin(struct yheaders *hdrs)
+static struct picomesh_int_result gp_caller_site_admin(struct yheaders *hdrs)
 {
     struct picomesh_authctx caller;
-    picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
-    if (!caller.authenticated) return 0;
-    if (picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM)) return 1;
-    return picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer");
+    struct picomesh_void_result authctx_res = picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, authctx_res, "gp_caller_site_admin: authctx failed");
+    if (!caller.authenticated) return PICOMESH_OK(picomesh_int, 0);
+    if (picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM)) return PICOMESH_OK(picomesh_int, 1);
+    return PICOMESH_OK(picomesh_int,
+        picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer") ? 1 : 0);
 }
 
-/* The repo's namespace path, or NULL on error/absent (caller frees). */
-static char *gp_repo_namespace(uint32_t repo_id)
+/* The repo's namespace path as a Result. OK value is the owned path string
+ * (NULL/"" when absent, caller frees); a backend failure propagates. */
+static struct picomesh_string_result gp_repo_namespace(uint32_t repo_id)
 {
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return NULL;
+    if (!engine) return PICOMESH_OK(picomesh_string, NULL);
     struct ctx repo_ctx = picomesh_engine_service_ctx(engine, "git_repo");
     struct object_ptr_result create_res = git_repo_git_repo_create(&repo_ctx);
-    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return NULL; }
+    PICOMESH_RETURN_IF_ERR(picomesh_string, create_res, "gp_repo_namespace: repo create failed");
     struct picomesh_string_result namespace_res =
         git_repo_git_repo_namespace_of(&repo_ctx, create_res.value, NULL, repo_id);
-    if (PICOMESH_IS_ERR(namespace_res)) { picomesh_error_destroy(namespace_res.error); return NULL; }
-    return namespace_res.value; /* may be NULL/"" */
+    PICOMESH_RETURN_IF_ERR(picomesh_string, namespace_res, "gp_repo_namespace: namespace_of failed");
+    return namespace_res; /* value may be NULL/"" */
 }
 
 /* Read access to a job's metadata/log (issue #30): the runner that leased it, OR
  * a verified caller with reporter+ on the repo's namespace (inherited), OR a site
  * admin. Anonymous/unknown job → denied. */
-static int gp_job_readable(struct rel_handle *handle, struct yheaders *hdrs, uint32_t job_id)
+static struct picomesh_int_result gp_job_readable(struct rel_handle *handle, struct yheaders *hdrs, uint32_t job_id)
 {
     uint32_t repo_id = 0, leased_runner = 0; int status = -1;
     struct picomesh_int_result load_res = job_load(handle, hdrs, job_id, &repo_id, &leased_runner, &status);
-    if (PICOMESH_IS_ERR(load_res)) { picomesh_error_destroy(load_res.error); return 0; }
-    if (load_res.value == 0) return 0; /* no such job */
-    if (leased_runner != 0 && gp_caller_owns(hdrs, leased_runner)) return 1;
+    PICOMESH_RETURN_IF_ERR(picomesh_int, load_res, "gp_job_readable: job load failed");
+    if (load_res.value == 0) return PICOMESH_OK(picomesh_int, 0); /* no such job */
+    if (leased_runner != 0) {
+        struct picomesh_int_result owns_res = gp_caller_owns(hdrs, leased_runner);
+        PICOMESH_RETURN_IF_ERR(picomesh_int, owns_res, "gp_job_readable: owner check failed");
+        if (owns_res.value) return PICOMESH_OK(picomesh_int, 1);
+    }
 
     struct picomesh_authctx caller;
-    picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
-    if (!caller.authenticated) return 0;
-    if (picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM)) return 1; /* trusted internal */
-    if (picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer")) return 1;
+    struct picomesh_void_result authctx_res = picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, authctx_res, "gp_job_readable: authctx failed");
+    if (!caller.authenticated) return PICOMESH_OK(picomesh_int, 0);
+    if (picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM)) return PICOMESH_OK(picomesh_int, 1); /* trusted internal */
+    if (picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer")) return PICOMESH_OK(picomesh_int, 1);
 
-    char *namespace_path = gp_repo_namespace(repo_id);
+    struct picomesh_string_result namespace_res = gp_repo_namespace(repo_id);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, namespace_res, "gp_job_readable: namespace lookup failed");
+    char *namespace_path = namespace_res.value;
     int allowed = namespace_path && namespace_path[0] &&
                   picomesh_groups_effective_role(caller.groups_csv, namespace_path) >=
                       picomesh_role_rank("reporter");
     free(namespace_path);
-    return allowed;
+    return PICOMESH_OK(picomesh_int, allowed ? 1 : 0);
 }
 
 /* Write authz for a repo-scoped pipeline op (issue #30): a VERIFIED principal
  * with `min_role`+ on the repo's namespace (inherited) or a site admin. A
  * NULL/anonymous caller is the trusted in-process path. Returns 1 if allowed. */
-static int gp_caller_can_write(struct yheaders *hdrs, uint32_t repo_id, const char *min_role)
+static struct picomesh_int_result gp_caller_can_write(struct yheaders *hdrs, uint32_t repo_id, const char *min_role)
 {
     struct picomesh_authctx caller;
-    picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
-    if (!caller.authenticated) return 0; /* fail closed */
-    if (picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM)) return 1; /* trusted internal */
-    if (picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer")) return 1;
-    char *namespace_path = gp_repo_namespace(repo_id);
+    struct picomesh_void_result authctx_res = picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, authctx_res, "gp_caller_can_write: authctx failed");
+    if (!caller.authenticated) return PICOMESH_OK(picomesh_int, 0); /* fail closed */
+    if (picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM)) return PICOMESH_OK(picomesh_int, 1); /* trusted internal */
+    if (picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer")) return PICOMESH_OK(picomesh_int, 1);
+    struct picomesh_string_result namespace_res = gp_repo_namespace(repo_id);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, namespace_res, "gp_caller_can_write: namespace lookup failed");
+    char *namespace_path = namespace_res.value;
     int allowed = namespace_path && namespace_path[0] &&
                   picomesh_groups_effective_role(caller.groups_csv, namespace_path) >=
                       picomesh_role_rank(min_role);
     free(namespace_path);
-    return allowed;
+    return PICOMESH_OK(picomesh_int, allowed ? 1 : 0);
 }
 
 /* Claim the next queued job for runner_id via atomic FIFO UPDATE. OK value:
@@ -191,12 +205,12 @@ static struct picomesh_uint32_result gp_claim_next(struct rel_handle *handle, st
         /* Atomic claim: only the UPDATE that flips status 0→1 wins; a racing
          * runner gets changes==0 and retries the next candidate. lease_expiry =
          * now + the job's own timeout column. */
-        struct yjson_writer *args_writer = yjson_writer_new();
+        struct json_writer *args_writer = json_writer_new();
         if (!args_writer) return PICOMESH_ERR(picomesh_uint32, "git_pipeline: oom");
-        yjson_writer_begin_array(args_writer);
-        yjson_writer_int(args_writer, (int64_t)runner_id);
-        yjson_writer_int(args_writer, picomesh_security_now());
-        yjson_writer_int(args_writer, candidate_res.value);
+        json_writer_begin_array(args_writer);
+        json_writer_int(args_writer, (int64_t)runner_id);
+        json_writer_int(args_writer, picomesh_security_now());
+        json_writer_int(args_writer, candidate_res.value);
         char *args = rel_args_take(args_writer);
         struct picomesh_int64_result changes_res = gp_exec_field(handle, hdrs,
             "UPDATE pipeline_runs SET status=1, runner_id=?, lease_expiry=?+timeout "
@@ -217,37 +231,38 @@ static struct picomesh_json_result gp_descriptor_json(struct rel_handle *handle,
 {
     char *args = rel_args1i((int64_t)job_id);
     struct picomesh_json_result row_res = rel_query(handle, hdrs,
-        "SELECT id, repo_id, runner_id, status, ref, pipeline_path, timeout, lease_expiry "
+        "SELECT id, repo_id, runner_id, status, ref, pipeline_path, attempt, timeout, lease_expiry "
         "FROM pipeline_runs WHERE id=?", args);
     free(args);
     if (PICOMESH_IS_ERR(row_res)) return PICOMESH_ERR(picomesh_json, "git_pipeline: descriptor load failed", row_res);
-    struct yjson_doc *doc = yjson_parse(row_res.value ? row_res.value : "[]",
+    struct json_doc *doc = json_parse(row_res.value ? row_res.value : "[]",
                                         row_res.value ? strlen(row_res.value) : 2);
     free(row_res.value);
-    const struct yjson_value *array = doc ? yjson_doc_root(doc) : NULL;
-    if (!array || !yjson_is_array(array) || yjson_array_size(array) == 0) {
-        if (doc) yjson_doc_free(doc);
+    const struct json_value *array = doc ? json_doc_root(doc) : NULL;
+    if (!array || !json_is_array(array) || json_array_size(array) == 0) {
+        if (doc) json_doc_free(doc);
         char *null_str = strdup("null");
         return null_str ? PICOMESH_OK(picomesh_json, null_str) : PICOMESH_ERR(picomesh_json, "git_pipeline: oom");
     }
-    const struct yjson_value *row = yjson_array_at(array, 0);
-    struct yjson_writer *writer = yjson_writer_new();
-    if (!writer) { yjson_doc_free(doc); return PICOMESH_ERR(picomesh_json, "git_pipeline: descriptor writer alloc failed"); }
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "job_id");        yjson_writer_int(writer, (int64_t)job_id);
-    yjson_writer_key(writer, "repo_id");       yjson_writer_int(writer, yjson_as_int(yjson_object_get(row, "repo_id"), 0));
-    yjson_writer_key(writer, "runner_id");     yjson_writer_int(writer, yjson_as_int(yjson_object_get(row, "runner_id"), 0));
-    yjson_writer_key(writer, "status");        yjson_writer_int(writer, yjson_as_int(yjson_object_get(row, "status"), -1));
-    yjson_writer_key(writer, "ref");           yjson_writer_string(writer, yjson_as_string(yjson_object_get(row, "ref"), ""));
-    yjson_writer_key(writer, "pipeline_path"); yjson_writer_string(writer, yjson_as_string(yjson_object_get(row, "pipeline_path"), ""));
-    yjson_writer_key(writer, "timeout");       yjson_writer_int(writer, yjson_as_int(yjson_object_get(row, "timeout"), GP_LEASE_TTL_DEFAULT));
-    yjson_writer_key(writer, "lease_expiry");  yjson_writer_int(writer, yjson_as_int(yjson_object_get(row, "lease_expiry"), 0));
-    yjson_writer_end_object(writer);
-    yjson_doc_free(doc);
+    const struct json_value *row = json_array_at(array, 0);
+    struct json_writer *writer = json_writer_new();
+    if (!writer) { json_doc_free(doc); return PICOMESH_ERR(picomesh_json, "git_pipeline: descriptor writer alloc failed"); }
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "job_id");        json_writer_int(writer, (int64_t)job_id);
+    json_writer_key(writer, "repo_id");       json_writer_int(writer, json_as_int(json_object_get(row, "repo_id"), 0));
+    json_writer_key(writer, "runner_id");     json_writer_int(writer, json_as_int(json_object_get(row, "runner_id"), 0));
+    json_writer_key(writer, "status");        json_writer_int(writer, json_as_int(json_object_get(row, "status"), -1));
+    json_writer_key(writer, "ref");           json_writer_string(writer, json_as_string(json_object_get(row, "ref"), ""));
+    json_writer_key(writer, "pipeline_path"); json_writer_string(writer, json_as_string(json_object_get(row, "pipeline_path"), ""));
+    json_writer_key(writer, "attempt");       json_writer_int(writer, json_as_int(json_object_get(row, "attempt"), 1));
+    json_writer_key(writer, "timeout");       json_writer_int(writer, json_as_int(json_object_get(row, "timeout"), GP_LEASE_TTL_DEFAULT));
+    json_writer_key(writer, "lease_expiry");  json_writer_int(writer, json_as_int(json_object_get(row, "lease_expiry"), 0));
+    json_writer_end_object(writer);
+    json_doc_free(doc);
     size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "git_pipeline: descriptor encode failed");
     return PICOMESH_OK(picomesh_json, out);
 }
@@ -260,11 +275,11 @@ static struct picomesh_int_result gp_transition(struct rel_handle *handle, struc
                                                 uint32_t job_id, int32_t status)
 {
     int final_status = status == 0 ? 2 : 3;
-    struct yjson_writer *args_writer = yjson_writer_new();
+    struct json_writer *args_writer = json_writer_new();
     if (!args_writer) return PICOMESH_ERR(picomesh_int, "git_pipeline: oom");
-    yjson_writer_begin_array(args_writer);
-    yjson_writer_int(args_writer, final_status);
-    yjson_writer_int(args_writer, (int64_t)job_id);
+    json_writer_begin_array(args_writer);
+    json_writer_int(args_writer, final_status);
+    json_writer_int(args_writer, (int64_t)job_id);
     char *args = rel_args_take(args_writer);
     struct picomesh_int64_result changes_res = gp_exec_field(handle, hdrs,
         "UPDATE pipeline_runs SET status=? WHERE id=? AND status IN (0,1)", args, "changes");
@@ -278,17 +293,19 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue_impl(struct ctx 
                                                            uint32_t repo_id)
 {
     (void)ctx; (void)obj;
-    if (!gp_caller_can_write(hdrs, repo_id, "developer"))
+    struct picomesh_int_result enqueue_authz = gp_caller_can_write(hdrs, repo_id, "developer");
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, enqueue_authz, "git_pipeline_enqueue: authz check failed");
+    if (!enqueue_authz.value)
         return PICOMESH_ERR(picomesh_uint32, "git_pipeline_enqueue: forbidden (insufficient namespace role)");
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_uint32, "git_pipeline_enqueue: storage open failed", open_res);
 
-    struct yjson_writer *args_writer = yjson_writer_new();
+    struct json_writer *args_writer = json_writer_new();
     if (!args_writer) return PICOMESH_ERR(picomesh_uint32, "git_pipeline_enqueue: oom");
-    yjson_writer_begin_array(args_writer);
-    yjson_writer_int(args_writer, (int64_t)repo_id);
-    yjson_writer_int(args_writer, picomesh_security_now());
+    json_writer_begin_array(args_writer);
+    json_writer_int(args_writer, (int64_t)repo_id);
+    json_writer_int(args_writer, picomesh_security_now());
     char *args = rel_args_take(args_writer);
     struct picomesh_int64_result id_res = gp_exec_field(&handle, hdrs,
         "INSERT INTO pipeline_runs(repo_id, status, created_at) VALUES(?, 0, ?)", args, "last_insert_rowid");
@@ -306,20 +323,22 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_enqueue_job_impl(struct 
                                                            const char *pipeline_path, int64_t timeout_seconds)
 {
     (void)ctx; (void)obj;
-    if (!gp_caller_can_write(hdrs, repo_id, "developer"))
+    struct picomesh_int_result enqueue_job_authz = gp_caller_can_write(hdrs, repo_id, "developer");
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, enqueue_job_authz, "git_pipeline_enqueue_job: authz check failed");
+    if (!enqueue_job_authz.value)
         return PICOMESH_ERR(picomesh_uint32, "git_pipeline_enqueue_job: forbidden (insufficient namespace role)");
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_uint32, "git_pipeline_enqueue_job: storage open failed", open_res);
 
-    struct yjson_writer *args_writer = yjson_writer_new();
+    struct json_writer *args_writer = json_writer_new();
     if (!args_writer) return PICOMESH_ERR(picomesh_uint32, "git_pipeline_enqueue_job: oom");
-    yjson_writer_begin_array(args_writer);
-    yjson_writer_int(args_writer, (int64_t)repo_id);
-    yjson_writer_string(args_writer, ref ? ref : "");
-    yjson_writer_string(args_writer, pipeline_path ? pipeline_path : "");
-    yjson_writer_int(args_writer, timeout_seconds > 0 ? timeout_seconds : GP_LEASE_TTL_DEFAULT);
-    yjson_writer_int(args_writer, picomesh_security_now());
+    json_writer_begin_array(args_writer);
+    json_writer_int(args_writer, (int64_t)repo_id);
+    json_writer_string(args_writer, ref ? ref : "");
+    json_writer_string(args_writer, pipeline_path ? pipeline_path : "");
+    json_writer_int(args_writer, timeout_seconds > 0 ? timeout_seconds : GP_LEASE_TTL_DEFAULT);
+    json_writer_int(args_writer, picomesh_security_now());
     char *args = rel_args_take(args_writer);
     struct picomesh_int64_result id_res = gp_exec_field(&handle, hdrs,
         "INSERT INTO pipeline_runs(repo_id, status, ref, pipeline_path, timeout, created_at) "
@@ -337,7 +356,9 @@ struct picomesh_uint32_result git_pipeline_git_pipeline_lease_impl(struct ctx *c
     (void)ctx; (void)obj;
     /* Leasing is a runner operation: the caller's runner token must match the
      * runner_id it leases as (issue #30). Mirrors lease_job. */
-    if (!gp_caller_owns(hdrs, runner_id))
+    struct picomesh_int_result lease_owns = gp_caller_owns(hdrs, runner_id);
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, lease_owns, "git_pipeline_lease: authz check failed");
+    if (!lease_owns.value)
         return PICOMESH_ERR(picomesh_uint32, "git_pipeline_lease: caller is not this runner");
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);
@@ -352,7 +373,9 @@ struct picomesh_json_result git_pipeline_git_pipeline_lease_job_impl(struct ctx 
                                                          uint32_t runner_id, const char *labels)
 {
     (void)ctx; (void)obj; (void)labels;
-    if (!gp_caller_owns(hdrs, runner_id))
+    struct picomesh_int_result lease_job_owns = gp_caller_owns(hdrs, runner_id);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, lease_job_owns, "git_pipeline_lease_job: authz check failed");
+    if (!lease_job_owns.value)
         return PICOMESH_ERR(picomesh_json, "git_pipeline_lease_job: caller is not this runner");
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);
@@ -372,7 +395,9 @@ struct picomesh_json_result git_pipeline_git_pipeline_job_descriptor_impl(struct
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_json, "git_pipeline_job_descriptor: storage open failed", open_res);
-    if (!gp_job_readable(&handle, hdrs, job_id))
+    struct picomesh_int_result descriptor_readable = gp_job_readable(&handle, hdrs, job_id);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, descriptor_readable, "git_pipeline_job_descriptor: authz check failed");
+    if (!descriptor_readable.value)
         return PICOMESH_ERR(picomesh_json, "git_pipeline_job_descriptor: forbidden (insufficient namespace role)");
     return gp_descriptor_json(&handle, hdrs, job_id);
 }
@@ -391,15 +416,17 @@ struct picomesh_int64_result git_pipeline_git_pipeline_append_log_impl(struct ct
     struct picomesh_int_result load_res = job_load(&handle, hdrs, job_id, NULL, &leased_runner, &status);
     if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int64, "git_pipeline_append_log: load failed", load_res);
     if (load_res.value == 0) return PICOMESH_ERR(picomesh_int64, "git_pipeline_append_log: unknown job");
-    if (!gp_caller_owns(hdrs, leased_runner)) return PICOMESH_ERR(picomesh_int64, "git_pipeline_append_log: caller does not own this lease");
+    struct picomesh_int_result append_owns = gp_caller_owns(hdrs, leased_runner);
+    PICOMESH_RETURN_IF_ERR(picomesh_int64, append_owns, "git_pipeline_append_log: authz check failed");
+    if (!append_owns.value) return PICOMESH_ERR(picomesh_int64, "git_pipeline_append_log: caller does not own this lease");
 
     /* Append in one statement; the new length is derived from the stored row so
      * concurrent appends can't lose bytes the way a read-modify-write would. */
-    struct yjson_writer *args_writer = yjson_writer_new();
+    struct json_writer *args_writer = json_writer_new();
     if (!args_writer) return PICOMESH_ERR(picomesh_int64, "git_pipeline_append_log: oom");
-    yjson_writer_begin_array(args_writer);
-    yjson_writer_string(args_writer, chunk ? chunk : "");
-    yjson_writer_int(args_writer, (int64_t)job_id);
+    json_writer_begin_array(args_writer);
+    json_writer_string(args_writer, chunk ? chunk : "");
+    json_writer_int(args_writer, (int64_t)job_id);
     char *args = rel_args_take(args_writer);
     struct picomesh_int64_result append_res = gp_exec_field(&handle, hdrs,
         "UPDATE pipeline_runs SET log = log || ? WHERE id=?", args, "changes");
@@ -422,11 +449,15 @@ struct picomesh_string_result git_pipeline_git_pipeline_read_log_impl(struct ctx
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_string, "git_pipeline_read_log: storage open failed", open_res);
-    if (!gp_job_readable(&handle, hdrs, job_id))
+    struct picomesh_int_result read_log_readable = gp_job_readable(&handle, hdrs, job_id);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, read_log_readable, "git_pipeline_read_log: authz check failed");
+    if (!read_log_readable.value)
         return PICOMESH_ERR(picomesh_string, "git_pipeline_read_log: forbidden (insufficient namespace role)");
     char *args = rel_args1i((int64_t)job_id);
-    char *log = rel_query_str(&handle, hdrs, "SELECT log FROM pipeline_runs WHERE id=?", args, "log");
+    struct picomesh_string_result log_res = rel_query_str(&handle, hdrs, "SELECT log FROM pipeline_runs WHERE id=?", args, "log");
     free(args);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, log_res, "git_pipeline_read_log: query failed");
+    char *log = log_res.value;
     if (!log) { char *empty = strdup(""); return empty ? PICOMESH_OK(picomesh_string, empty)
                                                   : PICOMESH_ERR(picomesh_string, "git_pipeline_read_log: oom"); }
     return PICOMESH_OK(picomesh_string, log);
@@ -446,9 +477,18 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete_impl(struct ctx *c
     struct picomesh_int_result load_res = job_load(&handle, hdrs, job_id, &repo_id, &leased_runner, &row_status);
     if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int, "git_pipeline_complete: load failed", load_res);
     if (load_res.value == 0) return PICOMESH_OK(picomesh_int, 0); /* no such job */
-    int by_runner = leased_runner != 0 && gp_caller_owns(hdrs, leased_runner);
-    if (!by_runner && !gp_caller_can_write(hdrs, repo_id, "maintainer"))
-        return PICOMESH_ERR(picomesh_int, "git_pipeline_complete: forbidden (insufficient namespace role)");
+    int by_runner = 0;
+    if (leased_runner != 0) {
+        struct picomesh_int_result complete_owns = gp_caller_owns(hdrs, leased_runner);
+        PICOMESH_RETURN_IF_ERR(picomesh_int, complete_owns, "git_pipeline_complete: owner check failed");
+        by_runner = complete_owns.value;
+    }
+    if (!by_runner) {
+        struct picomesh_int_result complete_write = gp_caller_can_write(hdrs, repo_id, "maintainer");
+        PICOMESH_RETURN_IF_ERR(picomesh_int, complete_write, "git_pipeline_complete: authz check failed");
+        if (!complete_write.value)
+            return PICOMESH_ERR(picomesh_int, "git_pipeline_complete: forbidden (insufficient namespace role)");
+    }
     return gp_transition(&handle, hdrs, job_id, status);
 }
 
@@ -466,17 +506,19 @@ struct picomesh_int_result git_pipeline_git_pipeline_complete_job_impl(struct ct
     struct picomesh_int_result load_res = job_load(&handle, hdrs, job_id, NULL, &leased_runner, &row_status);
     if (PICOMESH_IS_ERR(load_res)) return PICOMESH_ERR(picomesh_int, "git_pipeline_complete_job: load failed", load_res);
     if (load_res.value == 0) return PICOMESH_OK(picomesh_int, 0);
-    if (!gp_caller_owns(hdrs, leased_runner)) return PICOMESH_ERR(picomesh_int, "git_pipeline_complete_job: caller does not own this lease");
+    struct picomesh_int_result complete_owns = gp_caller_owns(hdrs, leased_runner);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, complete_owns, "git_pipeline_complete_job: authz check failed");
+    if (!complete_owns.value) return PICOMESH_ERR(picomesh_int, "git_pipeline_complete_job: caller does not own this lease");
 
     /* Store the summary and clear the lease in the same terminal UPDATE so a
      * completed job never keeps a live lease_expiry. */
     int final_status = status == 0 ? 2 : 3;
-    struct yjson_writer *args_writer = yjson_writer_new();
+    struct json_writer *args_writer = json_writer_new();
     if (!args_writer) return PICOMESH_ERR(picomesh_int, "git_pipeline_complete_job: oom");
-    yjson_writer_begin_array(args_writer);
-    yjson_writer_int(args_writer, final_status);
-    yjson_writer_string(args_writer, summary ? summary : "");
-    yjson_writer_int(args_writer, (int64_t)job_id);
+    json_writer_begin_array(args_writer);
+    json_writer_int(args_writer, final_status);
+    json_writer_string(args_writer, summary ? summary : "");
+    json_writer_int(args_writer, (int64_t)job_id);
     char *args = rel_args_take(args_writer);
     struct picomesh_int64_result changes_res = gp_exec_field(&handle, hdrs,
         "UPDATE pipeline_runs SET status=?, summary=?, lease_expiry=0 WHERE id=? AND status IN (0,1)",
@@ -496,8 +538,11 @@ struct picomesh_size_result git_pipeline_git_pipeline_requeue_expired_impl(struc
     struct picomesh_void_result open_res = gp_open(&handle);
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_size, "git_pipeline_requeue_expired: storage open failed", open_res);
     char *args = rel_args1i(picomesh_security_now());
+    /* A requeue starts a fresh run attempt — bump `attempt` so retries are
+     * distinguishable and a future max-attempts policy can fail a job that keeps
+     * expiring instead of requeuing it forever (gh#33 data-model evolution). */
     struct picomesh_int64_result changes_res = gp_exec_field(&handle, hdrs,
-        "UPDATE pipeline_runs SET status=0, runner_id=0, lease_expiry=0 "
+        "UPDATE pipeline_runs SET status=0, runner_id=0, lease_expiry=0, attempt=attempt+1 "
         "WHERE status=1 AND lease_expiry>0 AND lease_expiry<=?", args, "changes");
     free(args);
     if (PICOMESH_IS_ERR(changes_res)) return PICOMESH_ERR(picomesh_size, "git_pipeline_requeue_expired: requeue failed", changes_res);
@@ -545,7 +590,9 @@ struct picomesh_json_result git_pipeline_git_pipeline_list_impl(struct ctx *ctx,
                                                          int64_t offset, int64_t limit)
 {
     (void)ctx; (void)obj;
-    if (!gp_caller_site_admin(hdrs))
+    struct picomesh_int_result list_admin = gp_caller_site_admin(hdrs);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, list_admin, "git_pipeline_list: authz check failed");
+    if (!list_admin.value)
         return PICOMESH_ERR(picomesh_json, "git_pipeline_list: forbidden (site admin only)");
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);
@@ -561,7 +608,9 @@ struct picomesh_json_result git_pipeline_git_pipeline_list_all_impl(struct ctx *
                                                                     struct yheaders *hdrs)
 {
     (void)ctx; (void)obj;
-    if (!gp_caller_site_admin(hdrs))
+    struct picomesh_int_result list_all_admin = gp_caller_site_admin(hdrs);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, list_all_admin, "git_pipeline_list_all: authz check failed");
+    if (!list_all_admin.value)
         return PICOMESH_ERR(picomesh_json, "git_pipeline_list_all: forbidden (site admin only)");
     struct rel_handle handle;
     struct picomesh_void_result open_res = gp_open(&handle);

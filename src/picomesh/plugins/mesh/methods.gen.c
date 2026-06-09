@@ -1,11 +1,11 @@
 /* GENERATED — do not edit. */
 #include "mesh.internal.h"
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
 #include <picomesh/allocator/allocator.h>
 #include <stdint.h>
@@ -46,7 +46,9 @@ struct picomesh_int_result mesh_mesh_register_service(struct ctx * ctx, struct o
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.register_service", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "mesh_mesh_register_service: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "mesh_mesh_register_service: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -59,7 +61,10 @@ struct picomesh_int_result mesh_mesh_register_service(struct ctx * ctx, struct o
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "mesh_mesh_register_service: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "mesh_mesh_register_service: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -121,7 +126,9 @@ struct picomesh_int_result mesh_mesh_register_service(struct ctx * ctx, struct o
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "mesh_mesh_register_service: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "mesh_mesh_register_service: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "mesh_mesh_register_service: truncated RPC payload"); goto _rpc_done; }
@@ -172,7 +179,9 @@ struct picomesh_uint32_result mesh_mesh_resolve(struct ctx * ctx, struct object 
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.resolve", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_uint32, _merr[0] ? strdup(_merr) : "mesh_mesh_resolve: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_uint32, "mesh_mesh_resolve: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -185,7 +194,10 @@ struct picomesh_uint32_result mesh_mesh_resolve(struct ctx * ctx, struct object 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_uint32, "mesh_mesh_resolve: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_uint32, "mesh_mesh_resolve: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -244,7 +256,9 @@ struct picomesh_uint32_result mesh_mesh_resolve(struct ctx * ctx, struct object 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_uint32, _msg[0] ? strdup(_msg) : "mesh_mesh_resolve: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_uint32, "mesh_mesh_resolve: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(uint32_t)) { _ret = PICOMESH_ERR(picomesh_uint32, "mesh_mesh_resolve: truncated RPC payload"); goto _rpc_done; }
@@ -295,7 +309,9 @@ struct picomesh_int_result mesh_mesh_forget(struct ctx * ctx, struct object * ob
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.forget", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "mesh_mesh_forget: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "mesh_mesh_forget: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -308,7 +324,10 @@ struct picomesh_int_result mesh_mesh_forget(struct ctx * ctx, struct object * ob
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "mesh_mesh_forget: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "mesh_mesh_forget: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -367,7 +386,9 @@ struct picomesh_int_result mesh_mesh_forget(struct ctx * ctx, struct object * ob
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "mesh_mesh_forget: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "mesh_mesh_forget: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "mesh_mesh_forget: truncated RPC payload"); goto _rpc_done; }
@@ -417,7 +438,9 @@ struct picomesh_size_result mesh_mesh_count_services(struct ctx * ctx, struct ob
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.count_services", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "mesh_mesh_count_services: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -430,7 +453,10 @@ struct picomesh_size_result mesh_mesh_count_services(struct ctx * ctx, struct ob
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -486,7 +512,9 @@ struct picomesh_size_result mesh_mesh_count_services(struct ctx * ctx, struct ob
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "mesh_mesh_count_services: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services: truncated RPC payload"); goto _rpc_done; }
@@ -537,7 +565,9 @@ struct picomesh_int_result mesh_mesh_spawn_picomesh(struct ctx * ctx, struct obj
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.spawn_picomesh", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "mesh_mesh_spawn_picomesh: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "mesh_mesh_spawn_picomesh: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -550,7 +580,10 @@ struct picomesh_int_result mesh_mesh_spawn_picomesh(struct ctx * ctx, struct obj
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "mesh_mesh_spawn_picomesh: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "mesh_mesh_spawn_picomesh: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -609,7 +642,9 @@ struct picomesh_int_result mesh_mesh_spawn_picomesh(struct ctx * ctx, struct obj
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "mesh_mesh_spawn_picomesh: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "mesh_mesh_spawn_picomesh: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "mesh_mesh_spawn_picomesh: truncated RPC payload"); goto _rpc_done; }
@@ -660,7 +695,9 @@ struct picomesh_int_result mesh_mesh_kill_pid(struct ctx * ctx, struct object * 
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.kill_pid", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "mesh_mesh_kill_pid: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "mesh_mesh_kill_pid: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -673,7 +710,10 @@ struct picomesh_int_result mesh_mesh_kill_pid(struct ctx * ctx, struct object * 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "mesh_mesh_kill_pid: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "mesh_mesh_kill_pid: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -732,7 +772,9 @@ struct picomesh_int_result mesh_mesh_kill_pid(struct ctx * ctx, struct object * 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "mesh_mesh_kill_pid: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "mesh_mesh_kill_pid: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "mesh_mesh_kill_pid: truncated RPC payload"); goto _rpc_done; }
@@ -782,7 +824,9 @@ struct picomesh_size_result mesh_mesh_count_children(struct ctx * ctx, struct ob
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.count_children", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "mesh_mesh_count_children: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -795,7 +839,10 @@ struct picomesh_size_result mesh_mesh_count_children(struct ctx * ctx, struct ob
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -851,7 +898,9 @@ struct picomesh_size_result mesh_mesh_count_children(struct ctx * ctx, struct ob
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "mesh_mesh_count_children: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children: truncated RPC payload"); goto _rpc_done; }
@@ -901,7 +950,9 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config(struct ctx * ctx, str
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.reconcile_from_config", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "mesh_mesh_reconcile_from_config: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile_from_config: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -914,7 +965,10 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config(struct ctx * ctx, str
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile_from_config: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile_from_config: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -970,7 +1024,9 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config(struct ctx * ctx, str
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "mesh_mesh_reconcile_from_config: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile_from_config: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile_from_config: truncated RPC payload"); goto _rpc_done; }
@@ -1020,7 +1076,9 @@ struct picomesh_int_result mesh_mesh_reconcile(struct ctx * ctx, struct object *
             if (!peer_channel_msgpack_call(_s->peer, "mesh.mesh.reconcile", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "mesh_mesh_reconcile: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -1033,7 +1091,10 @@ struct picomesh_int_result mesh_mesh_reconcile(struct ctx * ctx, struct object *
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -1089,7 +1150,9 @@ struct picomesh_int_result mesh_mesh_reconcile(struct ctx * ctx, struct object *
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "mesh_mesh_reconcile: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "mesh_mesh_reconcile: truncated RPC payload"); goto _rpc_done; }

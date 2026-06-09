@@ -29,7 +29,7 @@
 #ifndef PICOMESH_FRONTENDS_YTTP_YTTP_H
 #define PICOMESH_FRONTENDS_YTTP_YTTP_H
 
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
 struct picomesh_engine;
 struct yttp_frontend;

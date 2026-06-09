@@ -1,7 +1,7 @@
 /* sqlite backend for the storage plugin.
  *
  * Each context maps to a table named `kv_<context>` in a single sqlite
- * file (path from yconfig `storage.db_path`, default `:memory:`). The
+ * file (path from config `storage.db_path`, default `:memory:`). The
  * `kv_` prefix keeps the SQL identifier disjoint from anything sqlite
  * might reserve and makes accidental collisions with non-storage tables
  * impossible.
@@ -11,9 +11,9 @@
 
 #include "backends.h"
 
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yconfig/yconfig.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/config/config.h>
 
 #include <sqlite3.h>
 
@@ -21,31 +21,11 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *sqlite_resolve_db_path(void)
-{
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return ":memory:";
-    struct yconfig_node_ptr_result db_path_node_res =
-        yconfig_get(picomesh_engine_config(e), "storage.db_path");
-    if (PICOMESH_IS_ERR(db_path_node_res)) {
-        /* A config-read failure (not an absent key, which returns OK+NULL) must
-         * not silently drop us into in-memory mode and lose persistence. */
-        yerror("storage[sqlite]: reading 'storage.db_path' failed: %s",
-               db_path_node_res.error.msg ? db_path_node_res.error.msg : "?");
-        picomesh_error_destroy(db_path_node_res.error);
-        return ":memory:";
-    }
-    if (db_path_node_res.value) {
-        const char *db_path = yconfig_node_as_string(db_path_node_res.value, NULL);
-        if (db_path && *db_path) return db_path;
-    }
-    return ":memory:";
-}
-
 static enum storage_rc sqlite_ensure_open(struct storage_data *d)
 {
     if (d->be.sqlite.opened) return STORAGE_RC_OK;
-    const char *path = sqlite_resolve_db_path();
+    /* Path resolved once in ensure_backend (storage.c); absent → in-memory. */
+    const char *path = (d->data_path && *d->data_path) ? d->data_path : ":memory:";
     ydebug("storage[sqlite]: opening %s", path);
     int rc = sqlite3_open(path, &d->be.sqlite.db);
     if (rc != SQLITE_OK) {

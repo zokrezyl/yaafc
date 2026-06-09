@@ -7,8 +7,8 @@
  * Concurrency model — HYBRID threads + coroutines (the same shape the
  * server uses): M OS threads, each running its OWN libuv event loop and
  * libco coroutine scheduler, hosting K coroutines. Every coroutine drives
- * one async keep-alive connection (yloop_connect_tcp + yloop_read_some +
- * yloop_write, all coroutine-yielding). So C concurrent connections cost
+ * one async keep-alive connection (loop_connect_tcp + loop_read_some +
+ * loop_write, all coroutine-yielding). So C concurrent connections cost
  * M threads × K coroutines — NOT C OS threads. This lets one box emulate
  * tens of thousands of clients without drowning the scheduler.
  *
@@ -34,9 +34,9 @@
 
 #define _GNU_SOURCE
 
-#include <picomesh/yco/coro.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/yloop/yloop.h>
+#include <picomesh/picoco/coro.h>
+#include <picomesh/core/result.h>
+#include <picomesh/loop/loop.h>
 
 #include <pthread.h>
 #include <stdint.h>
@@ -210,8 +210,8 @@ static void lat_push(struct latencies *l, uint64_t ns)
 /* ---- a virtual connection = one coroutine driving one async socket --- */
 
 struct vconn {
-    struct yloop *loop;          /* this coro's thread loop */
-    struct yloop_stream *stream; /* NULL until connected / after a drop */
+    struct loop *loop;          /* this coro's thread loop */
+    struct loop_stream *stream; /* NULL until connected / after a drop */
     const struct perf_config *cfg;
     volatile int *stop;
     int id;                      /* global connection index */
@@ -241,8 +241,8 @@ static int vconn_connect(struct vconn *conn)
 {
     if (conn->stream) return 0;
     if (conn->cfg->emulate) return 0; /* no server in emulate mode: stream stays NULL */
-    struct yloop_stream_ptr_result connect_res =
-        yloop_connect_tcp(conn->loop, conn->cfg->host, conn->cfg->port);
+    struct loop_stream_ptr_result connect_res =
+        loop_connect_tcp(conn->loop, conn->cfg->host, conn->cfg->port);
     if (PICOMESH_IS_ERR(connect_res)) {
         picomesh_error_destroy(connect_res.error);
         conn->stream = NULL;
@@ -254,7 +254,7 @@ static int vconn_connect(struct vconn *conn)
 
 static void vconn_close(struct vconn *conn)
 {
-    if (conn->stream) { yloop_close(conn->stream); conn->stream = NULL; }
+    if (conn->stream) { loop_close(conn->stream); conn->stream = NULL; }
 }
 
 /* Issue one HTTP request on the keep-alive coroutine connection and consume
@@ -296,7 +296,7 @@ static int http_request(struct vconn *conn, const char *method, const char *path
          * load generator's OWN ceiling: how many ops/s its threads+coroutines
          * can push on this host with a zero-cost peer, so a real run's numbers
          * can be read against the harness's own limit. */
-        yloop_sleep_ms(conn->loop, 0);
+        loop_sleep_ms(conn->loop, 0);
         if (out_sid && out_sid_cap)
             snprintf(out_sid, out_sid_cap, "emu%08xsid", (unsigned)conn->id);
         /* Match the status the real route returns on success so ok/err
@@ -308,16 +308,21 @@ static int http_request(struct vconn *conn, const char *method, const char *path
         return redirect ? 303 : 200;
     }
 
-    if (yloop_write(conn->stream, hdr, (size_t)hdr_len) != (size_t)hdr_len) return -1;
-    if (body_len && yloop_write(conn->stream, body, body_len) != body_len) return -1;
+    struct picomesh_size_result hdr_write = loop_write(conn->stream, hdr, (size_t)hdr_len);
+    if (PICOMESH_IS_ERR(hdr_write)) { picomesh_error_destroy(hdr_write.error); return -1; }
+    if (body_len) {
+        struct picomesh_size_result body_write = loop_write(conn->stream, body, body_len);
+        if (PICOMESH_IS_ERR(body_write)) { picomesh_error_destroy(body_write.error); return -1; }
+    }
 
     /* Read until the header terminator is in. */
     size_t total = 0;
     char *hdr_end = NULL;
     while (total < RBUF_CAP - 1) {
-        size_t read_n = yloop_read_some(conn->stream, conn->rbuf + total, RBUF_CAP - 1 - total);
-        if (read_n == 0) return -1; /* EOF / error */
-        total += read_n;
+        struct picomesh_size_result read_res = loop_read_some(conn->stream, conn->rbuf + total, RBUF_CAP - 1 - total);
+        if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); return -1; }
+        if (read_res.value == 0) return -1; /* EOF */
+        total += read_res.value;
         conn->rbuf[total] = 0;
         hdr_end = strstr(conn->rbuf, "\r\n\r\n");
         if (hdr_end) break;
@@ -361,9 +366,10 @@ static int http_request(struct vconn *conn, const char *method, const char *path
     long remaining = content_length - (long)body_have;
     while (remaining > 0) {
         size_t want = (size_t)remaining < RBUF_CAP ? (size_t)remaining : RBUF_CAP;
-        size_t read_n = yloop_read_some(conn->stream, conn->rbuf, want);
-        if (read_n == 0) return -1;
-        remaining -= (long)read_n;
+        struct picomesh_size_result read_res = loop_read_some(conn->stream, conn->rbuf, want);
+        if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); return -1; }
+        if (read_res.value == 0) return -1; /* EOF */
+        remaining -= (long)read_res.value;
     }
     return status;
 }
@@ -783,7 +789,7 @@ static void seed_coro(void *arg)
 }
 
 struct deadline_arg {
-    struct yloop *loop;
+    struct loop *loop;
     volatile int *stop;
     unsigned int ms;
 };
@@ -791,9 +797,9 @@ struct deadline_arg {
 static void deadline_coro(void *arg)
 {
     struct deadline_arg *deadline = arg;
-    yloop_sleep_ms(deadline->loop, deadline->ms);
+    loop_sleep_ms(deadline->loop, deadline->ms);
     *deadline->stop = 1;
-    yloop_stop(deadline->loop);
+    loop_stop(deadline->loop);
 }
 
 /* ---- one OS thread: a loop + K coroutines ---------------------------- */
@@ -812,13 +818,13 @@ enum { PHASE_LOAD = 0, PHASE_SEED = 1, PHASE_POOL_SETUP = 2 };
 static void *lt_thread_main(void *arg)
 {
     struct lt_thread *thread = arg;
-    struct yloop_ptr_result loop_res = yloop_create();
+    struct loop_ptr_result loop_res = loop_create();
     if (PICOMESH_IS_ERR(loop_res)) { picomesh_error_destroy(loop_res.error); return NULL; }
-    struct yloop *loop = loop_res.value;
+    struct loop *loop = loop_res.value;
 
     int coro_count = thread->hi - thread->lo;
     struct picomesh_coro **coros = calloc((size_t)coro_count + 1, sizeof(*coros));
-    if (!coros) { yloop_destroy(loop); return NULL; }
+    if (!coros) { loop_destroy(loop); return NULL; }
 
     for (int i = 0; i < coro_count; ++i) {
         struct vconn *conn = &thread->vconns[thread->lo + i];
@@ -846,7 +852,7 @@ static void *lt_thread_main(void *arg)
         }
     }
 
-    yloop_run(loop);
+    loop_run(loop);
 
     /* Reap finished coros; parked ones (abandoned mid-request at the
      * deadline) are left for process exit — destroying a suspended coro
@@ -857,7 +863,7 @@ static void *lt_thread_main(void *arg)
     if (deadline_coro_handle && picomesh_coro_is_finished(deadline_coro_handle))
         picomesh_coro_destroy(deadline_coro_handle);
     free(coros);
-    yloop_destroy(loop);
+    loop_destroy(loop);
     return NULL;
 }
 

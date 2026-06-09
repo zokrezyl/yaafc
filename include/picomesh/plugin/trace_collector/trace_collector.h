@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_TRACE_COLLECTOR_H
 #define PICOMESH_PLUGIN_TRACE_COLLECTOR_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_string_result;
 struct picomesh_void_result;
@@ -30,6 +30,6 @@ struct picomesh_string_result trace_collector_trace_collector_stats(struct ctx *
 struct picomesh_string_result trace_collector_trace_collector_errors(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t since_secs);
 
 /* ---- activation ---- */
-void picomesh_plugin_trace_collector_register(void);
+struct picomesh_void_result picomesh_plugin_trace_collector_register(void);
 
 #endif

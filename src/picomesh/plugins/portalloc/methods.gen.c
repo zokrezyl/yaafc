@@ -1,11 +1,11 @@
 /* GENERATED — do not edit. */
 #include "portalloc.internal.h"
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
 #include <picomesh/allocator/allocator.h>
 #include <stdint.h>
@@ -46,7 +46,9 @@ struct picomesh_uint32_result portalloc_portalloc_allocate(struct ctx * ctx, str
             if (!peer_channel_msgpack_call(_s->peer, "portalloc.portalloc.allocate", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_uint32, _merr[0] ? strdup(_merr) : "portalloc_portalloc_allocate: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_uint32, "portalloc_portalloc_allocate: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -59,7 +61,10 @@ struct picomesh_uint32_result portalloc_portalloc_allocate(struct ctx * ctx, str
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_uint32, "portalloc_portalloc_allocate: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_uint32, "portalloc_portalloc_allocate: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -129,7 +134,9 @@ struct picomesh_uint32_result portalloc_portalloc_allocate(struct ctx * ctx, str
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_uint32, _msg[0] ? strdup(_msg) : "portalloc_portalloc_allocate: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_uint32, "portalloc_portalloc_allocate: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(uint32_t)) { _ret = PICOMESH_ERR(picomesh_uint32, "portalloc_portalloc_allocate: truncated RPC payload"); goto _rpc_done; }
@@ -180,7 +187,9 @@ struct picomesh_int_result portalloc_portalloc_release(struct ctx * ctx, struct 
             if (!peer_channel_msgpack_call(_s->peer, "portalloc.portalloc.release", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "portalloc_portalloc_release: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "portalloc_portalloc_release: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -193,7 +202,10 @@ struct picomesh_int_result portalloc_portalloc_release(struct ctx * ctx, struct 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "portalloc_portalloc_release: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "portalloc_portalloc_release: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -252,7 +264,9 @@ struct picomesh_int_result portalloc_portalloc_release(struct ctx * ctx, struct 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "portalloc_portalloc_release: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "portalloc_portalloc_release: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "portalloc_portalloc_release: truncated RPC payload"); goto _rpc_done; }
@@ -302,7 +316,9 @@ struct picomesh_size_result portalloc_portalloc_count_used(struct ctx * ctx, str
             if (!peer_channel_msgpack_call(_s->peer, "portalloc.portalloc.count_used", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "portalloc_portalloc_count_used: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "portalloc_portalloc_count_used: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -315,7 +331,10 @@ struct picomesh_size_result portalloc_portalloc_count_used(struct ctx * ctx, str
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "portalloc_portalloc_count_used: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "portalloc_portalloc_count_used: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -371,7 +390,9 @@ struct picomesh_size_result portalloc_portalloc_count_used(struct ctx * ctx, str
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "portalloc_portalloc_count_used: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "portalloc_portalloc_count_used: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "portalloc_portalloc_count_used: truncated RPC payload"); goto _rpc_done; }
@@ -423,7 +444,9 @@ struct picomesh_json_result portalloc_portalloc_list(struct ctx * ctx, struct ob
             if (!peer_channel_msgpack_call(_s->peer, "portalloc.portalloc.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "portalloc_portalloc_list: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -446,7 +469,10 @@ struct picomesh_json_result portalloc_portalloc_list(struct ctx * ctx, struct ob
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -508,7 +534,9 @@ struct picomesh_json_result portalloc_portalloc_list(struct ctx * ctx, struct ob
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "portalloc_portalloc_list: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list: truncated string response"); goto _rpc_done; }
@@ -563,7 +591,9 @@ struct picomesh_json_result portalloc_portalloc_list_all(struct ctx * ctx, struc
             if (!peer_channel_msgpack_call(_s->peer, "portalloc.portalloc.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "portalloc_portalloc_list_all: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list_all: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -586,7 +616,10 @@ struct picomesh_json_result portalloc_portalloc_list_all(struct ctx * ctx, struc
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list_all: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list_all: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -642,7 +675,9 @@ struct picomesh_json_result portalloc_portalloc_list_all(struct ctx * ctx, struc
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "portalloc_portalloc_list_all: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list_all: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "portalloc_portalloc_list_all: truncated string response"); goto _rpc_done; }

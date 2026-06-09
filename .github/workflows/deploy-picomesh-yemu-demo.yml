@@ -64,7 +64,7 @@ jobs:
             e2fsprogs util-linux curl tar python3 \
             bc bison flex libssl-dev libelf-dev cpio rsync
 
-      # The yclass codegen runs `uv run codegen.py`. Without uv on PATH
+      # The picoclass codegen runs `uv run codegen.py`. Without uv on PATH
       # the cmake custom command `cmake -E env ... uv run ...` dies with
       # a bare "No such file or directory" before any codegen happens.
       - name: install uv

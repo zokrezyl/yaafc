@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_ISSUES_H
 #define PICOMESH_PLUGIN_ISSUES_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_json_result;
@@ -32,6 +32,6 @@ struct picomesh_json_result issues_issues_list_all(struct ctx * ctx, struct obje
 struct picomesh_uint32_result issues_issues_repo_of(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t issue_id);
 
 /* ---- activation ---- */
-void picomesh_plugin_issues_register(void);
+struct picomesh_void_result picomesh_plugin_issues_register(void);
 
 #endif

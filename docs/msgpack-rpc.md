@@ -104,7 +104,7 @@ reference foreign service.
 > Status: the outbound transport + per-method client glue are implemented and
 > tested over a blocking connection (CLI / worker-pool use). Selecting it for an
 > engine *config remote* (`remotes: [{transport: msgpack}]`) over the gateway's
-> async yloop mux is the remaining integration.
+> async loop mux is the remaining integration.
 
 ## Try it
 

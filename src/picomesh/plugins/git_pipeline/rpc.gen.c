@@ -1,14 +1,14 @@
 /* GENERATED — do not edit. */
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/jinvoke.h>
-#include <picomesh/yclass/minvoke.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/jinvoke.h>
+#include <picomesh/picoclass/minvoke.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/json/json.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/class.h>
 #include "git_pipeline.internal.h"
 #include <limits.h>
 #include <stdint.h>
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static size_t git_pipeline_git_pipeline_enqueue_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_enqueue_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -46,7 +46,7 @@ static size_t git_pipeline_git_pipeline_enqueue_skel(const void *_body, size_t _
     struct picomesh_uint32_result _r = git_pipeline_git_pipeline_enqueue(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_enqueue_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -57,25 +57,25 @@ static size_t git_pipeline_git_pipeline_enqueue_skel(const void *_body, size_t _
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_enqueue_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_enqueue_job_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_enqueue_job_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -129,7 +129,7 @@ static size_t git_pipeline_git_pipeline_enqueue_job_skel(const void *_body, size
     struct picomesh_uint32_result _r = git_pipeline_git_pipeline_enqueue_job(&_local, _obj, _hdrs, _v1, _s2, _s3, _v4);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_enqueue_job_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -140,25 +140,25 @@ static size_t git_pipeline_git_pipeline_enqueue_job_skel(const void *_body, size
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_enqueue_job_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_lease_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_lease_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -188,7 +188,7 @@ static size_t git_pipeline_git_pipeline_lease_skel(const void *_body, size_t _bo
     struct picomesh_uint32_result _r = git_pipeline_git_pipeline_lease(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_lease_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -199,25 +199,25 @@ static size_t git_pipeline_git_pipeline_lease_skel(const void *_body, size_t _bo
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_lease_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_lease_job_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_lease_job_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -257,7 +257,7 @@ static size_t git_pipeline_git_pipeline_lease_job_skel(const void *_body, size_t
     struct picomesh_json_result _r = git_pipeline_git_pipeline_lease_job(&_local, _obj, _hdrs, _v1, _s2);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_lease_job_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -268,31 +268,31 @@ static size_t git_pipeline_git_pipeline_lease_job_skel(const void *_body, size_t
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
     {
         const char *_sv = _r.value ? _r.value : "";
         uint32_t _svlen = (uint32_t)strlen(_sv);
-        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_lease_job_skel: response buffer too small"); }
         ((uint8_t *)_resp)[0] = 0;
         memcpy((uint8_t *)_resp + 1, &_svlen, 4);
         if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
         free(_r.value);
-        return 1 + 4 + (size_t)_svlen;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + (size_t)_svlen));
     }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_job_descriptor_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_job_descriptor_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -322,7 +322,7 @@ static size_t git_pipeline_git_pipeline_job_descriptor_skel(const void *_body, s
     struct picomesh_json_result _r = git_pipeline_git_pipeline_job_descriptor(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_job_descriptor_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -333,31 +333,31 @@ static size_t git_pipeline_git_pipeline_job_descriptor_skel(const void *_body, s
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
     {
         const char *_sv = _r.value ? _r.value : "";
         uint32_t _svlen = (uint32_t)strlen(_sv);
-        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_job_descriptor_skel: response buffer too small"); }
         ((uint8_t *)_resp)[0] = 0;
         memcpy((uint8_t *)_resp + 1, &_svlen, 4);
         if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
         free(_r.value);
-        return 1 + 4 + (size_t)_svlen;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + (size_t)_svlen));
     }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_append_log_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_append_log_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -401,7 +401,7 @@ static size_t git_pipeline_git_pipeline_append_log_skel(const void *_body, size_
     struct picomesh_int64_result _r = git_pipeline_git_pipeline_append_log(&_local, _obj, _hdrs, _v1, _v2, _s3);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_append_log_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -412,25 +412,25 @@ static size_t git_pipeline_git_pipeline_append_log_skel(const void *_body, size_
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_append_log_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_read_log_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_read_log_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -460,7 +460,7 @@ static size_t git_pipeline_git_pipeline_read_log_skel(const void *_body, size_t 
     struct picomesh_string_result _r = git_pipeline_git_pipeline_read_log(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_read_log_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -471,31 +471,31 @@ static size_t git_pipeline_git_pipeline_read_log_skel(const void *_body, size_t 
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
     {
         const char *_sv = _r.value ? _r.value : "";
         uint32_t _svlen = (uint32_t)strlen(_sv);
-        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_read_log_skel: response buffer too small"); }
         ((uint8_t *)_resp)[0] = 0;
         memcpy((uint8_t *)_resp + 1, &_svlen, 4);
         if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
         free(_r.value);
-        return 1 + 4 + (size_t)_svlen;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + (size_t)_svlen));
     }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_complete_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_complete_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -529,7 +529,7 @@ static size_t git_pipeline_git_pipeline_complete_skel(const void *_body, size_t 
     struct picomesh_int_result _r = git_pipeline_git_pipeline_complete(&_local, _obj, _hdrs, _v1, _v2);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_complete_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -540,25 +540,25 @@ static size_t git_pipeline_git_pipeline_complete_skel(const void *_body, size_t 
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_complete_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_complete_job_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_complete_job_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -602,7 +602,7 @@ static size_t git_pipeline_git_pipeline_complete_job_skel(const void *_body, siz
     struct picomesh_int_result _r = git_pipeline_git_pipeline_complete_job(&_local, _obj, _hdrs, _v1, _v2, _s3);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_complete_job_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -613,25 +613,25 @@ static size_t git_pipeline_git_pipeline_complete_job_skel(const void *_body, siz
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_complete_job_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_requeue_expired_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_requeue_expired_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -657,7 +657,7 @@ static size_t git_pipeline_git_pipeline_requeue_expired_skel(const void *_body, 
     struct picomesh_size_result _r = git_pipeline_git_pipeline_requeue_expired(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_requeue_expired_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -668,25 +668,25 @@ static size_t git_pipeline_git_pipeline_requeue_expired_skel(const void *_body, 
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_requeue_expired_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_count_pending_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_count_pending_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -712,7 +712,7 @@ static size_t git_pipeline_git_pipeline_count_pending_skel(const void *_body, si
     struct picomesh_size_result _r = git_pipeline_git_pipeline_count_pending(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_pending_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -723,25 +723,25 @@ static size_t git_pipeline_git_pipeline_count_pending_skel(const void *_body, si
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_pending_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_count_running_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_count_running_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -767,7 +767,7 @@ static size_t git_pipeline_git_pipeline_count_running_skel(const void *_body, si
     struct picomesh_size_result _r = git_pipeline_git_pipeline_count_running(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_running_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -778,25 +778,25 @@ static size_t git_pipeline_git_pipeline_count_running_skel(const void *_body, si
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_running_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_count_done_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_count_done_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -822,7 +822,7 @@ static size_t git_pipeline_git_pipeline_count_done_skel(const void *_body, size_
     struct picomesh_size_result _r = git_pipeline_git_pipeline_count_done(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_done_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -833,25 +833,25 @@ static size_t git_pipeline_git_pipeline_count_done_skel(const void *_body, size_
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_count_done_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_list_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_list_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -885,7 +885,7 @@ static size_t git_pipeline_git_pipeline_list_skel(const void *_body, size_t _bod
     struct picomesh_json_result _r = git_pipeline_git_pipeline_list(&_local, _obj, _hdrs, _v1, _v2);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_list_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -896,31 +896,31 @@ static size_t git_pipeline_git_pipeline_list_skel(const void *_body, size_t _bod
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
     {
         const char *_sv = _r.value ? _r.value : "";
         uint32_t _svlen = (uint32_t)strlen(_sv);
-        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_list_skel: response buffer too small"); }
         ((uint8_t *)_resp)[0] = 0;
         memcpy((uint8_t *)_resp + 1, &_svlen, 4);
         if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
         free(_r.value);
-        return 1 + 4 + (size_t)_svlen;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + (size_t)_svlen));
     }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t git_pipeline_git_pipeline_list_all_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result git_pipeline_git_pipeline_list_all_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -946,7 +946,7 @@ static size_t git_pipeline_git_pipeline_list_all_skel(const void *_body, size_t 
     struct picomesh_json_result _r = git_pipeline_git_pipeline_list_all(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_list_all_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -957,36 +957,36 @@ static size_t git_pipeline_git_pipeline_list_all_skel(const void *_body, size_t 
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
     {
         const char *_sv = _r.value ? _r.value : "";
         uint32_t _svlen = (uint32_t)strlen(_sv);
-        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return 0; }
+        if (_resp_max < 1 + 4 + (size_t)_svlen) { free(_r.value); return PICOMESH_ERR(picomesh_size, "git_pipeline_git_pipeline_list_all_skel: response buffer too small"); }
         ((uint8_t *)_resp)[0] = 0;
         memcpy((uint8_t *)_resp + 1, &_svlen, 4);
         if (_svlen) memcpy((uint8_t *)_resp + 5, _sv, _svlen);
         free(_r.value);
-        return 1 + 4 + (size_t)_svlen;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + (size_t)_svlen));
     }
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static int git_pipeline_git_pipeline_enqueue_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_enqueue_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_enqueue");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_pipeline_git_pipeline_enqueue(call_ctx, obj, hdrs, arg0);
@@ -995,22 +995,21 @@ static int git_pipeline_git_pipeline_enqueue_jinvoke(struct ctx *ctx, struct obj
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_enqueue",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_enqueue", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_enqueue_job_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_enqueue_job_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_enqueue_job");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
-    const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
-    int64_t arg3 = (int64_t)yjson_as_int(yjson_array_at(args, 3), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
+    const char *arg1 = json_as_string(json_array_at(args, 1), "");
+    const char *arg2 = json_as_string(json_array_at(args, 2), "");
+    int64_t arg3 = (int64_t)json_as_int(json_array_at(args, 3), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_pipeline_git_pipeline_enqueue_job(call_ctx, obj, hdrs, arg0, arg1, arg2, arg3);
@@ -1019,19 +1018,18 @@ static int git_pipeline_git_pipeline_enqueue_job_jinvoke(struct ctx *ctx, struct
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_enqueue_job",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_enqueue_job", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_lease_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_lease_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_lease");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_pipeline_git_pipeline_lease(call_ctx, obj, hdrs, arg0);
@@ -1040,20 +1038,19 @@ static int git_pipeline_git_pipeline_lease_jinvoke(struct ctx *ctx, struct objec
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_lease",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_lease", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_lease_job_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_lease_job_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_lease_job");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    const char *arg1 = yjson_as_string(yjson_array_at(args, 1), "");
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
+    const char *arg1 = json_as_string(json_array_at(args, 1), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_pipeline_git_pipeline_lease_job(call_ctx, obj, hdrs, arg0, arg1);
@@ -1062,20 +1059,19 @@ static int git_pipeline_git_pipeline_lease_job_jinvoke(struct ctx *ctx, struct o
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_lease_job",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_lease_job", call_result);
     }
-    yjson_writer_raw(result, call_result.value ? call_result.value : "null");
+    json_writer_raw(result, call_result.value ? call_result.value : "null");
     free(call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_job_descriptor_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_job_descriptor_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_job_descriptor");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_pipeline_git_pipeline_job_descriptor(call_ctx, obj, hdrs, arg0);
@@ -1084,22 +1080,21 @@ static int git_pipeline_git_pipeline_job_descriptor_jinvoke(struct ctx *ctx, str
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_job_descriptor",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_job_descriptor", call_result);
     }
-    yjson_writer_raw(result, call_result.value ? call_result.value : "null");
+    json_writer_raw(result, call_result.value ? call_result.value : "null");
     free(call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_append_log_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_append_log_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_append_log");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
-    const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
+    int64_t arg1 = (int64_t)json_as_int(json_array_at(args, 1), 0);
+    const char *arg2 = json_as_string(json_array_at(args, 2), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int64_result call_result = git_pipeline_git_pipeline_append_log(call_ctx, obj, hdrs, arg0, arg1, arg2);
@@ -1108,19 +1103,18 @@ static int git_pipeline_git_pipeline_append_log_jinvoke(struct ctx *ctx, struct 
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_append_log",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_append_log", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_read_log_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_read_log_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_read_log");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_string_result call_result = git_pipeline_git_pipeline_read_log(call_ctx, obj, hdrs, arg0);
@@ -1129,21 +1123,20 @@ static int git_pipeline_git_pipeline_read_log_jinvoke(struct ctx *ctx, struct ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_read_log",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_read_log", call_result);
     }
-    yjson_writer_string(result, call_result.value ? call_result.value : "");
+    json_writer_string(result, call_result.value ? call_result.value : "");
     free(call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_complete_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_complete_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_complete");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    int32_t arg1 = (int32_t)yjson_as_int(yjson_array_at(args, 1), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
+    int32_t arg1 = (int32_t)json_as_int(json_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_pipeline_git_pipeline_complete(call_ctx, obj, hdrs, arg0, arg1);
@@ -1152,21 +1145,20 @@ static int git_pipeline_git_pipeline_complete_jinvoke(struct ctx *ctx, struct ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_complete",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_complete", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_complete_job_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_complete_job_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_complete_job");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    int32_t arg1 = (int32_t)yjson_as_int(yjson_array_at(args, 1), 0);
-    const char *arg2 = yjson_as_string(yjson_array_at(args, 2), "");
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
+    int32_t arg1 = (int32_t)json_as_int(json_array_at(args, 1), 0);
+    const char *arg2 = json_as_string(json_array_at(args, 2), "");
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = git_pipeline_git_pipeline_complete_job(call_ctx, obj, hdrs, arg0, arg1, arg2);
@@ -1175,16 +1167,15 @@ static int git_pipeline_git_pipeline_complete_job_jinvoke(struct ctx *ctx, struc
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_complete_job",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_complete_job", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_requeue_expired_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_requeue_expired_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_requeue_expired");
     struct ctx local_ctx = {0};
@@ -1195,16 +1186,15 @@ static int git_pipeline_git_pipeline_requeue_expired_jinvoke(struct ctx *ctx, st
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_requeue_expired",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_requeue_expired", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_count_pending_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_count_pending_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_count_pending");
     struct ctx local_ctx = {0};
@@ -1215,16 +1205,15 @@ static int git_pipeline_git_pipeline_count_pending_jinvoke(struct ctx *ctx, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_count_pending",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_pending", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_count_running_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_count_running_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_count_running");
     struct ctx local_ctx = {0};
@@ -1235,16 +1224,15 @@ static int git_pipeline_git_pipeline_count_running_jinvoke(struct ctx *ctx, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_count_running",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_running", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_count_done_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_count_done_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_count_done");
     struct ctx local_ctx = {0};
@@ -1255,20 +1243,19 @@ static int git_pipeline_git_pipeline_count_done_jinvoke(struct ctx *ctx, struct 
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_count_done",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_done", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_list_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_list_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_list");
-    int64_t arg0 = (int64_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    int64_t arg1 = (int64_t)yjson_as_int(yjson_array_at(args, 1), 0);
+    int64_t arg0 = (int64_t)json_as_int(json_array_at(args, 0), 0);
+    int64_t arg1 = (int64_t)json_as_int(json_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_pipeline_git_pipeline_list(call_ctx, obj, hdrs, arg0, arg1);
@@ -1277,17 +1264,16 @@ static int git_pipeline_git_pipeline_list_jinvoke(struct ctx *ctx, struct object
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_list",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_list", call_result);
     }
-    yjson_writer_raw(result, call_result.value ? call_result.value : "null");
+    json_writer_raw(result, call_result.value ? call_result.value : "null");
     free(call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_list_all_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_list_all_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] git_pipeline_git_pipeline_list_all");
     struct ctx local_ctx = {0};
@@ -1298,28 +1284,27 @@ static int git_pipeline_git_pipeline_list_all_jinvoke(struct ctx *ctx, struct ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "git_pipeline_git_pipeline_list_all",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_list_all", call_result);
     }
-    yjson_writer_raw(result, call_result.value ? call_result.value : "null");
+    json_writer_raw(result, call_result.value ? call_result.value : "null");
     free(call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_enqueue_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_enqueue_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_enqueue: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_enqueue: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "repo_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "repo_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "repo_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "repo_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -1330,27 +1315,26 @@ static int git_pipeline_git_pipeline_enqueue_minvoke(struct ctx *ctx, struct obj
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_enqueue",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_enqueue", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_enqueue_job_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_enqueue_job_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 4u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_enqueue_job: expected 4 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_enqueue_job: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "repo_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "repo_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "repo_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "repo_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     char _v1[4096];
@@ -1358,7 +1342,7 @@ static int git_pipeline_git_pipeline_enqueue_job_minvoke(struct ctx *ctx, struct
         uint32_t _sz = (uint32_t)sizeof(_v1);
         if (!cmp_read_str(_mr, _v1, &_sz)) {
             snprintf(_err, _err_cap, "ref: expected str arg (%s)", cmp_strerror(_mr));
-            return -1;
+            return PICOMESH_ERR(picomesh_void, "minvoke: bad argument");
         }
     }
     char _v2[4096];
@@ -1366,11 +1350,11 @@ static int git_pipeline_git_pipeline_enqueue_job_minvoke(struct ctx *ctx, struct
         uint32_t _sz = (uint32_t)sizeof(_v2);
         if (!cmp_read_str(_mr, _v2, &_sz)) {
             snprintf(_err, _err_cap, "pipeline_path: expected str arg (%s)", cmp_strerror(_mr));
-            return -1;
+            return PICOMESH_ERR(picomesh_void, "minvoke: bad argument");
         }
     }
     int64_t _v3;
-    if (!cmp_read_integer(_mr, &_v3)) { snprintf(_err, _err_cap, "timeout_seconds: expected int (%s)", cmp_strerror(_mr)); return -1; }
+    if (!cmp_read_integer(_mr, &_v3)) { snprintf(_err, _err_cap, "timeout_seconds: expected int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = git_pipeline_git_pipeline_enqueue_job(call_ctx, obj, hdrs, _v0, _v1, _v2, _v3);
@@ -1379,27 +1363,26 @@ static int git_pipeline_git_pipeline_enqueue_job_minvoke(struct ctx *ctx, struct
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_enqueue_job",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_enqueue_job", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_lease_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_lease_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_lease: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_lease: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "runner_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "runner_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "runner_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "runner_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -1410,27 +1393,26 @@ static int git_pipeline_git_pipeline_lease_minvoke(struct ctx *ctx, struct objec
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_lease",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_lease", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_lease_job_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_lease_job_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 2u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_lease_job: expected 2 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_lease_job: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "runner_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "runner_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "runner_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "runner_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     char _v1[4096];
@@ -1438,7 +1420,7 @@ static int git_pipeline_git_pipeline_lease_job_minvoke(struct ctx *ctx, struct o
         uint32_t _sz = (uint32_t)sizeof(_v1);
         if (!cmp_read_str(_mr, _v1, &_sz)) {
             snprintf(_err, _err_cap, "labels: expected str arg (%s)", cmp_strerror(_mr));
-            return -1;
+            return PICOMESH_ERR(picomesh_void, "minvoke: bad argument");
         }
     }
     struct ctx local_ctx = {0};
@@ -1449,31 +1431,30 @@ static int git_pipeline_git_pipeline_lease_job_minvoke(struct ctx *ctx, struct o
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_lease_job",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_lease_job", call_result);
     }
     {
         const char *_sv = call_result.value ? call_result.value : "";
         cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
         free(call_result.value);
     }
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_job_descriptor_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_job_descriptor_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_job_descriptor: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_job_descriptor: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -1484,41 +1465,40 @@ static int git_pipeline_git_pipeline_job_descriptor_minvoke(struct ctx *ctx, str
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_job_descriptor",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_job_descriptor", call_result);
     }
     {
         const char *_sv = call_result.value ? call_result.value : "";
         cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
         free(call_result.value);
     }
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_append_log_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_append_log_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 3u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_append_log: expected 3 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_append_log: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     int64_t _v1;
-    if (!cmp_read_integer(_mr, &_v1)) { snprintf(_err, _err_cap, "offset: expected int (%s)", cmp_strerror(_mr)); return -1; }
+    if (!cmp_read_integer(_mr, &_v1)) { snprintf(_err, _err_cap, "offset: expected int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
     char _v2[4096];
     {
         uint32_t _sz = (uint32_t)sizeof(_v2);
         if (!cmp_read_str(_mr, _v2, &_sz)) {
             snprintf(_err, _err_cap, "chunk: expected str arg (%s)", cmp_strerror(_mr));
-            return -1;
+            return PICOMESH_ERR(picomesh_void, "minvoke: bad argument");
         }
     }
     struct ctx local_ctx = {0};
@@ -1529,27 +1509,26 @@ static int git_pipeline_git_pipeline_append_log_minvoke(struct ctx *ctx, struct 
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_append_log",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_append_log", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_read_log_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_read_log_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_read_log: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_read_log: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -1560,38 +1539,37 @@ static int git_pipeline_git_pipeline_read_log_minvoke(struct ctx *ctx, struct ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_read_log",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_read_log", call_result);
     }
     {
         const char *_sv = call_result.value ? call_result.value : "";
         cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
         free(call_result.value);
     }
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_complete_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_complete_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 2u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_complete: expected 2 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_complete: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     int32_t _v1;
     {
         int64_t _i;
-        if (!cmp_read_integer(_mr, &_i)) { snprintf(_err, _err_cap, "status: expected int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_i < (INT32_MIN) || _i > (INT32_MAX)) { snprintf(_err, _err_cap, "status: value %lld out of range for int32_t", (long long)_i); return -1; }
+        if (!cmp_read_integer(_mr, &_i)) { snprintf(_err, _err_cap, "status: expected int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_i < (INT32_MIN) || _i > (INT32_MAX)) { snprintf(_err, _err_cap, "status: value %lld out of range for int32_t", (long long)_i); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v1 = (int32_t)_i;
     }
     struct ctx local_ctx = {0};
@@ -1602,34 +1580,33 @@ static int git_pipeline_git_pipeline_complete_minvoke(struct ctx *ctx, struct ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_complete",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_complete", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_complete_job_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_complete_job_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 3u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_complete_job: expected 3 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_complete_job: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "job_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "job_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     int32_t _v1;
     {
         int64_t _i;
-        if (!cmp_read_integer(_mr, &_i)) { snprintf(_err, _err_cap, "status: expected int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_i < (INT32_MIN) || _i > (INT32_MAX)) { snprintf(_err, _err_cap, "status: value %lld out of range for int32_t", (long long)_i); return -1; }
+        if (!cmp_read_integer(_mr, &_i)) { snprintf(_err, _err_cap, "status: expected int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_i < (INT32_MIN) || _i > (INT32_MAX)) { snprintf(_err, _err_cap, "status: value %lld out of range for int32_t", (long long)_i); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v1 = (int32_t)_i;
     }
     char _v2[4096];
@@ -1637,7 +1614,7 @@ static int git_pipeline_git_pipeline_complete_job_minvoke(struct ctx *ctx, struc
         uint32_t _sz = (uint32_t)sizeof(_v2);
         if (!cmp_read_str(_mr, _v2, &_sz)) {
             snprintf(_err, _err_cap, "summary: expected str arg (%s)", cmp_strerror(_mr));
-            return -1;
+            return PICOMESH_ERR(picomesh_void, "minvoke: bad argument");
         }
     }
     struct ctx local_ctx = {0};
@@ -1648,21 +1625,20 @@ static int git_pipeline_git_pipeline_complete_job_minvoke(struct ctx *ctx, struc
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_complete_job",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_complete_job", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_requeue_expired_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_requeue_expired_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_requeue_expired: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_requeue_expired: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1672,21 +1648,20 @@ static int git_pipeline_git_pipeline_requeue_expired_minvoke(struct ctx *ctx, st
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_requeue_expired",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_requeue_expired", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_count_pending_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_count_pending_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_count_pending: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_pending: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1696,21 +1671,20 @@ static int git_pipeline_git_pipeline_count_pending_minvoke(struct ctx *ctx, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_count_pending",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_pending", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_count_running_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_count_running_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_count_running: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_running: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1720,21 +1694,20 @@ static int git_pipeline_git_pipeline_count_running_minvoke(struct ctx *ctx, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_count_running",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_running", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_count_done_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_count_done_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_count_done: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_done: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1744,26 +1717,25 @@ static int git_pipeline_git_pipeline_count_done_minvoke(struct ctx *ctx, struct 
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_count_done",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_count_done", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_list_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_list_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 2u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_list: expected 2 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_list: wrong argument count");
     }
     int64_t _v0;
-    if (!cmp_read_integer(_mr, &_v0)) { snprintf(_err, _err_cap, "offset: expected int (%s)", cmp_strerror(_mr)); return -1; }
+    if (!cmp_read_integer(_mr, &_v0)) { snprintf(_err, _err_cap, "offset: expected int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
     int64_t _v1;
-    if (!cmp_read_integer(_mr, &_v1)) { snprintf(_err, _err_cap, "limit: expected int (%s)", cmp_strerror(_mr)); return -1; }
+    if (!cmp_read_integer(_mr, &_v1)) { snprintf(_err, _err_cap, "limit: expected int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_json_result call_result = git_pipeline_git_pipeline_list(call_ctx, obj, hdrs, _v0, _v1);
@@ -1772,25 +1744,24 @@ static int git_pipeline_git_pipeline_list_minvoke(struct ctx *ctx, struct object
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_list",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_list", call_result);
     }
     {
         const char *_sv = call_result.value ? call_result.value : "";
         cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
         free(call_result.value);
     }
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int git_pipeline_git_pipeline_list_all_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result git_pipeline_git_pipeline_list_all_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "git_pipeline_git_pipeline_list_all: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_list_all: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -1800,15 +1771,14 @@ static int git_pipeline_git_pipeline_list_all_minvoke(struct ctx *ctx, struct ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "git_pipeline_git_pipeline_list_all",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "git_pipeline_git_pipeline_list_all", call_result);
     }
     {
         const char *_sv = call_result.value ? call_result.value : "";
         cmp_write_str(_mw, _sv, (uint32_t)strlen(_sv));
         free(call_result.value);
     }
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
 struct object_ptr_result git_pipeline_git_pipeline_create(struct ctx *ctx)
@@ -1985,11 +1955,11 @@ static const struct git_pipeline_skel_row git_pipeline_skel_rows[] = {
     {"git_pipeline_git_pipeline_list_all", git_pipeline_git_pipeline_list_all_skel}
 };
 
-static rpc_skel_fn git_pipeline_skel_lookup(method_slot slot)
+static rpc_skel_fn git_pipeline_skel_lookup(const char *name)
 {
-    struct const_char_ptr_result nr = method_slot_name(slot);
-    if (PICOMESH_IS_ERR(nr)) { picomesh_error_destroy(nr.error); return NULL; }
-    const char *name = nr.value;
+    /* rpc_skel_for has already resolved the slot to its qname (the only
+     * Result-returning step), so this hook is a pure name→fn lookup that
+     * never has to swallow an error. */
     for (size_t i = 0; i < sizeof(git_pipeline_skel_rows) / sizeof(git_pipeline_skel_rows[0]); ++i)
         if (strcmp(git_pipeline_skel_rows[i].name, name) == 0)
             return git_pipeline_skel_rows[i].fn;
@@ -1999,18 +1969,16 @@ static rpc_skel_fn git_pipeline_skel_lookup(method_slot slot)
 /* ---- git_pipeline: registration entry point (called from the driver for
  *      config-ACTIVATED plugins only — registration is activation) ---- */
 
-void picomesh_plugin_git_pipeline_register(void)
+struct picomesh_void_result picomesh_plugin_git_pipeline_register(void)
 {
     struct picomesh_void_result _ar = class_add_accessor_lookup(git_pipeline_accessor_lookup);
-    if (PICOMESH_IS_ERR(_ar)) {
-        picomesh_error_print(stderr, "picomesh_plugin_git_pipeline_register", _ar.error);
-        picomesh_error_destroy(_ar.error);
-        abort();
-    }
+    PICOMESH_RETURN_IF_ERR(picomesh_void, _ar,
+                           "picomesh_plugin_git_pipeline_register: add accessor lookup");
     rpc_add_skel_lookup(git_pipeline_skel_lookup);
     jinvoke_add_lookup(git_pipeline_jinvoke_lookup);
     minvoke_add_lookup(git_pipeline_minvoke_lookup);
     jinvoke_params_add_lookup(git_pipeline_params_lookup);
     { struct class_ptr_result reg = git_pipeline_git_pipeline_class_get();
-      if (PICOMESH_IS_ERR(reg)) picomesh_error_destroy(reg.error); }
+      PICOMESH_RETURN_IF_ERR(picomesh_void, reg, "git_pipeline register: prewarm git_pipeline_git_pipeline_class_get"); }
+    return PICOMESH_OK_VOID();
 }

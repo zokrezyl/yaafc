@@ -17,15 +17,18 @@
 #ifndef PICOMESH_FRONTENDS_CLI_CLI_H
 #define PICOMESH_FRONTENDS_CLI_CLI_H
 
+#include <picomesh/core/result.h>
+
 struct picomesh_engine;
 
-/* Dispatch the parsed CLI subcommand. Returns the process exit code:
+/* Dispatch the parsed CLI subcommand. The OK value is the process exit code:
  *   0  — success
  *   2  — usage error
  *   1  — invoke / lookup error
+ * ERR carries an infrastructure failure's cause chain.
  *
  * Reads the subcommand + remaining argv from the engine's stored CLI
  * chain. */
-int picomesh_cli_dispatch(struct picomesh_engine *e);
+struct picomesh_int_result picomesh_cli_dispatch(struct picomesh_engine *e);
 
 #endif /* PICOMESH_FRONTENDS_CLI_CLI_H */

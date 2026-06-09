@@ -21,14 +21,14 @@
 
 #include <stddef.h>
 
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct picomesh_engine;
-struct yconfig_node;
+struct config_node;
 
 /* Transport-agnostic view of an inbound request. Authenticators read cookies
  * and headers out of the raw HTTP header block (the yhttp frontend supplies
@@ -58,15 +58,22 @@ static inline int picomesh_authn_outcome_failed(const struct picomesh_authn_outc
     return outcome && outcome->error != NULL;
 }
 
+/* OK carries the outcome (match / denial / no-match — all normal authn data);
+ * ERR carries an infrastructure failure (e.g. a credential-exchange RPC broke)
+ * with its full cause chain, distinct from an auth denial. */
+PICOMESH_RESULT_DECLARE(picomesh_authn_outcome, struct picomesh_authn_outcome);
+
 /* The ops a concrete authenticator type implements. */
 struct picomesh_authenticator_ops {
     const char *type_name;
     /* Parse `config` (the yaml entry under `authenticators:`) into instance
      * state. OK value is the owned state pointer (freed via destroy). */
     struct picomesh_void_ptr_result (*create)(struct picomesh_engine *engine,
-                                              const struct yconfig_node *config);
-    /* Inspect the request; fill an outcome per the contract above. */
-    struct picomesh_authn_outcome (*authenticate)(void *state,
+                                              const struct config_node *config);
+    /* Inspect the request; fill an outcome per the contract above. ERR is
+     * reserved for infrastructure failures (the cause chain propagates up to
+     * a 500); an auth denial is a normal OK outcome carrying `.error`. */
+    struct picomesh_authn_outcome_result (*authenticate)(void *state,
                                                   const struct picomesh_authn_request *request);
     void (*destroy)(void *state);
 };

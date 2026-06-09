@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_RUNNER_AGENT_H
 #define PICOMESH_PLUGIN_RUNNER_AGENT_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_json_result;
@@ -35,6 +35,6 @@ struct picomesh_json_result runner_agent_runner_agent_list_all(struct ctx * ctx,
 struct picomesh_size_result runner_agent_runner_agent_count_active(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 
 /* ---- activation ---- */
-void picomesh_plugin_runner_agent_register(void);
+struct picomesh_void_result picomesh_plugin_runner_agent_register(void);
 
 #endif

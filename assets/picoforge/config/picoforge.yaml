@@ -227,11 +227,12 @@ mesh:
             CREATE TABLE IF NOT EXISTS repos(
               id INTEGER PRIMARY KEY,
               namespace_id INTEGER NOT NULL,
+              namespace_path TEXT NOT NULL DEFAULT '',
               name TEXT NOT NULL,
               owner_uid INTEGER NOT NULL,
               visibility TEXT NOT NULL DEFAULT 'private',
               created_at INTEGER NOT NULL DEFAULT 0,
-              UNIQUE(namespace_id, name));
+              UNIQUE(namespace_path, name));
             CREATE TABLE IF NOT EXISTS repo_members(
               repo_id INTEGER NOT NULL,
               uid INTEGER NOT NULL,
@@ -253,6 +254,7 @@ mesh:
               status INTEGER NOT NULL DEFAULT 0,
               ref TEXT NOT NULL DEFAULT '',
               pipeline_path TEXT NOT NULL DEFAULT '',
+              attempt INTEGER NOT NULL DEFAULT 1,
               timeout INTEGER NOT NULL DEFAULT 300,
               lease_expiry INTEGER NOT NULL DEFAULT 0,
               log TEXT NOT NULL DEFAULT '',
@@ -342,14 +344,31 @@ mesh:
           # `enabled`, accounts.groups(uid) merges the local namespace_members
           # grants with roles mapped from an external directory's groups, with
           # the highest role winning per namespace. Disabled here → local-only
-          # behavior (the default). `members` is the first-pass directory source
-          # (uid={username}); a real LDAP/AD backend replaces only that lookup.
+          # behavior (the default).
+          #
+          # `provider` selects the directory backend behind the groups() facade:
+          #   config  (default) — membership comes from the `members` map below
+          #                       (keyed by username, uid fallback). Dev/test.
+          #   ldap              — LDAP/AD-style adapter. A real deployment binds
+          #                       to the directory and group-searches the user;
+          #                       in dev/test it reads `mock_members` (same shape
+          #                       as `members`) so the mapping/merge path is
+          #                       exercised without a live directory. With no
+          #                       reachable directory it FAILS CLOSED (a provider
+          #                       error denies groups() when fail_closed is set),
+          #                       so a directory outage never silently drops a
+          #                       privileged mapping.
+          # A new backend implements ONE resolver function in accounts.c; nothing
+          # downstream (token_issuer/git_repo/webapp) changes.
           external_groups:
             enabled: false
             fail_closed: true
-            # members:
+            provider: config
+            # members:                       # provider: config
             #   alice: [acme-platform-devs, picoforge-admins]
-            # mappings:
+            # mock_members:                  # provider: ldap (dev/test mock)
+            #   alice: [acme-platform-devs]
+            # mappings:                      # external group -> namespace:role
             #   - { external_group: acme-platform-devs, namespace: acme/platform, role: developer }
             #   - { external_group: picoforge-admins,   namespace: site,          role: maintainer }
         remotes:
@@ -436,10 +455,12 @@ mesh:
 
     git_repo:
       port: auto
-      # Metadata is in sharded_storage (the bare repos on disk are the content
-      # source of truth). Creation elects one writer via storage put_if_absent
-      # and bumps the count / owner index with atomic db_incr + compare-and-set,
-      # so concurrent creates can't double-count or lose index entries.
+      # Repo METADATA lives in the relational `repos` table (rstore_uid),
+      # sharded by repo_id (issue #18): SQL enforces namespace+name uniqueness,
+      # and owner/namespace listings + counts are plain queries (no hand-kept KV
+      # indexes to drift). The bare repos on disk remain the content source of
+      # truth (libgit2). Creation elects one writer via INSERT OR IGNORE on the
+      # repo_id primary key.
       #
       # CPU-bound: a put_file commit is libgit2 work — zlib deflate/inflate
       # (~27%) + SHA1DC (~15%) + tree rebuild; disk write/fsync is ~0.1%, so it
@@ -460,9 +481,11 @@ mesh:
           # Defaults to /tmp/picoforge/repos if omitted.
           repos_dir: /tmp/picoforge/repos
         remotes:
-          - service: sharded_storage
-            port: auto
           - service: trace_collector
+            port: auto
+          # Repo metadata rows live in the uid-sharded relational DATA cluster
+          # (issue #18) — the `repos` table, sharded by repo_id.
+          - service: rstore_uid
             port: auto
           # make() verifies the owning namespace exists and records its
           # namespace_id by calling accounts.ns_resolve (issue #30).
@@ -768,6 +791,11 @@ mesh:
               # outsider no. (Policy stays `authenticated` because the per-case
               # authority depends on the parent path, which the service resolves.)
               accounts.accounts.ns_create: authenticated
+              # Resolve a username to its assigned uid (issue #29). Low
+              # sensitivity (a uid is an opaque integer); any authenticated user
+              # may resolve it — the webapp uses it to turn a typed username into
+              # the uid passed to ns_add_member (which is itself maintainer-gated).
+              accounts.accounts.uid_for_username: authenticated
               accounts.accounts.ns_add_member:
                 required_role: maintainer
                 resource_from: "{kwargs.path}"

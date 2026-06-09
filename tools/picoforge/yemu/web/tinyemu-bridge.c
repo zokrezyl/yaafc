@@ -3,8 +3,8 @@
  * This file is the ONLY C entry point of the iframe wasm module. It runs
  * a single-threaded RISC-V Linux VM in the iframe's wasm context and
  * shuttles console bytes to/from the parent yetty.wasm via window
- * postMessage. The parent side lives in src/yetty/yplatform/webasm/
- * iframe-pty.c (struct yetty_yplatform_iframe_pty).
+ * postMessage. The parent side lives in src/yetty/platform/webasm/
+ * iframe-pty.c (struct yetty_platform_iframe_pty).
  *
  * Why this exists: the previous in-process design ran TinyEMU on a
  * pthread of yetty.wasm. Every libc syscall the VM thread issued went

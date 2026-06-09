@@ -18,16 +18,16 @@
  *   list / list_all          [{"uid":…,"username":…}, …]
  */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yplatform/time.h>
-#include <picomesh/ycore/idkey.h>
-#include <picomesh/ysecurity/jwt.h>
-#include <picomesh/ysecurity/secret.h>
-#include <picomesh/yconfig/yconfig.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/platform/time.h>
+#include <picomesh/core/idkey.h>
+#include <picomesh/security/jwt.h>
+#include <picomesh/security/secret.h>
+#include <picomesh/config/config.h>
 #include <picomesh/plugin/relational_storage/relational_sql.h>
 
 #include <stdint.h>
@@ -51,6 +51,21 @@
     "CREATE TABLE IF NOT EXISTS usernames(" \
     "username TEXT PRIMARY KEY, uid INTEGER NOT NULL, " \
     "created_at INTEGER NOT NULL DEFAULT 0, confirmed INTEGER NOT NULL DEFAULT 0)"
+
+/* UID allocator (issue #29): assigned, never-reused numeric ids. Allocation is a
+ * single AUTOINCREMENT INSERT pinned to a fixed global shard, so the id is
+ * globally monotonic and never reused even across account deletion — unlike the
+ * legacy uid = fnv1a32(username), which can collide two usernames onto one uid
+ * and lets a partially-failed registration strand a credential a later user
+ * inherits. The handed-out uid is `ACCOUNTS_UID_ALLOC_BASE + rowid`: the base
+ * lifts assigned ids clear of the dense low integers and (for an existing
+ * deployment being migrated) makes a clash with a legacy hash-derived uid
+ * astronomically unlikely; allocate_uid additionally refuses any id that already
+ * has a `users` row, so a clash can never silently overwrite an account. */
+#define ACCOUNTS_UIDSEQ_DDL \
+    "CREATE TABLE IF NOT EXISTS uid_seq(" \
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL DEFAULT 0)"
+#define ACCOUNTS_UID_ALLOC_BASE 0x40000000u  /* 1,073,741,824 */
 
 /* Namespace authority (issue #30 / docs/security.md "Authorization Domain
  * Model"). A namespace is the ownership container for repos; a user gets a
@@ -89,6 +104,7 @@ struct PICOMESH_CLASS_ANNOTATE("class@accounts:accounts") accounts_accounts_data
     int users_schema_ensured; /* per-worker: `users` created in rstore_uid */
     int names_schema_ensured; /* per-worker: `usernames` created in rstore_username */
     int ns_schema_ensured;    /* per-worker: namespace tables created in rstore_uid */
+    int uidseq_schema_ensured;/* per-worker: `uid_seq` created in rstore_uid */
 };
 
 static struct accounts_accounts_data *acc(struct object *obj)
@@ -110,6 +126,14 @@ static struct picomesh_void_result accounts_open_names(struct rel_handle *h, str
     struct picomesh_void_result o = rel_open(h, ACCOUNTS_STORE_NAME, ACCOUNTS_DB_NAME);
     if (PICOMESH_IS_ERR(o)) return PICOMESH_ERR(picomesh_void, "accounts: open rstore_username failed", o);
     return rel_ensure_schema(h, hdrs, &acc(obj)->names_schema_ensured, ACCOUNTS_NAMES_DDL);
+}
+
+/* Open the uid-sequence cluster (rstore_uid). Allocation pins h->shard = 0. */
+static struct picomesh_void_result accounts_open_uidseq(struct rel_handle *h, struct yheaders *hdrs, struct object *obj)
+{
+    struct picomesh_void_result o = rel_open(h, ACCOUNTS_STORE_UID, ACCOUNTS_DB_UID);
+    if (PICOMESH_IS_ERR(o)) return PICOMESH_ERR(picomesh_void, "accounts: open rstore_uid (uid_seq) failed", o);
+    return rel_ensure_schema(h, hdrs, &acc(obj)->uidseq_schema_ensured, ACCOUNTS_UIDSEQ_DDL);
 }
 
 /* Ensure the two namespace tables exist on EVERY shard of rstore_uid (rows
@@ -149,14 +173,15 @@ static int64_t ns_id_of(const char *path)
  * table for `path`, or 0 if no such namespace exists. The namespaces table —
  * NOT a derived hash — is the authority, so a grant or a repo can be rejected
  * when its target namespace was never created. Shards by hash(path). */
-static int64_t ns_lookup(struct rel_handle *h, struct yheaders *hdrs, const char *path)
+static struct picomesh_int64_result ns_lookup(struct rel_handle *h, struct yheaders *hdrs, const char *path)
 {
     h->shard = picomesh_fnv1a32(path);
     char *args = rel_args1s(path);
     int found = 0;
-    int64_t id = rel_query_int(h, hdrs, "SELECT id FROM namespaces WHERE path=?", args, "id", 0, &found);
+    struct picomesh_int64_result id = rel_query_int(h, hdrs, "SELECT id FROM namespaces WHERE path=?", args, "id", 0, &found);
     free(args);
-    return found ? id : 0;
+    PICOMESH_RETURN_IF_ERR(picomesh_int64, id, "ns_lookup: query failed");
+    return PICOMESH_OK(picomesh_int64, found ? id.value : 0);
 }
 
 /* A single namespace path SEGMENT, validated to a STRICT grammar:
@@ -235,16 +260,17 @@ struct picomesh_int_result accounts_accounts_claim_username_impl(struct ctx *ctx
     struct picomesh_void_result on = accounts_open_names(&nh, hdrs, obj);
     if (PICOMESH_IS_ERR(on)) return PICOMESH_ERR(picomesh_int, "accounts_claim_username: open names failed", on);
     nh.shard = picomesh_fnv1a32(username);
-    struct yjson_writer *cw = yjson_writer_new();
-    yjson_writer_begin_array(cw);
-    yjson_writer_string(cw, username);
-    yjson_writer_int(cw, (int64_t)uid);
-    yjson_writer_int(cw, picomesh_yplatform_time_wall_ms() / 1000);
+    struct json_writer *cw = json_writer_new();
+    json_writer_begin_array(cw);
+    json_writer_string(cw, username);
+    json_writer_int(cw, (int64_t)uid);
+    json_writer_int(cw, picomesh_platform_time_wall_ms() / 1000);
     char *cargs = rel_args_take(cw);
-    int claimed = rel_exec_changes(&nh, hdrs,
+    struct picomesh_int_result claimed_res = rel_exec_changes(&nh, hdrs,
         "INSERT OR IGNORE INTO usernames(username,uid,created_at) VALUES(?,?,?)", cargs);
     free(cargs);
-    if (claimed < 0) return PICOMESH_ERR(picomesh_int, "accounts_claim_username: name claim failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, claimed_res, "accounts_claim_username: name claim failed");
+    int claimed = claimed_res.value;
     /* changes==1 ⇒ we inserted the row (and its uid is ours) ⇒ we won.
      * changes==0 ⇒ the row already existed ⇒ someone else holds the name. */
     return PICOMESH_OK(picomesh_int, claimed == 1 ? 1 : 0);
@@ -268,16 +294,84 @@ struct picomesh_int_result accounts_accounts_release_username_impl(struct ctx *c
     struct picomesh_void_result on = accounts_open_names(&nh, hdrs, obj);
     if (PICOMESH_IS_ERR(on)) return PICOMESH_ERR(picomesh_int, "accounts_release_username: open names failed", on);
     nh.shard = picomesh_fnv1a32(username);
-    struct yjson_writer *aw = yjson_writer_new();
-    yjson_writer_begin_array(aw);
-    yjson_writer_string(aw, username);
-    yjson_writer_int(aw, (int64_t)uid);
+    struct json_writer *aw = json_writer_new();
+    json_writer_begin_array(aw);
+    json_writer_string(aw, username);
+    json_writer_int(aw, (int64_t)uid);
     char *args = rel_args_take(aw);
-    int changes = rel_exec_changes(&nh, hdrs,
+    struct picomesh_int_result changes_res = rel_exec_changes(&nh, hdrs,
         "DELETE FROM usernames WHERE username=? AND uid=? AND confirmed=0", args);
     free(args);
-    if (changes < 0) return PICOMESH_ERR(picomesh_int, "accounts_release_username: delete failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, changes_res, "accounts_release_username: delete failed");
+    int changes = changes_res.value;
     return PICOMESH_OK(picomesh_int, changes > 0 ? 1 : 0);
+}
+
+/* Allocate a fresh, never-reused uid (issue #29). The gateway calls this BEFORE
+ * writing the credential and BEFORE register, so the ordering is:
+ *   allocate_uid -> password_authn.set(uid) -> accounts.register(uid, name).
+ * Because the uid is never reused, a crash after allocation (or after the
+ * credential write but before register claims the name) only ever strands a uid
+ * that no future user will be handed — there is no inherited-credential hazard,
+ * and the user simply retries (getting a fresh uid). */
+PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_allocate_uid")
+struct picomesh_int64_result accounts_accounts_allocate_uid_impl(struct ctx *ctx, struct object *obj,
+                                                                 struct yheaders *hdrs)
+{
+    (void)ctx;
+    struct rel_handle sh;
+    struct picomesh_void_result os = accounts_open_uidseq(&sh, hdrs, obj);
+    if (PICOMESH_IS_ERR(os)) return PICOMESH_ERR(picomesh_int64, "accounts_allocate_uid: open uid_seq failed", os);
+    struct rel_handle uh;
+    struct picomesh_void_result ou = accounts_open_uid(&uh, hdrs, obj);
+    if (PICOMESH_IS_ERR(ou)) return PICOMESH_ERR(picomesh_int64, "accounts_allocate_uid: open users failed", ou);
+
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        sh.shard = 0; /* single global sequence */
+        char *ia = rel_args1i(picomesh_platform_time_wall_ms() / 1000);
+        struct picomesh_json_result ins = rel_exec(&sh, hdrs, "INSERT INTO uid_seq(created_at) VALUES(?)", ia);
+        free(ia);
+        if (PICOMESH_IS_ERR(ins)) return PICOMESH_ERR(picomesh_int64, "accounts_allocate_uid: sequence insert failed", ins);
+        struct json_doc *doc = ins.value ? json_parse(ins.value, strlen(ins.value)) : NULL;
+        free(ins.value);
+        int64_t rowid = doc ? json_as_int(json_object_get(json_doc_root(doc), "last_insert_rowid"), 0) : 0;
+        json_doc_free(doc);
+        if (rowid <= 0) return PICOMESH_ERR(picomesh_int64, "accounts_allocate_uid: no sequence id");
+        uint32_t uid = (uint32_t)(ACCOUNTS_UID_ALLOC_BASE + (uint32_t)rowid);
+
+        /* Refuse a uid that already has a users row (migration-only clash with a
+         * legacy hash-derived uid); loop to the next sequence id. */
+        uh.shard = uid;
+        char *qa = rel_args1i((int64_t)uid);
+        int found = 0;
+        struct picomesh_int64_result ex = rel_query_int(&uh, hdrs, "SELECT uid FROM users WHERE uid=?", qa, "uid", 0, &found);
+        free(qa);
+        if (PICOMESH_IS_ERR(ex)) return PICOMESH_ERR(picomesh_int64, "accounts_allocate_uid: collision check failed", ex);
+        if (!found) return PICOMESH_OK(picomesh_int64, (int64_t)uid);
+    }
+    return PICOMESH_ERR(picomesh_int64, "accounts_allocate_uid: exhausted collision retries");
+}
+
+/* Authoritative username -> uid resolution (issue #29). Returns the assigned uid
+ * for a CONFIRMED account, or 0 if the name is unknown/unconfirmed. This replaces
+ * the gateway/webapp `fnv1a32(username)` recompute at login and member-grant, and
+ * works for both assigned-uid accounts and legacy hash-derived ones (it just
+ * reads whatever uid the `usernames` row records). */
+PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_uid_for_username")
+struct picomesh_int64_result accounts_accounts_uid_for_username_impl(struct ctx *ctx, struct object *obj,
+                                                                     struct yheaders *hdrs, const char *username)
+{
+    (void)ctx;
+    if (!username || !*username) return PICOMESH_OK(picomesh_int64, 0);
+    struct rel_handle nh;
+    struct picomesh_void_result on = accounts_open_names(&nh, hdrs, obj);
+    if (PICOMESH_IS_ERR(on)) return PICOMESH_ERR(picomesh_int64, "accounts_uid_for_username: open names failed", on);
+    nh.shard = picomesh_fnv1a32(username);
+    char *qa = rel_args1s(username);
+    struct picomesh_int64_result uid_res =
+        rel_query_int_result(&nh, hdrs, "SELECT uid FROM usernames WHERE username=? AND confirmed=1", qa, "uid", 0);
+    free(qa);
+    return uid_res;
 }
 
 PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_register")
@@ -294,21 +388,23 @@ struct picomesh_int_result accounts_accounts_register_impl(struct ctx *ctx, stru
     struct picomesh_void_result on = accounts_open_names(&nh, hdrs, obj);
     if (PICOMESH_IS_ERR(on)) return PICOMESH_ERR(picomesh_int, "accounts_register: open names failed", on);
     nh.shard = picomesh_fnv1a32(username);
-    struct yjson_writer *cw = yjson_writer_new();
-    yjson_writer_begin_array(cw);
-    yjson_writer_string(cw, username);
-    yjson_writer_int(cw, (int64_t)uid);
-    yjson_writer_int(cw, picomesh_yplatform_time_wall_ms() / 1000);
+    struct json_writer *cw = json_writer_new();
+    json_writer_begin_array(cw);
+    json_writer_string(cw, username);
+    json_writer_int(cw, (int64_t)uid);
+    json_writer_int(cw, picomesh_platform_time_wall_ms() / 1000);
     char *cargs = rel_args_take(cw);
-    int claimed = rel_exec_changes(&nh, hdrs,
+    struct picomesh_int_result claimed_res = rel_exec_changes(&nh, hdrs,
         "INSERT OR IGNORE INTO usernames(username,uid,created_at) VALUES(?,?,?)", cargs);
     free(cargs);
-    if (claimed < 0) return PICOMESH_ERR(picomesh_int, "accounts_register: name claim failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, claimed_res, "accounts_register: name claim failed");
     char *qa = rel_args1s(username);
     int found = 0;
-    int64_t owner = rel_query_int(&nh, hdrs, "SELECT uid FROM usernames WHERE username=?", qa, "uid", 0, &found);
+    struct picomesh_int64_result owner_res = rel_query_int(&nh, hdrs, "SELECT uid FROM usernames WHERE username=?", qa, "uid", 0, &found);
     free(qa);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, owner_res, "accounts_register: claim readback query failed");
     if (!found) return PICOMESH_ERR(picomesh_int, "accounts_register: claim readback failed");
+    int64_t owner = owner_res.value;
     if ((uint32_t)owner != uid) { ydebug("accounts_register: name taken uid=%u", uid); return PICOMESH_OK(picomesh_int, 0); }
 
     /* 2) Write the user row in the data cluster — the completion marker. The
@@ -318,22 +414,25 @@ struct picomesh_int_result accounts_accounts_register_impl(struct ctx *ctx, stru
     struct picomesh_void_result ou = accounts_open_uid(&uh, hdrs, obj);
     if (PICOMESH_IS_ERR(ou)) return PICOMESH_ERR(picomesh_int, "accounts_register: open uid failed", ou);
     uh.shard = uid;
-    struct yjson_writer *uw = yjson_writer_new();
-    yjson_writer_begin_array(uw);
-    yjson_writer_int(uw, (int64_t)uid);
-    yjson_writer_string(uw, username);
-    yjson_writer_int(uw, picomesh_yplatform_time_wall_ms() / 1000);
+    struct json_writer *uw = json_writer_new();
+    json_writer_begin_array(uw);
+    json_writer_int(uw, (int64_t)uid);
+    json_writer_string(uw, username);
+    json_writer_int(uw, picomesh_platform_time_wall_ms() / 1000);
     char *uargs = rel_args_take(uw);
-    int changes = rel_exec_changes(&uh, hdrs,
+    struct picomesh_int_result changes_res = rel_exec_changes(&uh, hdrs,
         "INSERT OR IGNORE INTO users(uid,username,created_at) VALUES(?,?,?)", uargs);
     free(uargs);
-    if (changes < 0) return PICOMESH_ERR(picomesh_int, "accounts_register: user insert failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, changes_res, "accounts_register: user insert failed");
+    int changes = changes_res.value;
 
     /* 3) Confirm the claim now that the users row exists. */
     nh.shard = picomesh_fnv1a32(username);
     char *ca = rel_args1s(username);
-    (void)rel_exec_changes(&nh, hdrs, "UPDATE usernames SET confirmed=1 WHERE username=?", ca);
+    struct picomesh_int_result confirm_res =
+        rel_exec_changes(&nh, hdrs, "UPDATE usernames SET confirmed=1 WHERE username=?", ca);
     free(ca);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, confirm_res, "accounts_register: confirm claim failed");
 
     if (changes == 0) { ydebug("accounts_register: uid=%u already exists", uid); return PICOMESH_OK(picomesh_int, 0); }
     yinfo("accounts_register: uid=%u name=%s", uid, username);
@@ -361,9 +460,10 @@ struct picomesh_int_result accounts_accounts_set_balance_impl(struct ctx *ctx, s
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_int, "accounts_set_balance: open failed", oh);
     h.shard = uid;
     char *args = rel_args2i(n, (int64_t)uid);
-    int changes = rel_exec_changes(&h, hdrs, "UPDATE users SET balance=? WHERE uid=?", args);
+    struct picomesh_int_result changes_res = rel_exec_changes(&h, hdrs, "UPDATE users SET balance=? WHERE uid=?", args);
     free(args);
-    if (changes < 0) return PICOMESH_ERR(picomesh_int, "accounts_set_balance: write failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, changes_res, "accounts_set_balance: write failed");
+    int changes = changes_res.value;
     if (changes == 0) return PICOMESH_ERR(picomesh_int, "accounts_set_balance: unknown uid");
     return PICOMESH_OK(picomesh_int, 1);
 }
@@ -379,10 +479,11 @@ struct picomesh_int64_result accounts_accounts_balance_impl(struct ctx *ctx, str
     h.shard = uid;
     char *args = rel_args1i((int64_t)uid);
     int found = 0;
-    int64_t bal = rel_query_int(&h, hdrs, "SELECT balance FROM users WHERE uid=?", args, "balance", 0, &found);
+    struct picomesh_int64_result bal_res = rel_query_int(&h, hdrs, "SELECT balance FROM users WHERE uid=?", args, "balance", 0, &found);
     free(args);
+    PICOMESH_RETURN_IF_ERR(picomesh_int64, bal_res, "accounts_balance: query failed");
     if (!found) return PICOMESH_ERR(picomesh_int64, "accounts_balance: unknown uid");
-    return PICOMESH_OK(picomesh_int64, bal);
+    return PICOMESH_OK(picomesh_int64, bal_res.value);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@accounts:accounts:accounts_count")
@@ -409,14 +510,15 @@ struct picomesh_int_result accounts_accounts_set_groups_impl(struct ctx *ctx, st
     struct picomesh_void_result oh = accounts_open_uid(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_int, "accounts_set_groups: open failed", oh);
     h.shard = uid;
-    struct yjson_writer *aw = yjson_writer_new();
-    yjson_writer_begin_array(aw);
-    yjson_writer_string(aw, groups_csv);
-    yjson_writer_int(aw, (int64_t)uid);
+    struct json_writer *aw = json_writer_new();
+    json_writer_begin_array(aw);
+    json_writer_string(aw, groups_csv);
+    json_writer_int(aw, (int64_t)uid);
     char *args = rel_args_take(aw);
-    int changes = rel_exec_changes(&h, hdrs, "UPDATE users SET groups=? WHERE uid=?", args);
+    struct picomesh_int_result changes_res = rel_exec_changes(&h, hdrs, "UPDATE users SET groups=? WHERE uid=?", args);
     free(args);
-    if (changes < 0) return PICOMESH_ERR(picomesh_int, "accounts_set_groups: write failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, changes_res, "accounts_set_groups: write failed");
+    int changes = changes_res.value;
     if (changes == 0) return PICOMESH_ERR(picomesh_int, "accounts_set_groups: unknown uid");
     yinfo("accounts_set_groups: uid=%u groups=%s", uid, groups_csv);
     return PICOMESH_OK(picomesh_int, 1);
@@ -502,6 +604,82 @@ static int accounts_ns_role_add_csv(struct accounts_ns_role **arr, size_t *count
     return 0;
 }
 
+/* ---- external group PROVIDERS (issue #31) --------------------------------
+ *
+ * A provider resolves the EXTERNAL directory group NAMES a user belongs to.
+ * Mapping those names to Picoforge `namespace:role` and merging with local
+ * grants is provider-INDEPENDENT and lives in accounts_merge_external_groups —
+ * so a new directory backend implements only this one resolver function, never
+ * touches token_issuer/git_repo/webapp (they keep consuming groups(uid)).
+ *
+ * A resolver writes up to `max` borrowed group-name pointers (valid for the
+ * call) into `out` and returns the count, or -1 on a PROVIDER ERROR (directory
+ * unreachable / misconfigured), which the caller turns into a fail-closed denial
+ * when `fail_closed` is set. Selected by `accounts.external_groups.provider`
+ * (default `config`). */
+#define ACCOUNTS_MAX_EXTERNAL_GROUPS 64
+typedef int (*accounts_group_resolver)(const struct config_node *root, uint32_t uid,
+                                       const char *username, const char **out, size_t max);
+
+/* Read a username/uid-keyed list-of-group-names node into `out`. Shared by both
+ * providers (they differ only in which config block holds the membership). */
+static int accounts_collect_group_names(const struct config_node *member_map, uint32_t uid,
+                                        const char *username, const char **out, size_t max)
+{
+    if (!member_map) return 0;
+    const struct config_node *list = NULL;
+    if (username && *username) list = config_node_get(member_map, username);
+    if (!list) {
+        char uid_key[16];
+        snprintf(uid_key, sizeof(uid_key), "%u", uid);
+        list = config_node_get(member_map, uid_key);
+    }
+    if (!list || config_node_kind(list) != CONFIG_LIST) return 0; /* user has no groups */
+    size_t group_count = config_node_size(list), count = 0;
+    for (size_t i = 0; i < group_count && count < max; ++i) {
+        const char *group_name = config_node_as_string(config_node_at(list, i), NULL);
+        if (group_name && *group_name) out[count++] = group_name;
+    }
+    return (int)count;
+}
+
+/* config-backed provider (dev/test, the default): the `members` map keyed by
+ * username (LDAP's `uid={username}`) with a uid-string fallback. */
+static int accounts_provider_config(const struct config_node *root, uint32_t uid,
+                                    const char *username, const char **out, size_t max)
+{
+    return accounts_collect_group_names(config_node_get(root, "members"), uid, username, out, max);
+}
+
+/* LDAP/AD-style provider (mockable adapter): a real deployment binds to the
+ * directory and runs a group search for the user. There is no directory in the
+ * test/dev environment, so this adapter reads its membership from a
+ * `mock_members` block of the SAME shape as `members` — exercising the exact
+ * mapping/merge path a real directory result feeds. If `mock_members` is absent
+ * the adapter reports a PROVIDER ERROR (-1): with `fail_closed` (the default)
+ * that denies groups(), the documented "directory unreachable fails closed"
+ * behavior for privileged mappings. A real backend swaps this one function for
+ * a bind+search; nothing else changes. */
+static int accounts_provider_ldap(const struct config_node *root, uint32_t uid,
+                                  const char *username, const char **out, size_t max)
+{
+    const struct config_node *mock = config_node_get(root, "mock_members");
+    if (!mock) {
+        ywarn("accounts: ldap external-group provider has no reachable directory "
+              "(no mock_members configured) — failing the lookup closed");
+        return -1; /* provider error */
+    }
+    return accounts_collect_group_names(mock, uid, username, out, max);
+}
+
+/* Pick the configured provider; default is the config-backed source. */
+static accounts_group_resolver accounts_select_provider(const struct config_node *root)
+{
+    const char *provider = config_node_as_string(config_node_get(root, "provider"), "config");
+    if (provider && strcmp(provider, "ldap") == 0) return accounts_provider_ldap;
+    return accounts_provider_config;
+}
+
 /* Merge `local_csv` (direct namespace_members grants) with an optional external
  * directory provider's mapped roles, highest-role-wins per namespace, and return
  * the flattened CSV. When `accounts.external_groups` is absent/disabled this is
@@ -511,11 +689,11 @@ static struct picomesh_string_result accounts_merge_external_groups(uint32_t uid
                                                                     const char *local_csv)
 {
     struct picomesh_engine *engine = picomesh_active_engine();
-    const struct yconfig *cfg = engine ? picomesh_engine_config(engine) : NULL;
-    const struct yconfig_node *root = NULL;
+    const struct config *cfg = engine ? picomesh_engine_config(engine) : NULL;
+    const struct config_node *root = NULL;
     if (cfg) {
-        struct yconfig_node_ptr_result config_node_res =
-            yconfig_get(cfg, "accounts.external_groups");
+        struct config_node_ptr_result config_node_res =
+            config_get(cfg, "accounts.external_groups");
         if (PICOMESH_IS_ERR(config_node_res)) {
             yerror("accounts: reading 'accounts.external_groups' failed: %s",
                    config_node_res.error.msg ? config_node_res.error.msg : "?");
@@ -524,13 +702,13 @@ static struct picomesh_string_result accounts_merge_external_groups(uint32_t uid
             root = config_node_res.value;
         }
     }
-    int enabled = root && yconfig_node_as_bool(yconfig_node_get(root, "enabled"), 0);
+    int enabled = root && config_node_as_bool(config_node_get(root, "enabled"), 0);
     if (!enabled) {
         char *copy = strdup(local_csv ? local_csv : "");
         if (!copy) return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
         return PICOMESH_OK(picomesh_string, copy);
     }
-    int fail_closed = yconfig_node_as_bool(yconfig_node_get(root, "fail_closed"), 1);
+    int fail_closed = config_node_as_bool(config_node_get(root, "fail_closed"), 1);
 
     struct accounts_ns_role *roles = NULL;
     size_t count = 0, cap = 0;
@@ -539,40 +717,30 @@ static struct picomesh_string_result accounts_merge_external_groups(uint32_t uid
         return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory");
     }
 
-    /* Resolve THIS user's external group names. First-pass directory source: a
-     * config map keyed by username (LDAP's `uid={username}`), with a uid-string
-     * fallback. A real LDAP/AD provider replaces only this lookup (bind + group
-     * search) — the mapping + merge below is unchanged. */
-    const struct yconfig_node *members = yconfig_node_get(root, "members");
-    const struct yconfig_node *user_external_groups = NULL;
-    if (members) {
-        if (username && *username)
-            user_external_groups = yconfig_node_get(members, username);
-        if (!user_external_groups) {
-            char uid_key[16];
-            snprintf(uid_key, sizeof(uid_key), "%u", uid);
-            user_external_groups = yconfig_node_get(members, uid_key);
-        }
-    }
-    const struct yconfig_node *mappings = yconfig_node_get(root, "mappings");
-
+    /* Resolve THIS user's external group names through the configured provider
+     * (issue #31). The provider is the ONLY directory-specific code; mapping +
+     * merge below are identical for every backend. A provider error (-1) is
+     * recorded and turns into a fail-closed denial when configured. */
+    const char *external_groups[ACCOUNTS_MAX_EXTERNAL_GROUPS];
+    accounts_group_resolver resolver = accounts_select_provider(root);
+    int external_count = resolver(root, uid, username, external_groups, ACCOUNTS_MAX_EXTERNAL_GROUPS);
     int provider_ok = 1;
-    if (user_external_groups && yconfig_node_kind(user_external_groups) == YCONFIG_LIST &&
-        mappings && yconfig_node_kind(mappings) == YCONFIG_LIST) {
-        size_t group_count = yconfig_node_size(user_external_groups);
-        size_t mapping_count = yconfig_node_size(mappings);
-        for (size_t group_idx = 0; group_idx < group_count; ++group_idx) {
-            const char *external_group =
-                yconfig_node_as_string(yconfig_node_at(user_external_groups, group_idx), NULL);
+    if (external_count < 0) { provider_ok = 0; external_count = 0; }
+    const struct config_node *mappings = config_node_get(root, "mappings");
+
+    if (external_count > 0 && mappings && config_node_kind(mappings) == CONFIG_LIST) {
+        size_t mapping_count = config_node_size(mappings);
+        for (int group_idx = 0; group_idx < external_count; ++group_idx) {
+            const char *external_group = external_groups[group_idx];
             if (!external_group || !*external_group) continue;
             for (size_t mapping_idx = 0; mapping_idx < mapping_count; ++mapping_idx) {
-                const struct yconfig_node *mapping_node = yconfig_node_at(mappings, mapping_idx);
+                const struct config_node *mapping_node = config_node_at(mappings, mapping_idx);
                 const char *mapped_external_group =
-                    yconfig_node_as_string(yconfig_node_get(mapping_node, "external_group"), NULL);
+                    config_node_as_string(config_node_get(mapping_node, "external_group"), NULL);
                 const char *namespace_path =
-                    yconfig_node_as_string(yconfig_node_get(mapping_node, "namespace"), NULL);
+                    config_node_as_string(config_node_get(mapping_node, "namespace"), NULL);
                 const char *role =
-                    yconfig_node_as_string(yconfig_node_get(mapping_node, "role"), NULL);
+                    config_node_as_string(config_node_get(mapping_node, "role"), NULL);
                 if (!mapped_external_group || strcmp(mapped_external_group, external_group) != 0)
                     continue;
                 if (!namespace_path || !role) {
@@ -654,64 +822,67 @@ struct picomesh_string_result accounts_accounts_groups_impl(struct ctx *ctx, str
     free(args);
     if (PICOMESH_IS_ERR(rows)) return PICOMESH_ERR(picomesh_string, "accounts_groups: query failed", rows);
 
-    struct yjson_doc *doc = yjson_parse(rows.value ? rows.value : "[]", rows.value ? strlen(rows.value) : 2);
+    struct json_doc *doc = json_parse(rows.value ? rows.value : "[]", rows.value ? strlen(rows.value) : 2);
     free(rows.value);
     if (!doc) return PICOMESH_ERR(picomesh_string, "accounts_groups: malformed members result");
-    const struct yjson_value *arr = yjson_doc_root(doc);
-    size_t n = (arr && yjson_is_array(arr)) ? yjson_array_size(arr) : 0;
+    const struct json_value *arr = json_doc_root(doc);
+    size_t n = (arr && json_is_array(arr)) ? json_array_size(arr) : 0;
     size_t cap = 64, len = 0;
     char *out = malloc(cap);
-    if (!out) { yjson_doc_free(doc); return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory"); }
+    if (!out) { json_doc_free(doc); return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory"); }
     out[0] = 0;
     for (size_t i = 0; i < n; ++i) {
-        const struct yjson_value *row = yjson_array_at(arr, i);
-        const char *path = yjson_as_string(yjson_object_get(row, "namespace_path"), NULL);
-        const char *role = yjson_as_string(yjson_object_get(row, "role"), NULL);
+        const struct json_value *row = json_array_at(arr, i);
+        const char *path = json_as_string(json_object_get(row, "namespace_path"), NULL);
+        const char *role = json_as_string(json_object_get(row, "role"), NULL);
         if (!path || !*path || !role || !*role) continue;
         size_t need = len + (len ? 1 : 0) + strlen(path) + 1 + strlen(role) + 1;
         if (need > cap) {
             while (cap < need) cap *= 2;
             char *grown = realloc(out, cap);
-            if (!grown) { free(out); yjson_doc_free(doc); return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory"); }
+            if (!grown) { free(out); json_doc_free(doc); return PICOMESH_ERR(picomesh_string, "accounts_groups: out of memory"); }
             out = grown;
         }
         len += (size_t)snprintf(out + len, cap - len, "%s%s:%s", len ? "," : "", path, role);
     }
-    yjson_doc_free(doc);
+    json_doc_free(doc);
 
     /* Merge in any configured external directory provider's roles (issue #31).
      * No-op (returns a copy of `out`) when no external provider is configured.
      * The username keys the external directory (LDAP `uid={username}`); read it
      * from the same uid cluster handle. */
     char *uname_args = rel_args1i((int64_t)uid);
-    char *username = rel_query_str(&h, hdrs, "SELECT username FROM users WHERE uid=?", uname_args,
-                                   "username");
+    struct picomesh_string_result username_res =
+        rel_query_str(&h, hdrs, "SELECT username FROM users WHERE uid=?", uname_args, "username");
     free(uname_args);
+    if (PICOMESH_IS_ERR(username_res)) {
+        free(out);
+        return PICOMESH_ERR(picomesh_string, "accounts_groups: username lookup failed", username_res);
+    }
+    char *username = username_res.value;
     struct picomesh_string_result merged = accounts_merge_external_groups(uid, username, out);
     free(username);
     free(out);
     return merged;
 }
 
-/* Read a boolean from this service's own yconfig (e.g. "accounts.<key>"),
+/* Read a boolean from this service's own config (e.g. "accounts.<key>"),
  * returning `fallback` when the key is absent or the engine is unavailable. */
-static int accounts_cfg_bool(const char *path, int fallback)
+static struct picomesh_int_result accounts_cfg_bool(const char *path, int fallback)
 {
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (!e) return fallback;
-    struct yconfig_node_ptr_result r = yconfig_get(picomesh_engine_config(e), path);
-    int out = (PICOMESH_IS_OK(r) && r.value) ? yconfig_node_as_bool(r.value, fallback) : fallback;
-    if (PICOMESH_IS_ERR(r)) picomesh_error_destroy(r.error);
-    return out;
+    struct picomesh_engine *engine = picomesh_active_engine();
+    if (!engine) return PICOMESH_OK(picomesh_int, fallback);
+    struct config_node_ptr_result config_res = config_get(picomesh_engine_config(engine), path);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, config_res, "accounts_cfg_bool: config read failed");
+    int out = config_res.value ? config_node_as_bool(config_res.value, fallback) : fallback;
+    return PICOMESH_OK(picomesh_int, out);
 }
 
 /* The caller's verified identity + roles from the JWT in `hdrs`, or
  * authenticated=0 for an in-process (NULL/empty-JWT) caller. */
-static struct picomesh_authctx ns_caller(struct yheaders *hdrs)
+static struct picomesh_void_result ns_caller(struct yheaders *hdrs, struct picomesh_authctx *out)
 {
-    struct picomesh_authctx caller;
-    picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), &caller);
-    return caller;
+    return picomesh_authctx_from_headers(hdrs, picomesh_active_engine(), out);
 }
 
 /* 1 if `caller` may administer `path` (grant roles / create subgroups under it):
@@ -749,7 +920,9 @@ struct picomesh_string_result accounts_accounts_ns_create_impl(struct ctx *ctx, 
     if (!kind || !*kind) kind = "group";
     if (!parent_path) parent_path = "";
 
-    struct picomesh_authctx caller = ns_caller(hdrs);
+    struct picomesh_authctx caller;
+    struct picomesh_void_result caller_res = ns_caller(hdrs, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, caller_res, "accounts_ns_create: caller authctx failed");
     /* FAIL CLOSED: a credential-less caller is never trusted. The gateway's
      * register/bootstrap path presents an explicit signed `system:internal`
      * capability instead of relying on the absence of a JWT (issue #30). */
@@ -769,8 +942,12 @@ struct picomesh_string_result accounts_accounts_ns_create_impl(struct ctx *ctx, 
         if (!is_system && strcmp(slug, "site") == 0)
             return PICOMESH_ERR(picomesh_string, "accounts_ns_create: reserved namespace");
         int is_site_admin = picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer");
-        if (!is_system && !is_site_admin && !accounts_cfg_bool("accounts.allow_user_root_groups", 1))
-            return PICOMESH_ERR(picomesh_string, "accounts_ns_create: forbidden (this deployment restricts root group creation to site admins)");
+        if (!is_system && !is_site_admin) {
+            struct picomesh_int_result allow_root = accounts_cfg_bool("accounts.allow_user_root_groups", 1);
+            PICOMESH_RETURN_IF_ERR(picomesh_string, allow_root, "accounts_ns_create: config read failed");
+            if (!allow_root.value)
+                return PICOMESH_ERR(picomesh_string, "accounts_ns_create: forbidden (this deployment restricts root group creation to site admins)");
+        }
     }
 
     /* The owner is the caller's own uid, EXCEPT for the trusted internal
@@ -797,7 +974,9 @@ struct picomesh_string_result accounts_accounts_ns_create_impl(struct ctx *ctx, 
     if (PICOMESH_IS_ERR(ens)) return PICOMESH_ERR(picomesh_string, "accounts_ns_create: namespace schema failed", ens);
 
     if (parent_path[0]) {
-        if (!ns_lookup(&h, hdrs, parent_path))
+        struct picomesh_int64_result parent_ns = ns_lookup(&h, hdrs, parent_path);
+        PICOMESH_RETURN_IF_ERR(picomesh_string, parent_ns, "accounts_ns_create: parent lookup failed");
+        if (!parent_ns.value)
             return PICOMESH_ERR(picomesh_string, "accounts_ns_create: parent namespace does not exist");
         if (!ns_caller_admins(&caller, parent_path))
             return PICOMESH_ERR(picomesh_string, "accounts_ns_create: forbidden (need maintainer on parent)");
@@ -807,20 +986,21 @@ struct picomesh_string_result accounts_accounts_ns_create_impl(struct ctx *ctx, 
      * losing caller (the row already existed) gets changes==0 and is rejected
      * WITHOUT a membership grant — the escalation guard. */
     h.shard = picomesh_fnv1a32(path);
-    struct yjson_writer *nw = yjson_writer_new();
-    yjson_writer_begin_array(nw);
-    yjson_writer_int(nw, nsid);
-    yjson_writer_int(nw, parent_id);
-    yjson_writer_string(nw, slug);
-    yjson_writer_string(nw, path);
-    yjson_writer_string(nw, kind);
-    yjson_writer_int(nw, (int64_t)owner);
-    yjson_writer_int(nw, picomesh_yplatform_time_wall_ms() / 1000);
+    struct json_writer *nw = json_writer_new();
+    json_writer_begin_array(nw);
+    json_writer_int(nw, nsid);
+    json_writer_int(nw, parent_id);
+    json_writer_string(nw, slug);
+    json_writer_string(nw, path);
+    json_writer_string(nw, kind);
+    json_writer_int(nw, (int64_t)owner);
+    json_writer_int(nw, picomesh_platform_time_wall_ms() / 1000);
     char *nargs = rel_args_take(nw);
-    int nc = rel_exec_changes(&h, hdrs,
+    struct picomesh_int_result nc_res = rel_exec_changes(&h, hdrs,
         "INSERT OR IGNORE INTO namespaces(id,parent_id,slug,path,kind,owner_uid,created_at) VALUES(?,?,?,?,?,?,?)", nargs);
     free(nargs);
-    if (nc < 0) return PICOMESH_ERR(picomesh_string, "accounts_ns_create: namespace insert failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_string, nc_res, "accounts_ns_create: namespace insert failed");
+    int nc = nc_res.value;
     if (nc == 0) {
         /* The namespace already exists. IDEMPOTENT for the SAME owner — a retry
          * of a partially-completed create, or re-ensuring a user's personal
@@ -831,10 +1011,12 @@ struct picomesh_string_result accounts_accounts_ns_create_impl(struct ctx *ctx, 
         h.shard = picomesh_fnv1a32(path);
         char *qa = rel_args1s(path);
         int found = 0;
-        int64_t existing_owner =
+        struct picomesh_int64_result existing_owner_res =
             rel_query_int(&h, hdrs, "SELECT owner_uid FROM namespaces WHERE path=?", qa, "owner_uid", -1, &found);
         free(qa);
+        PICOMESH_RETURN_IF_ERR(picomesh_string, existing_owner_res, "accounts_ns_create: owner query failed");
         if (!found) return PICOMESH_ERR(picomesh_string, "accounts_ns_create: namespace owner lookup failed");
+        int64_t existing_owner = existing_owner_res.value;
         if ((uint32_t)existing_owner != owner)
             return PICOMESH_ERR(picomesh_string, "accounts_ns_create: namespace already owned by another");
         /* same owner → fall through to (re)grant the owner membership */
@@ -843,17 +1025,17 @@ struct picomesh_string_result accounts_accounts_ns_create_impl(struct ctx *ctx, 
     /* The creator (or the same owner re-ensuring) reaches here; the owner grant
      * is safe and idempotent. */
     h.shard = owner;
-    struct yjson_writer *mw = yjson_writer_new();
-    yjson_writer_begin_array(mw);
-    yjson_writer_int(mw, nsid);
-    yjson_writer_string(mw, path);
-    yjson_writer_int(mw, (int64_t)owner);
-    yjson_writer_string(mw, "owner");
+    struct json_writer *mw = json_writer_new();
+    json_writer_begin_array(mw);
+    json_writer_int(mw, nsid);
+    json_writer_string(mw, path);
+    json_writer_int(mw, (int64_t)owner);
+    json_writer_string(mw, "owner");
     char *margs = rel_args_take(mw);
-    int mc = rel_exec_changes(&h, hdrs,
+    struct picomesh_int_result mc_res = rel_exec_changes(&h, hdrs,
         "INSERT OR REPLACE INTO namespace_members(namespace_id,namespace_path,uid,role) VALUES(?,?,?,?)", margs);
     free(margs);
-    if (mc < 0) return PICOMESH_ERR(picomesh_string, "accounts_ns_create: owner membership insert failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_string, mc_res, "accounts_ns_create: owner membership insert failed");
 
     yinfo("accounts_ns_create: %s kind=%s owner=%u", path, kind, owner);
     char *result = strdup(path);
@@ -880,9 +1062,13 @@ struct picomesh_int_result accounts_accounts_ns_add_member_impl(struct ctx *ctx,
     struct picomesh_void_result ens = accounts_ensure_ns_schema(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(ens)) return PICOMESH_ERR(picomesh_int, "accounts_ns_add_member: namespace schema failed", ens);
 
-    int64_t nsid = ns_lookup(&h, hdrs, path);
+    struct picomesh_int64_result nsid_res = ns_lookup(&h, hdrs, path);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, nsid_res, "accounts_ns_add_member: namespace lookup failed");
+    int64_t nsid = nsid_res.value;
     if (!nsid) return PICOMESH_ERR(picomesh_int, "accounts_ns_add_member: namespace does not exist");
-    struct picomesh_authctx caller = ns_caller(hdrs);
+    struct picomesh_authctx caller;
+    struct picomesh_void_result caller_res = ns_caller(hdrs, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, caller_res, "accounts_ns_add_member: caller authctx failed");
     if (!ns_caller_admins(&caller, path))
         return PICOMESH_ERR(picomesh_int, "accounts_ns_add_member: forbidden (need maintainer on namespace)");
 
@@ -894,17 +1080,17 @@ struct picomesh_int_result accounts_accounts_ns_add_member_impl(struct ctx *ctx,
     if (exists.value == 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_add_member: no such user");
 
     h.shard = uid;
-    struct yjson_writer *mw = yjson_writer_new();
-    yjson_writer_begin_array(mw);
-    yjson_writer_int(mw, nsid);
-    yjson_writer_string(mw, path);
-    yjson_writer_int(mw, (int64_t)uid);
-    yjson_writer_string(mw, role);
+    struct json_writer *mw = json_writer_new();
+    json_writer_begin_array(mw);
+    json_writer_int(mw, nsid);
+    json_writer_string(mw, path);
+    json_writer_int(mw, (int64_t)uid);
+    json_writer_string(mw, role);
     char *margs = rel_args_take(mw);
-    int mc = rel_exec_changes(&h, hdrs,
+    struct picomesh_int_result mc_res = rel_exec_changes(&h, hdrs,
         "INSERT OR REPLACE INTO namespace_members(namespace_id,namespace_path,uid,role) VALUES(?,?,?,?)", margs);
     free(margs);
-    if (mc < 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_add_member: membership insert failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, mc_res, "accounts_ns_add_member: membership insert failed");
     yinfo("accounts_ns_add_member: %s uid=%u role=%s", path, uid, role);
     return PICOMESH_OK(picomesh_int, 1);
 }
@@ -923,7 +1109,7 @@ struct picomesh_int64_result accounts_accounts_ns_resolve_impl(struct ctx *ctx, 
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_int64, "accounts_ns_resolve: open failed", oh);
     struct picomesh_void_result ens = accounts_ensure_ns_schema(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(ens)) return PICOMESH_ERR(picomesh_int64, "accounts_ns_resolve: namespace schema failed", ens);
-    return PICOMESH_OK(picomesh_int64, ns_lookup(&h, hdrs, path));
+    return ns_lookup(&h, hdrs, path);
 }
 
 /* Every namespace as `[{"id","parent_id","slug","path","kind","owner_uid"}, …]`,
@@ -935,7 +1121,9 @@ struct picomesh_json_result accounts_accounts_ns_list_impl(struct ctx *ctx, stru
     (void)ctx;
     /* FAIL CLOSED: enumerating the whole tree is a site-admin view, re-checked
      * here so a non-gateway/bridge path can't read it without auth (issue #30). */
-    struct picomesh_authctx caller = ns_caller(hdrs);
+    struct picomesh_authctx caller;
+    struct picomesh_void_result caller_res = ns_caller(hdrs, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, caller_res, "accounts_ns_list: caller authctx failed");
     int is_system = caller.authenticated && picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM);
     if (!caller.authenticated ||
         (!is_system && picomesh_groups_max_role(caller.groups_csv, "site") < picomesh_role_rank("maintainer")))
@@ -965,7 +1153,9 @@ struct picomesh_json_result accounts_accounts_ns_members_impl(struct ctx *ctx, s
     /* FAIL CLOSED: a namespace's members are visible to a maintainer of it (or a
      * site admin / internal capability) — re-checked here, not just at the
      * gateway (issue #30). */
-    struct picomesh_authctx caller = ns_caller(hdrs);
+    struct picomesh_authctx caller;
+    struct picomesh_void_result caller_res = ns_caller(hdrs, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, caller_res, "accounts_ns_members: caller authctx failed");
     if (!ns_caller_admins(&caller, path))
         return PICOMESH_ERR(picomesh_json, "accounts_ns_members: forbidden (need maintainer on namespace)");
     char *args = rel_args1s(path);
@@ -995,19 +1185,22 @@ struct picomesh_int_result accounts_accounts_ns_remove_member_impl(struct ctx *c
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_int, "accounts_ns_remove_member: open failed", oh);
     struct picomesh_void_result ens = accounts_ensure_ns_schema(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(ens)) return PICOMESH_ERR(picomesh_int, "accounts_ns_remove_member: namespace schema failed", ens);
-    struct picomesh_authctx caller = ns_caller(hdrs);
+    struct picomesh_authctx caller;
+    struct picomesh_void_result caller_res = ns_caller(hdrs, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, caller_res, "accounts_ns_remove_member: caller authctx failed");
     if (!ns_caller_admins(&caller, path))
         return PICOMESH_ERR(picomesh_int, "accounts_ns_remove_member: forbidden (need maintainer on namespace)");
     h.shard = uid;
-    struct yjson_writer *aw = yjson_writer_new();
-    yjson_writer_begin_array(aw);
-    yjson_writer_string(aw, path);
-    yjson_writer_int(aw, (int64_t)uid);
+    struct json_writer *aw = json_writer_new();
+    json_writer_begin_array(aw);
+    json_writer_string(aw, path);
+    json_writer_int(aw, (int64_t)uid);
     char *args = rel_args_take(aw);
-    int changes = rel_exec_changes(&h, hdrs,
+    struct picomesh_int_result changes_res = rel_exec_changes(&h, hdrs,
         "DELETE FROM namespace_members WHERE namespace_path=? AND uid=?", args);
     free(args);
-    if (changes < 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_remove_member: delete failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, changes_res, "accounts_ns_remove_member: delete failed");
+    int changes = changes_res.value;
     yinfo("accounts_ns_remove_member: %s uid=%u removed=%d", path, uid, changes > 0 ? 1 : 0);
     return PICOMESH_OK(picomesh_int, changes > 0 ? 1 : 0);
 }
@@ -1041,7 +1234,9 @@ struct picomesh_json_result accounts_accounts_ns_subtree_impl(struct ctx *ctx, s
     if (PICOMESH_IS_ERR(oh)) return PICOMESH_ERR(picomesh_json, "accounts_ns_subtree: open failed", oh);
     struct picomesh_void_result ens = accounts_ensure_ns_schema(&h, hdrs, obj);
     if (PICOMESH_IS_ERR(ens)) return PICOMESH_ERR(picomesh_json, "accounts_ns_subtree: namespace schema failed", ens);
-    struct picomesh_authctx caller = ns_caller(hdrs);
+    struct picomesh_authctx caller;
+    struct picomesh_void_result caller_res = ns_caller(hdrs, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, caller_res, "accounts_ns_subtree: caller authctx failed");
     if (!ns_caller_can_read(&caller, path))
         return PICOMESH_ERR(picomesh_json, "accounts_ns_subtree: forbidden (need reporter on namespace)");
     /* `path` itself OR any descendant `path/...`. Match the descendant prefix
@@ -1051,11 +1246,11 @@ struct picomesh_json_result accounts_accounts_ns_subtree_impl(struct ctx *ctx, s
      * names. `substr(path,1,N)=prefix` has no wildcard semantics. */
     char prefix[128];
     int prefix_len = snprintf(prefix, sizeof(prefix), "%s/", path);
-    struct yjson_writer *qw = yjson_writer_new();
-    yjson_writer_begin_array(qw);
-    yjson_writer_string(qw, path);
-    yjson_writer_int(qw, prefix_len);
-    yjson_writer_string(qw, prefix);
+    struct json_writer *qw = json_writer_new();
+    json_writer_begin_array(qw);
+    json_writer_string(qw, path);
+    json_writer_int(qw, prefix_len);
+    json_writer_string(qw, prefix);
     char *args = rel_args_take(qw);
     struct picomesh_json_result r = rel_query_page(&h, hdrs,
         "SELECT path FROM namespaces WHERE path=? OR substr(path,1,?)=?", args, "path", 0, 0, 0);
@@ -1087,11 +1282,15 @@ struct picomesh_int_result accounts_accounts_ns_delete_impl(struct ctx *ctx, str
     h.shard = picomesh_fnv1a32(path);
     char *qa = rel_args1s(path);
     int found = 0;
-    int64_t owner_uid =
+    struct picomesh_int64_result owner_uid_res =
         rel_query_int(&h, hdrs, "SELECT owner_uid FROM namespaces WHERE path=?", qa, "owner_uid", -1, &found);
     free(qa);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, owner_uid_res, "accounts_ns_delete: owner query failed");
     if (!found) return PICOMESH_OK(picomesh_int, 0); /* nothing to delete */
-    struct picomesh_authctx caller = ns_caller(hdrs);
+    int64_t owner_uid = owner_uid_res.value;
+    struct picomesh_authctx caller;
+    struct picomesh_void_result caller_res = ns_caller(hdrs, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, caller_res, "accounts_ns_delete: caller authctx failed");
     int is_system = caller.authenticated && picomesh_groups_contains(caller.groups_csv, PICOMESH_GROUP_SYSTEM);
     int is_site_admin = caller.authenticated &&
         picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer");
@@ -1105,10 +1304,10 @@ struct picomesh_int_result accounts_accounts_ns_delete_impl(struct ctx *ctx, str
      * aggregate (child namespaces hash to other shards than `path`). */
     char cprefix[128];
     int cprefix_len = snprintf(cprefix, sizeof(cprefix), "%s/", path);
-    struct yjson_writer *cw = yjson_writer_new();
-    yjson_writer_begin_array(cw);
-    yjson_writer_int(cw, cprefix_len);
-    yjson_writer_string(cw, cprefix);
+    struct json_writer *cw = json_writer_new();
+    json_writer_begin_array(cw);
+    json_writer_int(cw, cprefix_len);
+    json_writer_string(cw, cprefix);
     char *ca = rel_args_take(cw);
     struct picomesh_int64_result children = rel_query_int_all(&h, hdrs,
         "SELECT COUNT(*) AS n FROM namespaces WHERE substr(path,1,?)=?", ca, "n");
@@ -1125,15 +1324,16 @@ struct picomesh_int_result accounts_accounts_ns_delete_impl(struct ctx *ctx, str
     for (int shard = 0; shard < sc.value; ++shard) {
         h.shard = (uint32_t)shard;
         char *ma = rel_args1s(path);
-        int mc = rel_exec_changes(&h, hdrs, "DELETE FROM namespace_members WHERE namespace_path=?", ma);
+        struct picomesh_int_result mc_res = rel_exec_changes(&h, hdrs, "DELETE FROM namespace_members WHERE namespace_path=?", ma);
         free(ma);
-        if (mc < 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: membership delete failed");
+        PICOMESH_RETURN_IF_ERR(picomesh_int, mc_res, "accounts_ns_delete: membership delete failed");
     }
     h.shard = picomesh_fnv1a32(path);
     char *na = rel_args1s(path);
-    int nc = rel_exec_changes(&h, hdrs, "DELETE FROM namespaces WHERE path=?", na);
+    struct picomesh_int_result nc_res = rel_exec_changes(&h, hdrs, "DELETE FROM namespaces WHERE path=?", na);
     free(na);
-    if (nc < 0) return PICOMESH_ERR(picomesh_int, "accounts_ns_delete: namespace delete failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, nc_res, "accounts_ns_delete: namespace delete failed");
+    int nc = nc_res.value;
     yinfo("accounts_ns_delete: %s removed=%d", path, nc > 0 ? 1 : 0);
     return PICOMESH_OK(picomesh_int, nc > 0 ? 1 : 0);
 }

@@ -1,11 +1,11 @@
 /* GENERATED — do not edit. */
 #include "runner_agent.internal.h"
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
 #include <picomesh/allocator/allocator.h>
 #include <stdint.h>
@@ -46,7 +46,9 @@ struct picomesh_json_result runner_agent_runner_agent_create_token(struct ctx * 
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.create_token", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_create_token: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_create_token: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -69,7 +71,10 @@ struct picomesh_json_result runner_agent_runner_agent_create_token(struct ctx * 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_create_token: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_create_token: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -139,7 +144,9 @@ struct picomesh_json_result runner_agent_runner_agent_create_token(struct ctx * 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_create_token: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_create_token: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_create_token: truncated string response"); goto _rpc_done; }
@@ -195,7 +202,9 @@ struct picomesh_uint32_result runner_agent_runner_agent_lookup_token(struct ctx 
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.lookup_token", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_uint32, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_lookup_token: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_lookup_token: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -208,7 +217,10 @@ struct picomesh_uint32_result runner_agent_runner_agent_lookup_token(struct ctx 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_lookup_token: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_lookup_token: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -271,7 +283,9 @@ struct picomesh_uint32_result runner_agent_runner_agent_lookup_token(struct ctx 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_uint32, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_lookup_token: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_lookup_token: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(uint32_t)) { _ret = PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_lookup_token: truncated RPC payload"); goto _rpc_done; }
@@ -322,7 +336,9 @@ struct picomesh_string_result runner_agent_runner_agent_exchange(struct ctx * ct
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.exchange", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_exchange: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "runner_agent_runner_agent_exchange: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -345,7 +361,10 @@ struct picomesh_string_result runner_agent_runner_agent_exchange(struct ctx * ct
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "runner_agent_runner_agent_exchange: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "runner_agent_runner_agent_exchange: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -408,7 +427,9 @@ struct picomesh_string_result runner_agent_runner_agent_exchange(struct ctx * ct
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_exchange: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "runner_agent_runner_agent_exchange: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "runner_agent_runner_agent_exchange: truncated string response"); goto _rpc_done; }
@@ -464,7 +485,9 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token(struct ctx * c
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.revoke_token", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_revoke_token: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_revoke_token: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -477,7 +500,10 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token(struct ctx * c
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_revoke_token: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_revoke_token: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -536,7 +562,9 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token(struct ctx * c
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_revoke_token: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_revoke_token: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_revoke_token: truncated RPC payload"); goto _rpc_done; }
@@ -591,7 +619,9 @@ struct picomesh_uint32_result runner_agent_runner_agent_register(struct ctx * ct
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.register", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_uint32, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_register: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_register: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -604,7 +634,10 @@ struct picomesh_uint32_result runner_agent_runner_agent_register(struct ctx * ct
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_register: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_register: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -691,7 +724,9 @@ struct picomesh_uint32_result runner_agent_runner_agent_register(struct ctx * ct
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_uint32, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_register: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_register: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(uint32_t)) { _ret = PICOMESH_ERR(picomesh_uint32, "runner_agent_runner_agent_register: truncated RPC payload"); goto _rpc_done; }
@@ -743,7 +778,9 @@ struct picomesh_int_result runner_agent_runner_agent_heartbeat(struct ctx * ctx,
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.heartbeat", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_heartbeat: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_heartbeat: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -756,7 +793,10 @@ struct picomesh_int_result runner_agent_runner_agent_heartbeat(struct ctx * ctx,
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_heartbeat: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_heartbeat: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -822,7 +862,9 @@ struct picomesh_int_result runner_agent_runner_agent_heartbeat(struct ctx * ctx,
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_heartbeat: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_heartbeat: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "runner_agent_runner_agent_heartbeat: truncated RPC payload"); goto _rpc_done; }
@@ -873,7 +915,9 @@ struct picomesh_json_result runner_agent_runner_agent_get(struct ctx * ctx, stru
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.get", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_get: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_get: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -896,7 +940,10 @@ struct picomesh_json_result runner_agent_runner_agent_get(struct ctx * ctx, stru
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_get: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_get: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -955,7 +1002,9 @@ struct picomesh_json_result runner_agent_runner_agent_get(struct ctx * ctx, stru
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_get: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_get: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_get: truncated string response"); goto _rpc_done; }
@@ -1012,7 +1061,9 @@ struct picomesh_json_result runner_agent_runner_agent_list(struct ctx * ctx, str
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_list: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -1035,7 +1086,10 @@ struct picomesh_json_result runner_agent_runner_agent_list(struct ctx * ctx, str
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -1097,7 +1151,9 @@ struct picomesh_json_result runner_agent_runner_agent_list(struct ctx * ctx, str
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_list: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list: truncated string response"); goto _rpc_done; }
@@ -1152,7 +1208,9 @@ struct picomesh_json_result runner_agent_runner_agent_list_all(struct ctx * ctx,
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_list_all: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list_all: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -1175,7 +1233,10 @@ struct picomesh_json_result runner_agent_runner_agent_list_all(struct ctx * ctx,
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list_all: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list_all: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -1231,7 +1292,9 @@ struct picomesh_json_result runner_agent_runner_agent_list_all(struct ctx * ctx,
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_list_all: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list_all: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "runner_agent_runner_agent_list_all: truncated string response"); goto _rpc_done; }
@@ -1286,7 +1349,9 @@ struct picomesh_size_result runner_agent_runner_agent_count_active(struct ctx * 
             if (!peer_channel_msgpack_call(_s->peer, "runner_agent.runner_agent.count_active", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "runner_agent_runner_agent_count_active: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "runner_agent_runner_agent_count_active: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -1299,7 +1364,10 @@ struct picomesh_size_result runner_agent_runner_agent_count_active(struct ctx * 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "runner_agent_runner_agent_count_active: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "runner_agent_runner_agent_count_active: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -1355,7 +1423,9 @@ struct picomesh_size_result runner_agent_runner_agent_count_active(struct ctx * 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "runner_agent_runner_agent_count_active: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "runner_agent_runner_agent_count_active: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "runner_agent_runner_agent_count_active: truncated RPC payload"); goto _rpc_done; }

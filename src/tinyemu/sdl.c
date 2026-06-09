@@ -36,13 +36,13 @@
 #include "virtio.h"
 #include "machine.h"
 
-#define KEYCODE_MAX 127
+#define KEPICOCODE_MAX 127
 
 static SDL_Surface *screen;
 static SDL_Surface *fb_surface;
 static int screen_width, screen_height, fb_width, fb_height, fb_stride;
 static SDL_Cursor *sdl_cursor_hidden;
-static uint8_t key_pressed[KEYCODE_MAX + 1];
+static uint8_t key_pressed[KEPICOCODE_MAX + 1];
 
 static void sdl_update_fb_surface(FBDevice *fb_dev)
 {
@@ -86,26 +86,26 @@ static void sdl_update(FBDevice *fb_dev, void *opaque,
 
 #if defined(_WIN32)
 
-static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
+static int sdl_get_kepicocode(const SDL_KeyboardEvent *ev)
 {
     return ev->keysym.scancode;
 }
 
 #else
 
-/* we assume Xorg is used with a PC keyboard. Return 0 if no keycode found. */
-static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
+/* we assume Xorg is used with a PC keyboard. Return 0 if no kepicocode found. */
+static int sdl_get_kepicocode(const SDL_KeyboardEvent *ev)
 {
-    int keycode;
-    keycode = ev->keysym.scancode;
-    if (keycode < 9) {
-        keycode = 0;
-    } else if (keycode < 127 + 8) {
-        keycode -= 8;
+    int kepicocode;
+    kepicocode = ev->keysym.scancode;
+    if (kepicocode < 9) {
+        kepicocode = 0;
+    } else if (kepicocode < 127 + 8) {
+        kepicocode -= 8;
     } else {
-        keycode = 0;
+        kepicocode = 0;
     }
-    return keycode;
+    return kepicocode;
 }
 
 #endif
@@ -115,7 +115,7 @@ static void sdl_reset_keys(VirtMachine *m)
 {
     int i;
     
-    for(i = 1; i <= KEYCODE_MAX; i++) {
+    for(i = 1; i <= KEPICOCODE_MAX; i++) {
         if (key_pressed[i]) {
             vm_send_key_event(m, FALSE, i);
             key_pressed[i] = FALSE;
@@ -125,19 +125,19 @@ static void sdl_reset_keys(VirtMachine *m)
 
 static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, VirtMachine *m)
 {
-    int keycode, keypress;
+    int kepicocode, keypress;
 
-    keycode = sdl_get_keycode(ev);
-    if (keycode) {
-        if (keycode == 0x3a || keycode ==0x45) {
+    kepicocode = sdl_get_kepicocode(ev);
+    if (kepicocode) {
+        if (kepicocode == 0x3a || kepicocode ==0x45) {
             /* SDL does not generate key up for numlock & caps lock */
-            vm_send_key_event(m, TRUE, keycode);
-            vm_send_key_event(m, FALSE, keycode);
+            vm_send_key_event(m, TRUE, kepicocode);
+            vm_send_key_event(m, FALSE, kepicocode);
         } else {
             keypress = (ev->type == SDL_KEYDOWN);
-            if (keycode <= KEYCODE_MAX)
-                key_pressed[keycode] = keypress;
-            vm_send_key_event(m, keypress, keycode);
+            if (kepicocode <= KEPICOCODE_MAX)
+                key_pressed[kepicocode] = keypress;
+            vm_send_key_event(m, keypress, kepicocode);
         }
     } else if (ev->type == SDL_KEYUP) {
         /* workaround to reset the keyboard state (used when changing

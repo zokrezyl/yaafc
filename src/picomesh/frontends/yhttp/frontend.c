@@ -41,23 +41,23 @@
 
 #include "frontend.h"
 
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yengine/resolve.h>
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/jinvoke.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/yargv/yargv.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/idkey.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/ysecurity/jwt.h>
-#include <picomesh/ysecurity/secret.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/engine/resolve.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/jinvoke.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/json/json.h>
+#include <picomesh/config/config.h>
+#include <picomesh/argv/argv.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/idkey.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/security/jwt.h>
+#include <picomesh/security/secret.h>
 #include <picomesh/authenticators/registry.h>
 #include <picomesh/authorizers/registry.h>
 
@@ -161,23 +161,11 @@ static void buf_esc(struct buf *buf, const char *str)
 
 /* ---------- shared rendering ---------- */
 
-/* Deterministic hashes so we can keep typing real usernames/passwords
- * while the underlying plugins still index on uint32/int64 (their wire
- * shape today). FNV-1a, no salt — fine for a demo where the goal is
- * "same name + same password always reach the same account".
- *
- * The username → uid hash is the lookup-cluster SHARD KEY: every producer and
- * consumer (gateway, webapp, accounts) must compute it from the identical bytes
- * with the identical function, or they route to different shards and the
- * lookup/uniqueness guarantee silently breaks. So it goes through the single
- * shared primitive (picomesh_fnv1a32) rather than a re-implemented loop; the
- * only gateway-local policy is the uid==0 (anonymous) reservation. */
-static uint32_t hash_username(const char *str)
-{
-    uint32_t hash = picomesh_fnv1a32(str);
-    return hash ? hash : 1; /* uid==0 means anonymous */
-}
-
+/* Deterministic password hash so we can keep typing a real password while the
+ * credential plugin still indexes on int64 (its wire shape today). FNV-1a, no
+ * salt — fine for a demo. (UIDs are no longer hash-derived: they are assigned,
+ * never-reused ids allocated by the accounts service and resolved per username
+ * via accounts.uid_for_username — issue #29.) */
 static int64_t hash_password(const char *str)
 {
     uint64_t hash = 14695981039346656037ull;
@@ -192,11 +180,11 @@ static int64_t hash_password(const char *str)
  * from render_head (which renders the global nav and needs to know
  * whether the signed-in user is a site admin) and from
  * route_register_post (bootstrap). */
-static int is_site_admin(uint32_t uid);
-static const char *landing_url(uint32_t uid, const char *uname,
+static struct picomesh_int_result is_site_admin(uint32_t uid);
+static struct picomesh_void_result landing_url(uint32_t uid, const char *uname,
                                char *out, size_t cap);
 
-static void render_head(struct buf *buf, const char *title,
+static struct picomesh_void_result render_head(struct buf *buf, const char *title,
                         uint32_t uid, const char *uname)
 {
     buf_printf(buf,
@@ -543,7 +531,11 @@ static void render_head(struct buf *buf, const char *title,
             buf_esc(buf, uname);
             buf_puts(buf, "\">My account</a></li>");
         }
-        if (is_site_admin(uid)) {
+        struct picomesh_int_result admin_res = is_site_admin(uid);
+        if (PICOMESH_IS_ERR(admin_res)) {
+            picomesh_error_print(stderr, "is_site_admin", admin_res.error);
+            picomesh_error_destroy(admin_res.error);
+        } else if (admin_res.value) {
             buf_puts(buf, "<li><a href=\"/admin/users\">Users</a></li>");
         }
         buf_puts(buf, "</ul>");
@@ -565,6 +557,7 @@ static void render_head(struct buf *buf, const char *title,
         buf_puts(buf, "<a href=\"/login\">sign in</a>");
     }
     buf_puts(buf, "</div></nav><main class=\"container\">");
+    return PICOMESH_OK_VOID();
 }
 
 static void render_foot(struct buf *buf)
@@ -576,9 +569,8 @@ static void render_foot(struct buf *buf)
 }
 
 /* ---------- HTTP response helpers (mirror of yhttp.c::send_response) -- */
-extern size_t yloop_write(struct yloop_stream *stream, const void *buf, size_t len);
 
-static struct picomesh_void_result send_html(struct yloop_stream *stream, int status,
+static struct picomesh_void_result send_html(struct loop_stream *stream, int status,
                       const char *body, size_t body_len, int keep_alive,
                       const char *extra_headers)
 {
@@ -601,14 +593,16 @@ static struct picomesh_void_result send_html(struct yloop_stream *stream, int st
         keep_alive ? "keep-alive" : "close",
         extra_headers ? extra_headers : "");
     if (written <= 0) return PICOMESH_ERR(picomesh_void, "send_html: header format failed");
-    if (yloop_write(stream, header, (size_t)written) != (size_t)written)
-        return PICOMESH_ERR(picomesh_void, "send_html: header write failed");
-    if (body_len && yloop_write(stream, body, body_len) != body_len)
-        return PICOMESH_ERR(picomesh_void, "send_html: body write failed");
+    struct picomesh_size_result header_write = loop_write(stream, header, (size_t)written);
+    if (PICOMESH_IS_ERR(header_write)) return PICOMESH_ERR(picomesh_void, "send_html: header write failed", header_write);
+    if (body_len) {
+        struct picomesh_size_result body_write = loop_write(stream, body, body_len);
+        if (PICOMESH_IS_ERR(body_write)) return PICOMESH_ERR(picomesh_void, "send_html: body write failed", body_write);
+    }
     return PICOMESH_OK_VOID();
 }
 
-static struct picomesh_void_result send_redirect(struct yloop_stream *stream, const char *where,
+static struct picomesh_void_result send_redirect(struct loop_stream *stream, const char *where,
                           int keep_alive, const char *extra_set_cookie)
 {
     char header[1024];
@@ -622,8 +616,8 @@ static struct picomesh_void_result send_redirect(struct yloop_stream *stream, co
         where, keep_alive ? "keep-alive" : "close",
         extra_set_cookie ? extra_set_cookie : "");
     if (written <= 0) return PICOMESH_ERR(picomesh_void, "send_redirect: header format failed");
-    if (yloop_write(stream, header, (size_t)written) != (size_t)written)
-        return PICOMESH_ERR(picomesh_void, "send_redirect: header write failed");
+    struct picomesh_size_result write_res = loop_write(stream, header, (size_t)written);
+    if (PICOMESH_IS_ERR(write_res)) return PICOMESH_ERR(picomesh_void, "send_redirect: header write failed", write_res);
     return PICOMESH_OK_VOID();
 }
 
@@ -722,10 +716,10 @@ static int cookie_get(const char *headers_raw, size_t headers_raw_len,
 /* Defined later — the opaque-token extractor (cookie OR `picomesh-sid:`
  * header OR `Authorization: Bearer`), the token→uid session lookup, and the
  * verified-context resolver the gateway's mutation routes use. */
-static int extract_session_token(const char *headers_raw, size_t headers_raw_len,
+static struct picomesh_int_result extract_session_token(const char *headers_raw, size_t headers_raw_len,
                                  char *out, size_t cap);
-static uint32_t uid_for_token(const char *token);
-static void resolve_authctx(const char *headers_raw, size_t headers_raw_len,
+static struct picomesh_uint32_result uid_for_token(const char *token);
+static struct picomesh_void_result resolve_authctx(const char *headers_raw, size_t headers_raw_len,
                             struct picomesh_authctx *out);
 
 /* ---------- per-route page helpers ---------- */
@@ -791,7 +785,7 @@ static int username_ok(char *str)
 
 /* Shared form renderer for /login and /register. `is_register` flips
  * heading, button copy, alt-link target. */
-static struct picomesh_void_result render_auth_form(struct yloop_stream *stream, int is_register,
+static struct picomesh_void_result render_auth_form(struct loop_stream *stream, int is_register,
                              const char *error, int keep_alive)
 {
     struct buf body_buf; buf_init(&body_buf);
@@ -830,11 +824,11 @@ static struct picomesh_void_result render_auth_form(struct yloop_stream *stream,
     return send_res;
 }
 
-static struct picomesh_void_result render_login(struct yloop_stream *stream, const char *error, int keep_alive)
+static struct picomesh_void_result render_login(struct loop_stream *stream, const char *error, int keep_alive)
 {
     return render_auth_form(stream, /*is_register=*/0, error, keep_alive);
 }
-static struct picomesh_void_result render_register(struct yloop_stream *stream, const char *error, int keep_alive)
+static struct picomesh_void_result render_register(struct loop_stream *stream, const char *error, int keep_alive)
 {
     return render_auth_form(stream, /*is_register=*/1, error, keep_alive);
 }
@@ -865,64 +859,66 @@ static struct picomesh_void_result build_session_cookies(char *out, size_t cap,
  * On error the function does NOT render — it returns 0 and fills *err with a
  * static error string. On success returns 1 and writes the opaque sid into
  * tok_out. */
-static int auth_and_start_session(uint32_t uid, const char *username, int64_t pw,
+static struct picomesh_int_result auth_and_start_session(uint32_t uid, const char *username, int64_t pw,
                                   char *tok_out, size_t tok_cap,
                                   const char **err)
 {
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) { *err = "no engine"; return 0; }
+    if (!engine) { *err = "no engine"; return PICOMESH_OK(picomesh_int, 0); }
 
     /* token_issuer.login verifies the password (via password_authn), loads
      * groups, and returns {access_jwt, refresh_token, uid, username, groups}.
      * An auth failure surfaces as an error here → "invalid username/password". */
     SVC_OPEN(token_issuer_svc, "token_issuer", token_issuer_token_issuer_create);
-    if (!token_issuer_svc.ok) { *err = "token_issuer unreachable"; return 0; }
+    if (!token_issuer_svc.ok) { *err = "token_issuer unreachable"; return PICOMESH_OK(picomesh_int, 0); }
     struct picomesh_json_result login =
         token_issuer_token_issuer_login(&token_issuer_svc.c, token_issuer_svc.obj, NULL, "password", uid, username ? username : "", pw);
     SVC_CLOSE(token_issuer_svc);
     if (PICOMESH_IS_ERR(login)) {
+        picomesh_error_print(stderr, "auth_and_start_session: token_issuer login", login.error);
         picomesh_error_destroy(login.error);
         *err = "invalid username or password";
-        return 0;
+        return PICOMESH_OK(picomesh_int, 0);
     }
 
     /* Pull the minted token pair out of the issuer's JSON. */
     char access_jwt[2048] = {0};
     char refresh_token[64] = {0};
-    struct yjson_doc *doc = yjson_parse(login.value, strlen(login.value));
+    struct json_doc *doc = json_parse(login.value, strlen(login.value));
     if (doc) {
-        const struct yjson_value *root = yjson_doc_root(doc);
-        const char *access_jwt_str = yjson_as_string(yjson_object_get(root, "access_jwt"), NULL);
-        const char *refresh_token_str = yjson_as_string(yjson_object_get(root, "refresh_token"), NULL);
+        const struct json_value *root = json_doc_root(doc);
+        const char *access_jwt_str = json_as_string(json_object_get(root, "access_jwt"), NULL);
+        const char *refresh_token_str = json_as_string(json_object_get(root, "refresh_token"), NULL);
         if (access_jwt_str) snprintf(access_jwt, sizeof(access_jwt), "%s", access_jwt_str);
         if (refresh_token_str) snprintf(refresh_token, sizeof(refresh_token), "%s", refresh_token_str);
-        yjson_doc_free(doc);
+        json_doc_free(doc);
     }
     free(login.value);
-    if (!access_jwt[0]) { *err = "login produced no token"; return 0; }
+    if (!access_jwt[0]) { *err = "login produced no token"; return PICOMESH_OK(picomesh_int, 0); }
 
     SVC_OPEN(session_svc, "session", session_session_create);
-    if (!session_svc.ok) { *err = "session unreachable"; return 0; }
+    if (!session_svc.ok) { *err = "session unreachable"; return PICOMESH_OK(picomesh_int, 0); }
     struct picomesh_string_result start_res =
         session_session_start(&session_svc.c, session_svc.obj, NULL, uid, access_jwt, refresh_token);
     SVC_CLOSE(session_svc);
     if (PICOMESH_IS_ERR(start_res)) {
+        picomesh_error_print(stderr, "auth_and_start_session: session start", start_res.error);
         picomesh_error_destroy(start_res.error);
         *err = "session create failed";
-        return 0;
+        return PICOMESH_OK(picomesh_int, 0);
     }
     snprintf(tok_out, tok_cap, "%s", start_res.value ? start_res.value : "");
     free(start_res.value);
-    if (!tok_out[0]) { *err = "session create failed"; return 0; }
-    return 1;
+    if (!tok_out[0]) { *err = "session create failed"; return PICOMESH_OK(picomesh_int, 0); }
+    return PICOMESH_OK(picomesh_int, 1);
 }
 
 
 /* Forward declarations — these helpers are defined further down but are used by
  * the OAuth/registration handlers above their definitions. */
-static void register_release_claim(uint32_t uid, const char *uname);
-static struct yheaders *internal_caps(uint32_t uid);
-static struct picomesh_void_result send_json_error(struct yloop_stream *stream, int status, const char *message, int keep_alive);
+static struct picomesh_void_result register_release_claim(uint32_t uid, const char *uname);
+static struct picomesh_void_ptr_result internal_caps(uint32_t uid);
+static struct picomesh_void_result send_json_error(struct loop_stream *stream, int status, const char *message, int keep_alive);
 static struct picomesh_int_result header_value(const char *raw, size_t raw_len, const char *name, char *out, size_t out_cap);
 
 static struct picomesh_void_result oauth_start_session(uint32_t uid, const char *username,
@@ -936,7 +932,9 @@ static struct picomesh_void_result oauth_start_session(uint32_t uid, const char 
     SVC_CLOSE(accounts_svc);
     PICOMESH_RETURN_IF_ERR(picomesh_void, groups, "oauth_start_session: load account groups");
 
-    struct yheaders *sys_caps = internal_caps(uid);
+    struct picomesh_void_ptr_result sys_caps_res = internal_caps(uid);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, sys_caps_res, "internal_caps: capability mint failed");
+    struct yheaders *sys_caps = sys_caps_res.value;
     if (!sys_caps) { free(groups.value); return PICOMESH_ERR(picomesh_void, "oauth_start_session: internal capability unavailable"); }
     SVC_OPEN(token_issuer_svc, "token_issuer", token_issuer_token_issuer_create);
     if (!token_issuer_svc.ok) { yheaders_free(sys_caps); free(groups.value); return PICOMESH_ERR(picomesh_void, "oauth_start_session: token_issuer unreachable"); }
@@ -982,7 +980,9 @@ static struct picomesh_void_result ensure_oauth_account(uint32_t uid, const char
     if (PICOMESH_IS_ERR(claim_res)) return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: username claim failed", claim_res);
     if (claim_res.value != 1) return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: GitHub login name is already taken");
 
-    struct yheaders *sys_caps = internal_caps(uid);
+    struct picomesh_void_ptr_result sys_caps_res = internal_caps(uid);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, sys_caps_res, "internal_caps: capability mint failed");
+    struct yheaders *sys_caps = sys_caps_res.value;
     if (!sys_caps) { register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: registration temporarily unavailable"); }
     SVC_OPEN(acc_ns, "accounts", accounts_accounts_create);
     if (!acc_ns.ok) { yheaders_free(sys_caps); register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: accounts service unreachable"); }
@@ -1004,7 +1004,9 @@ static struct picomesh_void_result ensure_oauth_account(uint32_t uid, const char
     struct picomesh_size_result count_res = accounts_accounts_count(&acc_boot.c, acc_boot.obj, NULL);
     if (PICOMESH_IS_OK(count_res)) first_user = (count_res.value == 0); else picomesh_error_destroy(count_res.error);
     if (first_user) {
-        struct yheaders *site_caps = internal_caps(uid);
+        struct picomesh_void_ptr_result site_caps_res = internal_caps(uid);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, site_caps_res, "internal_caps: capability mint failed");
+        struct yheaders *site_caps = site_caps_res.value;
         if (!site_caps) { SVC_CLOSE(acc_boot); register_release_claim(uid, uname); return PICOMESH_ERR(picomesh_void, "ensure_oauth_account: registration temporarily unavailable"); }
         struct picomesh_string_result site =
             accounts_accounts_ns_create(&acc_boot.c, acc_boot.obj, site_caps, uid, "group", "site", "");
@@ -1043,7 +1045,9 @@ static struct picomesh_void_result ensure_oauth_account(uint32_t uid, const char
     if (!registered) {
         if (created_site) {
             int rollback_ok = 0;
-            struct yheaders *del_caps = internal_caps(uid);
+            struct picomesh_void_ptr_result del_caps_res = internal_caps(uid);
+            PICOMESH_RETURN_IF_ERR(picomesh_void, del_caps_res, "internal_caps: capability mint failed");
+            struct yheaders *del_caps = del_caps_res.value;
             if (del_caps) {
                 SVC_OPEN(acc_rb, "accounts", accounts_accounts_create);
                 if (acc_rb.ok) {
@@ -1065,7 +1069,7 @@ static struct picomesh_void_result ensure_oauth_account(uint32_t uid, const char
     return PICOMESH_OK_VOID();
 }
 
-static struct picomesh_void_result route_github_callback_post(struct yloop_stream *stream,
+static struct picomesh_void_result route_github_callback_post(struct loop_stream *stream,
                                        const char *headers_raw, size_t headers_raw_len,
                                        const char *body, size_t body_len, int keep_alive)
 {
@@ -1106,13 +1110,13 @@ static struct picomesh_void_result route_github_callback_post(struct yloop_strea
 
     uint32_t uid = 0;
     char uname[64] = {0};
-    struct yjson_doc *doc = yjson_parse(exchange_res.value, strlen(exchange_res.value));
+    struct json_doc *doc = json_parse(exchange_res.value, strlen(exchange_res.value));
     if (doc) {
-        const struct yjson_value *root = yjson_doc_root(doc);
-        uid = (uint32_t)yjson_as_int(yjson_object_get(root, "uid"), 0);
-        const char *username_str = yjson_as_string(yjson_object_get(root, "username"), NULL);
+        const struct json_value *root = json_doc_root(doc);
+        uid = (uint32_t)json_as_int(json_object_get(root, "uid"), 0);
+        const char *username_str = json_as_string(json_object_get(root, "username"), NULL);
         if (username_str) snprintf(uname, sizeof(uname), "%s", username_str);
-        yjson_doc_free(doc);
+        json_doc_free(doc);
     }
     free(exchange_res.value);
     if (!uid || !username_ok(uname)) return send_json_error(stream, 401, "github callback: invalid GitHub user", keep_alive);
@@ -1144,7 +1148,7 @@ static struct picomesh_void_result route_github_callback_post(struct yloop_strea
 /* POST /login — yaapp shape: authenticate an EXISTING account; do NOT
  * auto-register. Caller must visit /register first if they don't have
  * a credential yet. */
-static void route_login_post(struct yloop_stream *stream, const char *body,
+static struct picomesh_void_result route_login_post(struct loop_stream *stream, const char *body,
                              size_t body_len, int keep_alive)
 {
     char uname[64] = {0}, pwtext[128] = {0};
@@ -1152,53 +1156,67 @@ static void route_login_post(struct yloop_stream *stream, const char *body,
         !form_get(body, body_len, "password", pwtext, sizeof(pwtext)) ||
         !username_ok(uname) || !*pwtext) {
         render_login(stream, "username and password are required", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    uint32_t uid = hash_username(uname);
     int64_t  pw  = hash_password(pwtext);
 
-    /* Refuse to authenticate if the user hasn't registered yet — that's
-     * what differentiates /login from /register. */
+    /* Issue #29: resolve the ASSIGNED uid from the username instead of
+     * recomputing fnv1a32(username). A 0 result means no confirmed account —
+     * that is what differentiates /login from /register. This resolves both
+     * assigned-uid accounts and legacy hash-derived ones (uid_for_username
+     * returns whatever uid the `usernames` row records). A backend error fails
+     * closed (login unavailable), never silently anonymous. */
     SVC_OPEN(accounts_svc, "accounts", accounts_accounts_create);
-    if (!accounts_svc.ok) { render_login(stream, "accounts service unreachable", keep_alive); return; }
-    struct picomesh_int_result exists_res = accounts_accounts_exists(&accounts_svc.c, accounts_svc.obj, NULL, uid);
+    if (!accounts_svc.ok) { render_login(stream, "accounts service unreachable", keep_alive); return PICOMESH_OK_VOID(); }
+    struct picomesh_int64_result uid_res = accounts_accounts_uid_for_username(&accounts_svc.c, accounts_svc.obj, NULL, uname);
     SVC_CLOSE(accounts_svc);
-    int exists = PICOMESH_IS_OK(exists_res) && exists_res.value;
-    if (PICOMESH_IS_ERR(exists_res)) picomesh_error_destroy(exists_res.error);
-    if (!exists) {
-        render_login(stream, "no such user — register first", keep_alive);
-        return;
+    if (PICOMESH_IS_ERR(uid_res)) {
+        picomesh_error_print(stderr, "route_login_post: uid_for_username", uid_res.error);
+        picomesh_error_destroy(uid_res.error);
+        render_login(stream, "login temporarily unavailable — try again", keep_alive);
+        return PICOMESH_OK_VOID();
     }
+    if (uid_res.value <= 0) {
+        render_login(stream, "no such user — register first", keep_alive);
+        return PICOMESH_OK_VOID();
+    }
+    uint32_t uid = (uint32_t)uid_res.value;
 
     const char *err = NULL;
     char tok[64];
-    if (!auth_and_start_session(uid, uname, pw, tok, sizeof(tok), &err)) {
+    struct picomesh_int_result auth_res = auth_and_start_session(uid, uname, pw, tok, sizeof(tok), &err);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, auth_res, "route_login_post: auth_and_start_session failed");
+    if (!auth_res.value) {
         render_login(stream, err ? err : "login failed", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     char cookie_hdr[256];
     struct picomesh_void_result cookie_res = build_session_cookies(cookie_hdr, sizeof(cookie_hdr), tok, uname);
     if (PICOMESH_IS_ERR(cookie_res)) {
+        picomesh_error_print(stderr, "route_login_post: build cookies", cookie_res.error);
         picomesh_error_destroy(cookie_res.error);
         render_login(stream, "cookie build failed", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     char landing[128];
-    send_redirect(stream, landing_url(uid, uname, landing, sizeof(landing)),
-                  keep_alive, cookie_hdr);
+    struct picomesh_void_result landing_res = landing_url(uid, uname, landing, sizeof(landing));
+    PICOMESH_RETURN_IF_ERR(picomesh_void, landing_res, "landing url resolution failed");
+    send_redirect(stream, landing, keep_alive, cookie_hdr);
+    return PICOMESH_OK_VOID();
 }
 
 /* Best-effort: release a username claim THIS registration won but could not
  * complete, so a later step's failure does not strand the name permanently
  * (release_username only deletes an UNCONFIRMED claim, never a completed one). */
-static void register_release_claim(uint32_t uid, const char *uname)
+static struct picomesh_void_result register_release_claim(uint32_t uid, const char *uname)
 {
     SVC_OPEN(acc_rel, "accounts", accounts_accounts_create);
-    if (!acc_rel.ok) return;
+    if (!acc_rel.ok) return PICOMESH_OK_VOID();
     struct picomesh_int_result release_res = accounts_accounts_release_username(&acc_rel.c, acc_rel.obj, NULL, uid, uname);
-    if (PICOMESH_IS_ERR(release_res)) picomesh_error_destroy(release_res.error);
     SVC_CLOSE(acc_rel);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, release_res, "register_release_claim: release username failed");
+    return PICOMESH_OK_VOID();
 }
 
 /* Build a short-lived INTERNAL system capability for a trusted gateway
@@ -1211,28 +1229,28 @@ static void register_release_claim(uint32_t uid, const char *uname)
  * "no JWT means trusted" path. Returns a yheaders the caller frees (NULL on
  * failure; the caller then fails closed). The capability never leaves the mesh
  * and is never handed to a client. */
-static struct yheaders *internal_caps(uint32_t uid)
+static struct picomesh_void_ptr_result internal_caps(uint32_t uid)
 {
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return NULL;
+    if (!engine) return PICOMESH_OK(picomesh_void_ptr, NULL);
     struct picomesh_string_result secret = picomesh_security_jwt_secret(engine);
-    if (PICOMESH_IS_ERR(secret)) { picomesh_error_destroy(secret.error); return NULL; }
+    PICOMESH_RETURN_IF_ERR(picomesh_void_ptr, secret, "internal_caps: jwt secret unavailable");
     int64_t now = picomesh_security_now();
     char *claims = picomesh_jwt_build_claims("picomesh", uid, "system", PICOMESH_GROUP_SYSTEM, now, now + 60);
     char *jwt = claims ? picomesh_jwt_encode(claims, secret.value) : NULL;
     free(claims);
     free(secret.value);
-    if (!jwt) return NULL;
+    if (!jwt) return PICOMESH_OK(picomesh_void_ptr, NULL);
     struct yheaders *headers = yheaders_new();
     if (headers) { yheaders_set_u32(headers, "uid", uid); yheaders_set(headers, "jwt", jwt); }
     free(jwt);
-    return headers;
+    return PICOMESH_OK(picomesh_void_ptr, headers);
 }
 
 /* POST /register — create the account + credential, then start a
  * session and redirect to the user's namespace page. Fails if the
  * username is already taken (so the flow forks cleanly from /login). */
-static void route_register_post(struct yloop_stream *stream, const char *body,
+static struct picomesh_void_result route_register_post(struct loop_stream *stream, const char *body,
                                 size_t body_len, int keep_alive)
 {
     char uname[64] = {0}, pwtext[128] = {0};
@@ -1240,33 +1258,37 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
         !form_get(body, body_len, "password", pwtext, sizeof(pwtext)) ||
         !username_ok(uname) || !*pwtext) {
         render_register(stream, "username (a-z, 0-9, ._-) and password required", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    uint32_t uid = hash_username(uname);
     int64_t  pw  = hash_password(pwtext);
 
-    /* Step 0 — reject if a COMPLETED account already owns this uid. Because
-     * uid = FNV(username), a DIFFERENT username can hash to an existing user's
-     * uid (a chosen 32-bit collision); that different name would win a fresh
-     * claim in step 1, and without this gate the credential overwrite in step 2
-     * would then stomp the victim's password — account takeover under the
-     * colliding name. The `users` row is the completion marker, so its presence
-     * means a real account holds this uid: refuse and NEVER touch the credential.
-     * A read error FAILS CLOSED — this gate is a security boundary, so an outage
-     * must not be read as "no account". (The real fix is assigned, never-reused
-     * uids; this gate is the stopgap while uid is hash-derived.) */
-    SVC_OPEN(acc_chk, "accounts", accounts_accounts_create);
-    if (!acc_chk.ok) { render_register(stream, "accounts service unreachable", keep_alive); return; }
-    struct picomesh_int_result exists_res = accounts_accounts_exists(&acc_chk.c, acc_chk.obj, NULL, uid);
-    SVC_CLOSE(acc_chk);
-    if (PICOMESH_IS_ERR(exists_res)) {
-        picomesh_error_destroy(exists_res.error);
-        render_register(stream, "registration temporarily unavailable — try again", keep_alive);
-        return;
-    }
-    if (exists_res.value) {
-        render_register(stream, "username already taken", keep_alive);
-        return;
+    /* Step 0 — allocate an ASSIGNED, never-reused uid (issue #29) instead of
+     * uid = fnv1a32(username). This is the fix that retires the hash-collision
+     * account-takeover risk: a fresh uid can never collide with a completed
+     * account (allocate_uid refuses any id that already has a `users` row), and
+     * because it is never reused, a crash anywhere downstream only strands a uid
+     * no future registrant will be handed — so a partially-written credential
+     * can never be inherited. Username uniqueness is still enforced separately by
+     * the `usernames` claim (step 1), so two concurrent registrations of the same
+     * name get different uids but only one wins the claim. A backend error fails
+     * closed. */
+    uint32_t uid;
+    {
+        SVC_OPEN(acc_alloc, "accounts", accounts_accounts_create);
+        if (!acc_alloc.ok) { render_register(stream, "accounts service unreachable", keep_alive); return PICOMESH_OK_VOID(); }
+        struct picomesh_int64_result alloc_res = accounts_accounts_allocate_uid(&acc_alloc.c, acc_alloc.obj, NULL);
+        SVC_CLOSE(acc_alloc);
+        if (PICOMESH_IS_ERR(alloc_res)) {
+            picomesh_error_print(stderr, "route_register_post: allocate_uid", alloc_res.error);
+            picomesh_error_destroy(alloc_res.error);
+            render_register(stream, "registration temporarily unavailable — try again", keep_alive);
+            return PICOMESH_OK_VOID();
+        }
+        if (alloc_res.value <= 0) {
+            render_register(stream, "registration temporarily unavailable — try again", keep_alive);
+            return PICOMESH_OK_VOID();
+        }
+        uid = (uint32_t)alloc_res.value;
     }
 
     /* Step 1 — CLAIM the username BEFORE touching any credential. The claim
@@ -1277,18 +1299,18 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
      * held means the name belongs to a completed account, an in-flight
      * registration, or an abandoned one — in every case we are NOT the owner. */
     SVC_OPEN(acc_claim, "accounts", accounts_accounts_create);
-    if (!acc_claim.ok) { render_register(stream, "accounts service unreachable", keep_alive); return; }
+    if (!acc_claim.ok) { render_register(stream, "accounts service unreachable", keep_alive); return PICOMESH_OK_VOID(); }
     struct picomesh_int_result claim_res = accounts_accounts_claim_username(&acc_claim.c, acc_claim.obj, NULL, uid, uname);
     SVC_CLOSE(acc_claim);
     if (PICOMESH_IS_ERR(claim_res)) {
         /* FAIL CLOSED: cannot establish the claim → never touch credentials. */
         picomesh_error_destroy(claim_res.error);
         render_register(stream, "registration temporarily unavailable — try again", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     if (claim_res.value != 1) {
         render_register(stream, "username already taken", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     /* Step 2 — we WON the claim, so we own this registration and may write the
@@ -1302,7 +1324,7 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
      * account. On any failure after winning the claim we RELEASE it so the name
      * is not stranded. */
     SVC_OPEN(pw_sv, "password_authn", password_authn_password_authn_create);
-    if (!pw_sv.ok) { register_release_claim(uid, uname); render_register(stream, "password_authn unreachable", keep_alive); return; }
+    if (!pw_sv.ok) { register_release_claim(uid, uname); render_register(stream, "password_authn unreachable", keep_alive); return PICOMESH_OK_VOID(); }
     struct picomesh_int_result pw_register_res =
         password_authn_password_authn_register(&pw_sv.c, pw_sv.obj, NULL, uid, pw);
     if (PICOMESH_IS_ERR(pw_register_res)) {
@@ -1310,7 +1332,7 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
         SVC_CLOSE(pw_sv);
         register_release_claim(uid, uname);
         render_register(stream, "could not store credentials (backend not ready?) — try again", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     if (pw_register_res.value == 0) {
         struct picomesh_int_result change_res =
@@ -1320,7 +1342,7 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
             SVC_CLOSE(pw_sv);
             register_release_claim(uid, uname);
             render_register(stream, "could not store credentials (backend not ready?) — try again", keep_alive);
-            return;
+            return PICOMESH_OK_VOID();
         }
     }
     SVC_CLOSE(pw_sv);
@@ -1334,10 +1356,12 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
      * registration fails cleanly and the claim is released, rather than
      * stranding a completed account with no namespace. Fail closed: a backend
      * outage here aborts the registration (no completion marker is written). */
-    struct yheaders *sys_caps = internal_caps(uid);
-    if (!sys_caps) { register_release_claim(uid, uname); render_register(stream, "registration temporarily unavailable — try again", keep_alive); return; }
+    struct picomesh_void_ptr_result sys_caps_res = internal_caps(uid);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, sys_caps_res, "internal_caps: capability mint failed");
+    struct yheaders *sys_caps = sys_caps_res.value;
+    if (!sys_caps) { register_release_claim(uid, uname); render_register(stream, "registration temporarily unavailable — try again", keep_alive); return PICOMESH_OK_VOID(); }
     SVC_OPEN(acc_ns, "accounts", accounts_accounts_create);
-    if (!acc_ns.ok) { yheaders_free(sys_caps); register_release_claim(uid, uname); render_register(stream, "accounts service unreachable", keep_alive); return; }
+    if (!acc_ns.ok) { yheaders_free(sys_caps); register_release_claim(uid, uname); render_register(stream, "accounts service unreachable", keep_alive); return PICOMESH_OK_VOID(); }
     struct picomesh_string_result personal_ns =
         accounts_accounts_ns_create(&acc_ns.c, acc_ns.obj, sys_caps, uid, "user", uname, "");
     SVC_CLOSE(acc_ns);
@@ -1346,7 +1370,7 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
         picomesh_error_destroy(personal_ns.error);
         register_release_claim(uid, uname);
         render_register(stream, "username unavailable (reserved namespace) — try another", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     free(personal_ns.value);
 
@@ -1366,13 +1390,15 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
     int first_user = 0, created_site = 0;
     {
         SVC_OPEN(acc_boot, "accounts", accounts_accounts_create);
-        if (!acc_boot.ok) { register_release_claim(uid, uname); render_register(stream, "accounts service unreachable", keep_alive); return; }
+        if (!acc_boot.ok) { register_release_claim(uid, uname); render_register(stream, "accounts service unreachable", keep_alive); return PICOMESH_OK_VOID(); }
         struct picomesh_size_result count_res = accounts_accounts_count(&acc_boot.c, acc_boot.obj, NULL);
         if (PICOMESH_IS_OK(count_res)) first_user = (count_res.value == 0);
         else picomesh_error_destroy(count_res.error);
         if (first_user) {
-            struct yheaders *site_caps = internal_caps(uid);
-            if (!site_caps) { SVC_CLOSE(acc_boot); register_release_claim(uid, uname); render_register(stream, "registration temporarily unavailable — try again", keep_alive); return; }
+            struct picomesh_void_ptr_result site_caps_res = internal_caps(uid);
+            PICOMESH_RETURN_IF_ERR(picomesh_void, site_caps_res, "internal_caps: capability mint failed");
+            struct yheaders *site_caps = site_caps_res.value;
+            if (!site_caps) { SVC_CLOSE(acc_boot); register_release_claim(uid, uname); render_register(stream, "registration temporarily unavailable — try again", keep_alive); return PICOMESH_OK_VOID(); }
             struct picomesh_string_result site =
                 accounts_accounts_ns_create(&acc_boot.c, acc_boot.obj, site_caps, uid, "group", "site", "");
             yheaders_free(site_caps);
@@ -1392,7 +1418,7 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
                     SVC_CLOSE(acc_boot);
                     register_release_claim(uid, uname);
                     render_register(stream, "registration temporarily unavailable — try again", keep_alive);
-                    return;
+                    return PICOMESH_OK_VOID();
                 }
             }
         }
@@ -1405,7 +1431,7 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
      * claim AND roll back a site namespace we just created, so a failed first
      * registration never strands `site` under a phantom owner. */
     SVC_OPEN(accounts_svc, "accounts", accounts_accounts_create);
-    if (!accounts_svc.ok) { register_release_claim(uid, uname); render_register(stream, "accounts service unreachable", keep_alive); return; }
+    if (!accounts_svc.ok) { register_release_claim(uid, uname); render_register(stream, "accounts service unreachable", keep_alive); return PICOMESH_OK_VOID(); }
     struct picomesh_int_result account_register_res = accounts_accounts_register(&accounts_svc.c, accounts_svc.obj, NULL, uid, uname);
     SVC_CLOSE(accounts_svc);
     int was_new = PICOMESH_IS_OK(account_register_res) && account_register_res.value == 1;
@@ -1416,7 +1442,9 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
              * already gone) both mean `site` is no longer stranded. A service-
              * open failure or an ns_delete error means rollback FAILED. */
             int rollback_ok = 0;
-            struct yheaders *del_caps = internal_caps(uid);
+            struct picomesh_void_ptr_result del_caps_res = internal_caps(uid);
+            PICOMESH_RETURN_IF_ERR(picomesh_void, del_caps_res, "internal_caps: capability mint failed");
+            struct yheaders *del_caps = del_caps_res.value;
             if (del_caps) {
                 SVC_OPEN(acc_rb, "accounts", accounts_accounts_create);
                 if (acc_rb.ok) {
@@ -1437,19 +1465,21 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
                  * the only fail-closed option here. */
                 ywarn("authz: site bootstrap rollback FAILED for uid=%u — username claim held; operator repair may be needed", uid);
                 render_register(stream, "registration failed and could not be cleaned up — please retry, or contact the operator", keep_alive);
-                return;
+                return PICOMESH_OK_VOID();
             }
         }
         register_release_claim(uid, uname);
         render_register(stream, "username already taken", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     const char *err = NULL;
     char tok[64];
-    if (!auth_and_start_session(uid, uname, pw, tok, sizeof(tok), &err)) {
+    struct picomesh_int_result reg_auth_res = auth_and_start_session(uid, uname, pw, tok, sizeof(tok), &err);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, reg_auth_res, "route_register_post: auth_and_start_session failed");
+    if (!reg_auth_res.value) {
         render_register(stream, err ? err : "register failed", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     char cookie_hdr[256];
@@ -1457,17 +1487,19 @@ static void route_register_post(struct yloop_stream *stream, const char *body,
     if (PICOMESH_IS_ERR(cookie_res)) {
         picomesh_error_destroy(cookie_res.error);
         render_register(stream, "cookie build failed", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     char landing[128];
-    send_redirect(stream, landing_url(uid, uname, landing, sizeof(landing)),
-                  keep_alive, cookie_hdr);
+    struct picomesh_void_result landing_res = landing_url(uid, uname, landing, sizeof(landing));
+    PICOMESH_RETURN_IF_ERR(picomesh_void, landing_res, "landing url resolution failed");
+    send_redirect(stream, landing, keep_alive, cookie_hdr);
+    return PICOMESH_OK_VOID();
 }
 
 /* POST /logout — destroy the server-side session record AND wipe the
  * cookies. The earlier version only cleared the browser cookie, so a
  * copied/stale sid stayed valid server-side (gh#2). */
-static void route_logout(struct yloop_stream *stream,
+static struct picomesh_void_result route_logout(struct loop_stream *stream,
                          const char *headers_raw, size_t headers_raw_len,
                          int keep_alive)
 {
@@ -1476,13 +1508,19 @@ static void route_logout(struct yloop_stream *stream,
         SVC_OPEN(session_svc, "session", session_session_create);
         if (session_svc.ok) {
             struct picomesh_int_result destroy_res = session_session_destroy(&session_svc.c, session_svc.obj, NULL, tok);
-            if (PICOMESH_IS_ERR(destroy_res)) picomesh_error_destroy(destroy_res.error);
             SVC_CLOSE(session_svc);
+            /* Best-effort: the cookie is cleared regardless, but a backend
+             * failure to drop the server-side session is logged with its chain. */
+            if (PICOMESH_IS_ERR(destroy_res)) {
+                picomesh_error_print(stderr, "route_logout: session destroy", destroy_res.error);
+                picomesh_error_destroy(destroy_res.error);
+            }
         }
     }
     send_redirect(stream, "/login", keep_alive,
         "Set-Cookie: picomesh-sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0\r\n"
         "Set-Cookie: picomesh-uname=; Path=/; SameSite=Lax; Max-Age=0\r\n");
+    return PICOMESH_OK_VOID();
 }
 
 /* ---------- repo URL helpers ---------- */
@@ -1536,19 +1574,25 @@ static int is_reserved_top(const char *seg, size_t seg_len)
  * cookie wasn't sent). `uid` of 0 is the anonymous signal — used by
  * route_root for the never-signed-in case. Writes a NUL-terminated
  * path into `out` and returns a pointer to it. */
-static const char *landing_url(uint32_t uid, const char *uname,
+static struct picomesh_void_result landing_url(uint32_t uid, const char *uname,
                                char *out, size_t cap)
 {
     if (uname && *uname && !is_reserved_top(uname, strlen(uname))) {
         snprintf(out, cap, "/%s", uname);
-        return out;
+        return PICOMESH_OK_VOID();
     }
-    if (uid && is_site_admin(uid)) {
-        snprintf(out, cap, "/admin/users");
-        return out;
+    if (uid) {
+        struct picomesh_int_result admin_res = is_site_admin(uid);
+        if (PICOMESH_IS_ERR(admin_res)) {
+            picomesh_error_print(stderr, "is_site_admin", admin_res.error);
+            picomesh_error_destroy(admin_res.error);
+        } else if (admin_res.value) {
+            snprintf(out, cap, "/admin/users");
+            return PICOMESH_OK_VOID();
+        }
     }
     snprintf(out, cap, "/login");
-    return out;
+    return PICOMESH_OK_VOID();
 }
 
 /* Repo-name charset: same as username so the URL stays well-formed. */
@@ -1566,17 +1610,17 @@ static int reponame_ok(const char *str, size_t len)
 
 /* Open the frontend's `storage` remote for repo-registry reads/writes.
  * The frontend already declares storage in its remotes block. */
-static int repo_storage_open(struct svc_ctx *out)
+static struct picomesh_int_result repo_storage_open(struct svc_ctx *out)
 {
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return 0;
+    if (!engine) return PICOMESH_OK(picomesh_int, 0);
     out->c = picomesh_engine_service_ctx(engine, "sharded_storage");
     /* peer==NULL ⇒ storage collocated in-process; create resolves it locally. */
     struct object_ptr_result create_res = sharded_storage_db_create(&out->c);
-    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return 0; }
+    PICOMESH_RETURN_IF_ERR(picomesh_int, create_res, "repo_storage_open: storage create failed");
     out->obj = create_res.value;
     out->ok = 1;
-    return 1;
+    return PICOMESH_OK(picomesh_int, 1);
 }
 
 /* ---------- authz: site-owner / regular-user role check ----------
@@ -1589,17 +1633,17 @@ static int repo_storage_open(struct svc_ctx *out)
 
 /* 1 if `uid` holds a site-level admin role (maintainer or owner). 0 on any
  * error / absent membership. */
-static int is_site_admin(uint32_t uid)
+static struct picomesh_int_result is_site_admin(uint32_t uid)
 {
-    if (!uid) return 0;
+    if (!uid) return PICOMESH_OK(picomesh_int, 0);
     SVC_OPEN(accounts_svc, "accounts", accounts_accounts_create);
-    if (!accounts_svc.ok) return 0;
+    if (!accounts_svc.ok) return PICOMESH_OK(picomesh_int, 0);
     struct picomesh_string_result groups_res = accounts_accounts_groups(&accounts_svc.c, accounts_svc.obj, NULL, uid);
     SVC_CLOSE(accounts_svc);
-    if (PICOMESH_IS_ERR(groups_res)) { picomesh_error_destroy(groups_res.error); return 0; }
+    PICOMESH_RETURN_IF_ERR(picomesh_int, groups_res, "is_site_admin: groups lookup failed");
     int admin = groups_res.value && picomesh_groups_max_role(groups_res.value, "site") >= picomesh_role_rank("maintainer");
     free(groups_res.value);
-    return admin;
+    return PICOMESH_OK(picomesh_int, admin ? 1 : 0);
 }
 
 /* Record uid→username so /admin/users can list the actual users. Storage
@@ -1613,32 +1657,37 @@ static int is_site_admin(uint32_t uid)
  *   by_id:<repo_id>            = 1
  *   owner:<account_uid>:count  = <N>
  */
-static uint32_t repo_register(const char *account, const char *name, uint32_t owner_uid)
+static struct picomesh_uint32_result repo_register(const char *account, const char *name, uint32_t owner_uid)
 {
     uint32_t repo_id = hash_repo(account, name);
     struct svc_ctx storage_svc = {0};
-    if (!repo_storage_open(&storage_svc)) return 0;
+    struct picomesh_int_result open_res = repo_storage_open(&storage_svc);
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, open_res, "repo_register: storage open failed");
+    if (!open_res.value) return PICOMESH_OK(picomesh_uint32, 0);
     char key[96];
     snprintf(key, sizeof(key), "by_id:%u", repo_id);
-    sharded_storage_db_set(&storage_svc.c, storage_svc.obj, NULL, "repos", key, "1");
+    struct picomesh_int_result set_id = sharded_storage_db_set(&storage_svc.c, storage_svc.obj, NULL, "repos", key, "1");
+    if (PICOMESH_IS_ERR(set_id)) { SVC_CLOSE(storage_svc); return PICOMESH_ERR(picomesh_uint32, "repo_register: by_id write failed", set_id); }
     snprintf(key, sizeof(key), "owner:%u:count", owner_uid);
     struct picomesh_string_result current_res = sharded_storage_db_get(&storage_svc.c, storage_svc.obj, NULL, "repos", key);
-    int64_t count = (PICOMESH_IS_OK(current_res) && current_res.value ? strtoll(current_res.value, NULL, 10) : 0) + 1;
-    if (PICOMESH_IS_OK(current_res)) free(current_res.value); else picomesh_error_destroy(current_res.error);
+    if (PICOMESH_IS_ERR(current_res)) { SVC_CLOSE(storage_svc); return PICOMESH_ERR(picomesh_uint32, "repo_register: count read failed", current_res); }
+    int64_t count = (current_res.value ? strtoll(current_res.value, NULL, 10) : 0) + 1;
+    free(current_res.value);
     char count_buf[32];
     snprintf(count_buf, sizeof(count_buf), "%lld", (long long)count);
-    sharded_storage_db_set(&storage_svc.c, storage_svc.obj, NULL, "repos", key, count_buf);
+    struct picomesh_int_result set_count = sharded_storage_db_set(&storage_svc.c, storage_svc.obj, NULL, "repos", key, count_buf);
+    if (PICOMESH_IS_ERR(set_count)) { SVC_CLOSE(storage_svc); return PICOMESH_ERR(picomesh_uint32, "repo_register: count write failed", set_count); }
     SVC_CLOSE(storage_svc);
-    return repo_id;
+    return PICOMESH_OK(picomesh_uint32, repo_id);
 }
 
 /* ---------- route: POST /repos/new ---------- */
 
-static void route_repos_new_post(struct yloop_stream *stream, uint32_t uid,
+static struct picomesh_void_result route_repos_new_post(struct loop_stream *stream, uint32_t uid,
                                  const char *uname,
                                  const char *body, size_t body_len, int keep_alive)
 {
-    if (!uname || !*uname) { send_redirect(stream, "/login", keep_alive, NULL); return; }
+    if (!uname || !*uname) { send_redirect(stream, "/login", keep_alive, NULL); return PICOMESH_OK_VOID(); }
 
     char name[64];
     if (!form_get(body, body_len, "name", name, sizeof(name)) ||
@@ -1646,7 +1695,7 @@ static void route_repos_new_post(struct yloop_stream *stream, uint32_t uid,
         /* Invalid repo name — bounce back to the list (the webapp owns the
          * form + error display; the gateway never renders a page). */
         send_redirect(stream, "/repos", keep_alive, NULL);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     /* Create the real repo FIRST and require it to SUCCEED: git_repo.make
@@ -1655,33 +1704,43 @@ static void route_repos_new_post(struct yloop_stream *stream, uint32_t uid,
      * redirect — so a failed make never leaves stale registry metadata/counts
      * nor redirects as if the repo exists. */
     int made = 0;
-    struct yheaders *sys_caps = internal_caps(uid);
+    struct picomesh_void_ptr_result sys_caps_res = internal_caps(uid);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, sys_caps_res, "internal_caps: capability mint failed");
+    struct yheaders *sys_caps = sys_caps_res.value;
     SVC_OPEN(repo_svc, "git_repo", git_repo_git_repo_create);
     if (repo_svc.ok && sys_caps) {
         struct picomesh_uint32_result make_res =
             git_repo_git_repo_make(&repo_svc.c, repo_svc.obj, sys_caps, uid, uname, name);
         made = PICOMESH_IS_OK(make_res) && make_res.value != 0;
-        if (PICOMESH_IS_ERR(make_res)) picomesh_error_destroy(make_res.error);
+        if (PICOMESH_IS_ERR(make_res)) { picomesh_error_print(stderr, "git_repo_make", make_res.error); picomesh_error_destroy(make_res.error); }
         SVC_CLOSE(repo_svc);
     } else if (repo_svc.ok) {
         SVC_CLOSE(repo_svc);
     }
     if (sys_caps) yheaders_free(sys_caps);
-    if (!made) { send_redirect(stream, "/repos", keep_alive, NULL); return; }
+    if (!made) { send_redirect(stream, "/repos", keep_alive, NULL); return PICOMESH_OK_VOID(); }
 
-    uint32_t repo_id = repo_register(uname, name, uid);
-    if (!repo_id) { send_redirect(stream, "/repos", keep_alive, NULL); return; }
+    struct picomesh_uint32_result repo_id_res = repo_register(uname, name, uid);
+    if (PICOMESH_IS_ERR(repo_id_res)) {
+        picomesh_error_print(stderr, "repo_register", repo_id_res.error);
+        picomesh_error_destroy(repo_id_res.error);
+        send_redirect(stream, "/repos", keep_alive, NULL);
+        return PICOMESH_OK_VOID();
+    }
+    uint32_t repo_id = repo_id_res.value;
+    if (!repo_id) { send_redirect(stream, "/repos", keep_alive, NULL); return PICOMESH_OK_VOID(); }
 
     char where[128];
     snprintf(where, sizeof(where), "/%s/%s", uname, name);
     send_redirect(stream, where, keep_alive, NULL);
+    return PICOMESH_OK_VOID();
 }
 
 /* Mint a personal access token for an existing uid. (There is deliberately
  * NO admin "register account id" action: a bare numeric account with no
  * username/credential/role is not a user — real users sign up via
  * /register.) */
-static void route_admin_tokens_mint_pat(struct yloop_stream *stream,
+static struct picomesh_void_result route_admin_tokens_mint_pat(struct loop_stream *stream,
                                         const char *body, size_t body_len, int keep_alive)
 {
     char uid_s[32];
@@ -1689,11 +1748,17 @@ static void route_admin_tokens_mint_pat(struct yloop_stream *stream,
         uint32_t uid = (uint32_t)strtoul(uid_s, NULL, 10);
         SVC_OPEN(pat_svc, "personal_access_tokens", personal_access_tokens_personal_access_tokens_create);
         if (pat_svc.ok && uid) {
-            personal_access_tokens_personal_access_tokens_mint(&pat_svc.c, pat_svc.obj, NULL, uid);
+            struct picomesh_uint32_result mint_res =
+                personal_access_tokens_personal_access_tokens_mint(&pat_svc.c, pat_svc.obj, NULL, uid);
             SVC_CLOSE(pat_svc);
+            if (PICOMESH_IS_ERR(mint_res)) {
+                picomesh_error_print(stderr, "route_admin_tokens_mint_pat: mint", mint_res.error);
+                picomesh_error_destroy(mint_res.error);
+            }
         }
     }
     send_redirect(stream, "/admin/tokens", keep_alive, NULL);
+    return PICOMESH_OK_VOID();
 }
 
 /* `/admin/storage` was removed: backend kv state isn't a UI concern,
@@ -1712,7 +1777,7 @@ static int path_eq(const char *path, const char *target)
 
 /* ---------- yaapp-compatible gateway API (/_rpc, /_describe) ---------- */
 
-static struct picomesh_void_result send_json_ex(struct yloop_stream *stream, int status,
+static struct picomesh_void_result send_json_ex(struct loop_stream *stream, int status,
                          const char *body, size_t body_len, int keep_alive,
                          const char *extra_headers)
 {
@@ -1738,21 +1803,23 @@ static struct picomesh_void_result send_json_ex(struct yloop_stream *stream, int
         keep_alive ? "keep-alive" : "close",
         extra_headers ? extra_headers : "");
     if (written <= 0) return PICOMESH_ERR(picomesh_void, "send_json_ex: header format failed");
-    if (yloop_write(stream, header, (size_t)written) != (size_t)written)
-        return PICOMESH_ERR(picomesh_void, "send_json_ex: header write failed");
-    if (body_len && yloop_write(stream, body, body_len) != body_len)
-        return PICOMESH_ERR(picomesh_void, "send_json_ex: body write failed");
+    struct picomesh_size_result header_write = loop_write(stream, header, (size_t)written);
+    if (PICOMESH_IS_ERR(header_write)) return PICOMESH_ERR(picomesh_void, "send_json_ex: header write failed", header_write);
+    if (body_len) {
+        struct picomesh_size_result body_write = loop_write(stream, body, body_len);
+        if (PICOMESH_IS_ERR(body_write)) return PICOMESH_ERR(picomesh_void, "send_json_ex: body write failed", body_write);
+    }
     return PICOMESH_OK_VOID();
 }
 
-static struct picomesh_void_result send_json(struct yloop_stream *stream, int status,
+static struct picomesh_void_result send_json(struct loop_stream *stream, int status,
                       const char *body, size_t body_len, int keep_alive)
 {
     return send_json_ex(stream, status, body, body_len, keep_alive, NULL);
 }
 
 
-static void write_error_detail(struct yjson_writer *writer, const char *message)
+static void write_error_detail(struct json_writer *writer, const char *message)
 {
     const char *msg = message ? message : "";
     size_t first_len = strcspn(msg, "\n");
@@ -1760,9 +1827,9 @@ static void write_error_detail(struct yjson_writer *writer, const char *message)
     size_t copy = first_len < sizeof(first) - 1 ? first_len : sizeof(first) - 1;
     memcpy(first, msg, copy);
     first[copy] = 0;
-    yjson_writer_key(writer, "message"); yjson_writer_string(writer, first[0] ? first : msg);
-    yjson_writer_key(writer, "detail");  yjson_writer_string(writer, msg);
-    yjson_writer_key(writer, "trace");   yjson_writer_begin_array(writer);
+    json_writer_key(writer, "message"); json_writer_string(writer, first[0] ? first : msg);
+    json_writer_key(writer, "detail");  json_writer_string(writer, msg);
+    json_writer_key(writer, "trace");   json_writer_begin_array(writer);
     const char *cursor = msg;
     while (*cursor) {
         const char *newline = strchr(cursor, '\n');
@@ -1771,29 +1838,29 @@ static void write_error_detail(struct yjson_writer *writer, const char *message)
         size_t line_copy = line_len < sizeof(line) - 1 ? line_len : sizeof(line) - 1;
         memcpy(line, cursor, line_copy);
         line[line_copy] = 0;
-        yjson_writer_string(writer, line);
+        json_writer_string(writer, line);
         if (!newline) break;
         cursor = newline + 1;
     }
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
 }
 
-static struct picomesh_void_result send_json_error(struct yloop_stream *stream, int status,
+static struct picomesh_void_result send_json_error(struct loop_stream *stream, int status,
                             const char *message, int keep_alive)
 {
     if (status >= 500) yerror("yhttp gateway request failed: %s", message ? message : "");
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_void, "send_json_error: writer alloc failed");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "error");
-    yjson_writer_begin_object(writer);
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "error");
+    json_writer_begin_object(writer);
     write_error_detail(writer, message);
-    yjson_writer_end_object(writer);
-    yjson_writer_end_object(writer);
+    json_writer_end_object(writer);
+    json_writer_end_object(writer);
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     struct picomesh_void_result send_res = send_json(stream, status, data, len, keep_alive);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     return send_res;
 }
 
@@ -1831,15 +1898,19 @@ static struct picomesh_int_result header_value(const char *raw, size_t raw_len, 
  * <token>`. All three are opaque-token forms the gateway accepts (see
  * CLAUDE.md — JWTs never cross this boundary). Returns 1 if a
  * non-empty token was found. */
-static int extract_session_token(const char *headers_raw, size_t headers_raw_len,
+static struct picomesh_int_result extract_session_token(const char *headers_raw, size_t headers_raw_len,
                                  char *out, size_t cap)
 {
     if (cookie_get(headers_raw, headers_raw_len, "picomesh-sid", out, cap) && out[0])
-        return 1;
-    if (header_value(headers_raw, headers_raw_len, "picomesh-sid", out, cap).value && out[0])
-        return 1;
+        return PICOMESH_OK(picomesh_int, 1);
+    struct picomesh_int_result sid_hdr = header_value(headers_raw, headers_raw_len, "picomesh-sid", out, cap);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, sid_hdr, "extract_session_token: sid header read failed");
+    if (sid_hdr.value && out[0])
+        return PICOMESH_OK(picomesh_int, 1);
     char auth[128];
-    if (header_value(headers_raw, headers_raw_len, "authorization", auth, sizeof(auth)).value) {
+    struct picomesh_int_result auth_hdr = header_value(headers_raw, headers_raw_len, "authorization", auth, sizeof(auth));
+    PICOMESH_RETURN_IF_ERR(picomesh_int, auth_hdr, "extract_session_token: authorization header read failed");
+    if (auth_hdr.value) {
         /* Only the Bearer scheme carries an opaque session token. A non-Bearer
          * Authorization (Basic, Digest, …) is NOT a session token: reject it
          * rather than treating the raw header value as one. */
@@ -1847,28 +1918,28 @@ static int extract_session_token(const char *headers_raw, size_t headers_raw_len
             const char *token_start = auth + 7;
             while (*token_start == ' ') ++token_start;
             size_t token_len = strlen(token_start);
-            if (token_len && token_len < cap) { memcpy(out, token_start, token_len); out[token_len] = 0; return 1; }
+            if (token_len && token_len < cap) { memcpy(out, token_start, token_len); out[token_len] = 0; return PICOMESH_OK(picomesh_int, 1); }
         }
     }
     out[0] = 0;
-    return 0;
+    return PICOMESH_OK(picomesh_int, 0);
 }
 
 /* Resolve an opaque session token to the authenticated uid via the
  * session backend. 0 → anonymous / invalid. */
-static uint32_t uid_for_token(const char *token)
+static struct picomesh_uint32_result uid_for_token(const char *token)
 {
-    if (!token || !*token) return 0;
+    if (!token || !*token) return PICOMESH_OK(picomesh_uint32, 0);
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return 0;
+    if (!engine) return PICOMESH_OK(picomesh_uint32, 0);
     struct ctx ctx = picomesh_engine_service_ctx(engine, "session");
     /* peer==NULL ⇒ session collocated in-process; create resolves it locally. */
     struct object_ptr_result create_res = session_session_create(&ctx);
-    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return 0; }
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, create_res, "uid_for_token: session create failed");
     struct picomesh_uint32_result lookup_res = session_session_lookup(&ctx, create_res.value, NULL, token);
     object_release_in_ctx(&ctx, create_res.value);
-    if (PICOMESH_IS_ERR(lookup_res)) { picomesh_error_destroy(lookup_res.error); return 0; }
-    return lookup_res.value;
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, lookup_res, "uid_for_token: session lookup failed");
+    return PICOMESH_OK(picomesh_uint32, lookup_res.value);
 }
 
 /* Resolve an opaque session token to the STORED ACCESS JWT (the user credential
@@ -1877,20 +1948,20 @@ static uint32_t uid_for_token(const char *token)
  * deployment authenticates backend calls the same way the split mesh's
  * authenticator chain does — backends derive identity ONLY from the JWT, so a
  * bare uid is not enough. */
-static char *session_jwt_for_token(const char *token)
+static struct picomesh_string_result session_jwt_for_token(const char *token)
 {
-    if (!token || !*token) return NULL;
+    if (!token || !*token) return PICOMESH_OK(picomesh_string, NULL);
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return NULL;
+    if (!engine) return PICOMESH_OK(picomesh_string, NULL);
     struct ctx ctx = picomesh_engine_service_ctx(engine, "session");
     struct object_ptr_result create_res = session_session_create(&ctx);
-    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return NULL; }
+    PICOMESH_RETURN_IF_ERR(picomesh_string, create_res, "session_jwt_for_token: session create failed");
     struct picomesh_string_result jwt_res = session_session_jwt(&ctx, create_res.value, NULL, token);
     object_release_in_ctx(&ctx, create_res.value);
-    if (PICOMESH_IS_ERR(jwt_res)) { picomesh_error_destroy(jwt_res.error); return NULL; }
-    if (jwt_res.value && jwt_res.value[0]) return jwt_res.value;
+    PICOMESH_RETURN_IF_ERR(picomesh_string, jwt_res, "session_jwt_for_token: session jwt failed");
+    if (jwt_res.value && jwt_res.value[0]) return PICOMESH_OK(picomesh_string, jwt_res.value);
     free(jwt_res.value);
-    return NULL;
+    return PICOMESH_OK(picomesh_string, NULL);
 }
 
 /* Resolve the caller's opaque session token to a VERIFIED auth context, the
@@ -1902,21 +1973,23 @@ static char *session_jwt_for_token(const char *token)
  * lookup, an expired stored JWT can no longer authorize: the gateway's
  * non-login mutation routes resolve identity through this so they cannot be
  * authorized by a stale credential. Always populates `out`. */
-static void resolve_authctx(const char *headers_raw, size_t headers_raw_len,
+static struct picomesh_void_result resolve_authctx(const char *headers_raw, size_t headers_raw_len,
                             struct picomesh_authctx *out)
 {
     memset(out, 0, sizeof(*out));
     char token[64];
-    if (!extract_session_token(headers_raw, headers_raw_len, token, sizeof(token)))
-        return;
+    struct picomesh_int_result token_res = extract_session_token(headers_raw, headers_raw_len, token, sizeof(token));
+    PICOMESH_RETURN_IF_ERR(picomesh_void, token_res, "resolve_authctx: token extract failed");
+    if (!token_res.value)
+        return PICOMESH_OK_VOID();
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return;
+    if (!engine) return PICOMESH_OK_VOID();
     struct ctx ctx = picomesh_engine_service_ctx(engine, "session");
     struct object_ptr_result create_res = session_session_create(&ctx);
-    if (PICOMESH_IS_ERR(create_res)) { picomesh_error_destroy(create_res.error); return; }
+    PICOMESH_RETURN_IF_ERR(picomesh_void, create_res, "resolve_authctx: session create failed");
     struct picomesh_string_result jwt_res = session_session_jwt(&ctx, create_res.value, NULL, token);
     object_release_in_ctx(&ctx, create_res.value);
-    if (PICOMESH_IS_ERR(jwt_res)) { picomesh_error_destroy(jwt_res.error); return; }
+    PICOMESH_RETURN_IF_ERR(picomesh_void, jwt_res, "resolve_authctx: session jwt failed");
     if (jwt_res.value && jwt_res.value[0]) {
         struct picomesh_string_result secret = picomesh_security_jwt_secret(engine);
         if (PICOMESH_IS_OK(secret)) {
@@ -1928,6 +2001,7 @@ static void resolve_authctx(const char *headers_raw, size_t headers_raw_len,
         }
     }
     free(jwt_res.value);
+    return PICOMESH_OK_VOID();
 }
 
 /* The frontend's security pipeline, built ONCE per worker and reused for every
@@ -1954,41 +2028,65 @@ static void gateway_security_free(void *ptr)
 /* Return this worker's cached pipeline, building it on first use. NULL only on
  * allocation failure. A build error is cached as `secured && !build_ok` so a
  * misconfig is reported per request without rebuilding every time. */
-static struct gateway_security *gateway_security_get(struct picomesh_engine *engine)
+static struct picomesh_void_ptr_result gateway_security_get(struct picomesh_engine *engine)
 {
     struct gateway_security *security = picomesh_engine_worker_security(engine);
-    if (security) return security;
+    if (security) return PICOMESH_OK(picomesh_void_ptr, security);
 
     security = calloc(1, sizeof(*security));
-    if (!security) return NULL;
+    if (!security) return PICOMESH_ERR(picomesh_void_ptr, "gateway_security_get: out of memory");
 
-    const struct yconfig *config = picomesh_engine_config(engine);
-    struct yconfig_node_ptr_result authn_res =
-        config ? yconfig_get(config, "security.authenticators") : (struct yconfig_node_ptr_result){.ok = 0};
-    const struct yconfig_node *authn_list = PICOMESH_IS_OK(authn_res) ? authn_res.value : NULL;
-    if (PICOMESH_IS_ERR(authn_res)) picomesh_error_destroy(authn_res.error);
-    security->secured = authn_list && yconfig_node_kind(authn_list) == YCONFIG_LIST;
+    const struct config *config = picomesh_engine_config(engine);
+    struct config_node_ptr_result authn_res =
+        config ? config_get(config, "security.authenticators") : (struct config_node_ptr_result){.ok = 0};
+    if (config && PICOMESH_IS_ERR(authn_res)) {
+        /* A config READ/parse failure must never silently downgrade the gateway
+         * to unsecured (which would authorize every request). Treat it as a hard
+         * misconfiguration: mark secured with build_ok unset so every request
+         * reports the 500 path below, exactly like a build failure. Genuine
+         * absence of `security.authenticators` (OK with NULL value, or no config
+         * at all) is the only case that intentionally runs unsecured. */
+        picomesh_error_print(stderr, "gateway_security_get: authenticators config", authn_res.error);
+        picomesh_error_destroy(authn_res.error);
+        security->secured = 1;
+        security->build_ok = 0;
+        picomesh_engine_worker_set_security(engine, security, gateway_security_free);
+        return PICOMESH_OK(picomesh_void_ptr, security);
+    }
+    const struct config_node *authn_list = PICOMESH_IS_OK(authn_res) ? authn_res.value : NULL;
+    security->secured = authn_list && config_node_kind(authn_list) == CONFIG_LIST;
 
     if (security->secured) {
+        /* A build failure is cached as secured && !build_ok and reported per
+         * request; render its full chain here so the misconfig is diagnosable. */
         struct picomesh_void_ptr_result chain_res = picomesh_authn_chain_build(engine, authn_list);
         if (PICOMESH_IS_OK(chain_res)) {
             security->chain = chain_res.value;
-            struct yconfig_node_ptr_result authz_res = yconfig_get(config, "security.authorizer");
-            const struct yconfig_node *authz_cfg = PICOMESH_IS_OK(authz_res) ? authz_res.value : NULL;
-            if (PICOMESH_IS_ERR(authz_res)) picomesh_error_destroy(authz_res.error);
-            struct picomesh_void_ptr_result authorizer_res = picomesh_authorizer_build(engine, authz_cfg);
-            if (PICOMESH_IS_OK(authorizer_res)) {
-                security->authorizer = authorizer_res.value;
-                security->build_ok = 1;
+            struct config_node_ptr_result authz_res = config_get(config, "security.authorizer");
+            if (PICOMESH_IS_ERR(authz_res)) {
+                /* As with the authenticators read above, a config READ failure
+                 * here must not silently fall back to a default authorizer.
+                 * Leave build_ok unset so the request path reports the 500. */
+                picomesh_error_print(stderr, "gateway_security_get: authorizer config", authz_res.error);
+                picomesh_error_destroy(authz_res.error);
             } else {
-                picomesh_error_destroy(authorizer_res.error);
+                struct picomesh_void_ptr_result authorizer_res =
+                    picomesh_authorizer_build(engine, authz_res.value);
+                if (PICOMESH_IS_OK(authorizer_res)) {
+                    security->authorizer = authorizer_res.value;
+                    security->build_ok = 1;
+                } else {
+                    picomesh_error_print(stderr, "gateway_security_get: authorizer build", authorizer_res.error);
+                    picomesh_error_destroy(authorizer_res.error);
+                }
             }
         } else {
+            picomesh_error_print(stderr, "gateway_security_get: authn chain build", chain_res.error);
             picomesh_error_destroy(chain_res.error);
         }
     }
     picomesh_engine_worker_set_security(engine, security, gateway_security_free);
-    return security;
+    return PICOMESH_OK(picomesh_void_ptr, security);
 }
 
 /* POST /_rpc — yaapp-style public gateway dispatch. Body:
@@ -1998,22 +2096,22 @@ static struct gateway_security *gateway_security_get(struct picomesh_engine *eng
  * through the ctx-aware JSON invoker (which packs args to the binary
  * wire). Positional `args` are honoured today; `kwargs` is accepted
  * but not yet mapped to parameters. */
-static void route_json_rpc(struct yloop_stream *stream,
+static struct picomesh_void_result route_json_rpc(struct loop_stream *stream,
                            const char *headers_raw, size_t headers_raw_len,
                            const char *body, size_t body_len, int keep_alive)
 {
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) { send_json_error(stream, 500, "_rpc: no engine", keep_alive); return; }
+    if (!engine) { send_json_error(stream, 500, "_rpc: no engine", keep_alive); return PICOMESH_OK_VOID(); }
 
-    struct yjson_doc *doc = yjson_parse(body, body_len);
-    if (!doc) { send_json_error(stream, 400, "_rpc: invalid JSON", keep_alive); return; }
-    const struct yjson_value *root = yjson_doc_root(doc);
-    const char *path = yjson_as_string(yjson_object_get(root, "path"), NULL);
-    const struct yjson_value *args = yjson_object_get(root, "args");
+    struct json_doc *doc = json_parse(body, body_len);
+    if (!doc) { send_json_error(stream, 400, "_rpc: invalid JSON", keep_alive); return PICOMESH_OK_VOID(); }
+    const struct json_value *root = json_doc_root(doc);
+    const char *path = json_as_string(json_object_get(root, "path"), NULL);
+    const struct json_value *args = json_object_get(root, "args");
     if (!path || !*path) {
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         send_json_error(stream, 400, "_rpc: missing 'path'", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     /* Resolve + gate the path through the shared active-service resolver:
@@ -2027,9 +2125,9 @@ static void route_json_rpc(struct yloop_stream *stream,
         char msg[320];
         snprintf(msg, sizeof(msg), "_rpc: %s", resolve_msg);
         picomesh_error_destroy(call_res.error);
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         send_json_error(stream, code, msg, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     struct picomesh_service_call call = call_res.value;
 
@@ -2038,11 +2136,11 @@ static void route_json_rpc(struct yloop_stream *stream,
     jinvoke_fn invoke_fn = jinvoke_for(call.method_qname);
     if (!invoke_fn) {
         picomesh_service_call_release(&call);
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         char msg[256];
         snprintf(msg, sizeof(msg), "_rpc: no method '%s'", call.method_qname);
         send_json_error(stream, 404, msg, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     /* Authentication + authorization. A frontend configured with
@@ -2053,45 +2151,83 @@ static void route_json_rpc(struct yloop_stream *stream,
      * plain transport bridge) keeps the legacy session→uid resolution. */
     uint32_t uid = 0;
     char *verified_jwt = NULL; /* owned; copied into yheaders below */
-    struct gateway_security *security = gateway_security_get(engine);
+    struct picomesh_void_ptr_result security_res = gateway_security_get(engine);
+    if (PICOMESH_IS_ERR(security_res)) {
+        char errbuf[8192];
+        picomesh_error_snprint(errbuf, sizeof(errbuf), security_res.error);
+        picomesh_error_print(stderr, "route_json_rpc: gateway_security_get", security_res.error);
+        picomesh_error_destroy(security_res.error);
+        picomesh_service_call_release(&call);
+        json_doc_free(doc);
+        send_json_error(stream, 500, errbuf, keep_alive);
+        return PICOMESH_OK_VOID();
+    }
+    struct gateway_security *security = security_res.value;
     if (!security) {
         picomesh_service_call_release(&call);
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         send_json_error(stream, 500, "_rpc: security pipeline unavailable", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     if (security->secured) {
         if (!security->build_ok) {
             picomesh_service_call_release(&call);
-            yjson_doc_free(doc);
+            json_doc_free(doc);
             send_json_error(stream, 500, "_rpc: security config error (authenticators/authorizer)", keep_alive);
-            return;
+            return PICOMESH_OK_VOID();
         }
         struct picomesh_authn_request authn_req = {
             .engine = engine, .headers_raw = headers_raw,
             .headers_raw_len = headers_raw_len, .endpoint = path,
         };
-        struct picomesh_authn_outcome outcome = picomesh_authn_chain_run(security->chain, &authn_req);
+        struct picomesh_authn_outcome_result outcome_res = picomesh_authn_chain_run(security->chain, &authn_req);
+        if (PICOMESH_IS_ERR(outcome_res)) {
+            /* Infrastructure failure in the authn chain: render the full cause
+             * chain to both stderr and the 500 body. */
+            char eb[8192];
+            picomesh_error_snprint(eb, sizeof(eb), outcome_res.error);
+            picomesh_error_print(stderr, "_rpc: authn chain", outcome_res.error);
+            picomesh_error_destroy(outcome_res.error);
+            picomesh_service_call_release(&call);
+            json_doc_free(doc);
+            send_json_error(stream, 500, eb, keep_alive);
+            return PICOMESH_OK_VOID();
+        }
+        struct picomesh_authn_outcome outcome = outcome_res.value;
         if (picomesh_authn_outcome_failed(&outcome)) {
             char msg[288];
             snprintf(msg, sizeof(msg), "_rpc: %s", outcome.error ? outcome.error : "invalid credentials");
             picomesh_authn_outcome_free(&outcome);
             picomesh_service_call_release(&call);
-            yjson_doc_free(doc);
+            json_doc_free(doc);
             send_json_error(stream, 401, msg, keep_alive);
-            return;
+            return PICOMESH_OK_VOID();
         }
-        struct picomesh_authz_decision decision =
+        struct picomesh_authz_decision_result decision_res =
             picomesh_authorizer_decide(security->authorizer, path, args, outcome.jwt);
+        if (PICOMESH_IS_ERR(decision_res)) {
+            /* Infrastructure failure deciding authz: render the full cause
+             * chain to both stderr and the 500 body. */
+            char eb[8192];
+            picomesh_error_snprint(eb, sizeof(eb), decision_res.error);
+            picomesh_error_print(stderr, "_rpc: authz decide", decision_res.error);
+            picomesh_error_destroy(decision_res.error);
+            picomesh_authn_outcome_free(&outcome);
+            picomesh_service_call_release(&call);
+            json_doc_free(doc);
+            send_json_error(stream, 500, eb, keep_alive);
+            return PICOMESH_OK_VOID();
+        }
+        struct picomesh_authz_decision decision = decision_res.value;
         if (!decision.allowed) {
             char msg[288];
             snprintf(msg, sizeof(msg), "_rpc: %s", decision.reason[0] ? decision.reason : "forbidden");
             picomesh_authn_outcome_free(&outcome);
             picomesh_service_call_release(&call);
-            yjson_doc_free(doc);
+            json_doc_free(doc);
             send_json_error(stream, decision.status ? decision.status : 403, msg, keep_alive);
-            return;
+            return PICOMESH_OK_VOID();
         }
         /* Allowed: carry the verified JWT downstream; derive uid from its
          * claims for the trace/log line (backends use the JWT, not the uid). */
@@ -2118,8 +2254,17 @@ static void route_json_rpc(struct yloop_stream *stream,
          * (ns_create, repo create, …) would otherwise be rejected as
          * "authentication required". */
         char token[64];
-        if (extract_session_token(headers_raw, headers_raw_len, token, sizeof(token))) {
-            verified_jwt = session_jwt_for_token(token);
+        struct picomesh_int_result token_res = extract_session_token(headers_raw, headers_raw_len, token, sizeof(token));
+        if (PICOMESH_IS_ERR(token_res)) {
+            picomesh_error_print(stderr, "_rpc: extract session token", token_res.error);
+            picomesh_error_destroy(token_res.error);
+        } else if (token_res.value) {
+            struct picomesh_string_result jwt_res = session_jwt_for_token(token);
+            verified_jwt = PICOMESH_IS_OK(jwt_res) ? jwt_res.value : NULL;
+            if (PICOMESH_IS_ERR(jwt_res)) {
+                picomesh_error_print(stderr, "_rpc: session jwt lookup", jwt_res.error);
+                picomesh_error_destroy(jwt_res.error);
+            }
             if (verified_jwt) {
                 struct picomesh_string_result secret = picomesh_security_jwt_secret(engine);
                 if (PICOMESH_IS_OK(secret)) {
@@ -2135,7 +2280,13 @@ static void route_json_rpc(struct yloop_stream *stream,
             } else {
                 /* No stored JWT (anonymous or expired session) — still record
                  * the uid for the trace line; the call goes out unauthenticated. */
-                uid = uid_for_token(token);
+                struct picomesh_uint32_result uid_res = uid_for_token(token);
+                if (PICOMESH_IS_OK(uid_res)) {
+                    uid = uid_res.value;
+                } else {
+                    picomesh_error_print(stderr, "_rpc: uid_for_token", uid_res.error);
+                    picomesh_error_destroy(uid_res.error);
+                }
             }
         }
     }
@@ -2164,23 +2315,26 @@ static void route_json_rpc(struct yloop_stream *stream,
     }
     free(verified_jwt);
 
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "result");
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "result");
     char err[8192] = {0};
-    int invoke_rc = invoke_fn(&call.ctx, call.obj, headers, args, writer, err, sizeof(err));
-    if (headers) ytelemetry_span_end(&span, invoke_rc == 0, invoke_rc != 0 ? err : NULL);
+    struct picomesh_void_result invoke_res =
+        invoke_fn(&call.ctx, call.obj, headers, args, writer, err, sizeof(err));
+    int invoke_failed = PICOMESH_IS_ERR(invoke_res);
+    if (headers) ytelemetry_span_end(&span, !invoke_failed, invoke_failed ? err : NULL);
     yheaders_free(headers);
     picomesh_service_call_release(&call);
-    if (invoke_rc != 0) {
-        yjson_writer_free(writer);
-        yjson_doc_free(doc);
+    if (invoke_failed) {
+        picomesh_error_destroy(invoke_res.error);
+        json_writer_free(writer);
+        json_doc_free(doc);
         send_json_error(stream, 500, err[0] ? err : "_rpc: call failed", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    yjson_writer_end_object(writer);
+    json_writer_end_object(writer);
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     /* Echo the trace context (W3C traceparent) so clients/tests/UI can
      * correlate the response with the trace stored by the collector. */
     char tp_header[160] = {0};
@@ -2190,8 +2344,9 @@ static void route_json_rpc(struct yloop_stream *stream,
         snprintf(tp_header, sizeof(tp_header), "traceparent: %s\r\n", tpval);
     }
     send_json_ex(stream, 200, data, len, keep_alive, tp_header[0] ? tp_header : NULL);
-    yjson_writer_free(writer);
-    yjson_doc_free(doc);
+    json_writer_free(writer);
+    json_doc_free(doc);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET|POST /_whoami — resolve the caller's opaque session token (cookie /
@@ -2203,7 +2358,7 @@ static void route_json_rpc(struct yloop_stream *stream,
  * payload carries only non-sensitive claims (uid, username, admin bit) —
  * never the internal JWT or any secret. The username comes from the
  * server-side accounts/name:<uid> index, not from anything client-supplied. */
-static void route_whoami(struct yloop_stream *stream,
+static struct picomesh_void_result route_whoami(struct loop_stream *stream,
                          const char *headers_raw, size_t headers_raw_len,
                          int keep_alive)
 {
@@ -2214,21 +2369,22 @@ static void route_whoami(struct yloop_stream *stream,
      * the security/rel-db refactor moved accounts into the relational store, so
      * that read always missed and username came back empty.) */
     struct picomesh_authctx caller;
-    resolve_authctx(headers_raw, headers_raw_len, &caller);
+    struct picomesh_void_result authctx_res = resolve_authctx(headers_raw, headers_raw_len, &caller);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, authctx_res, "route_whoami: resolve authctx failed");
     int admin = caller.uid &&
         picomesh_groups_max_role(caller.groups_csv, "site") >= picomesh_role_rank("maintainer");
 
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "uid");      yjson_writer_int(writer, (int64_t)caller.uid);
-    yjson_writer_key(writer, "username"); yjson_writer_string(writer, caller.username);
-    yjson_writer_key(writer, "is_admin"); yjson_writer_bool(writer, admin);
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "uid");      json_writer_int(writer, (int64_t)caller.uid);
+    json_writer_key(writer, "username"); json_writer_string(writer, caller.username);
+    json_writer_key(writer, "is_admin"); json_writer_bool(writer, admin);
     /* The caller's own namespace memberships ("<path>:<role>") as
      * [{"path","role"}, …] — non-secret self data (issue #30). The webapp uses
      * it to offer a repo-creation namespace picker and a group-management area;
      * it never carries a JWT. */
-    yjson_writer_key(writer, "namespaces");
-    yjson_writer_begin_array(writer);
+    json_writer_key(writer, "namespaces");
+    json_writer_begin_array(writer);
     for (const char *cursor = caller.groups_csv; cursor && *cursor; ) {
         const char *comma = strchr(cursor, ',');
         size_t span = comma ? (size_t)(comma - cursor) : strlen(cursor);
@@ -2240,30 +2396,31 @@ static void route_whoami(struct yloop_stream *stream,
             if (path_len < sizeof(ns_path) && role_len < sizeof(ns_role)) {
                 memcpy(ns_path, cursor, path_len); ns_path[path_len] = 0;
                 memcpy(ns_role, colon + 1, role_len); ns_role[role_len] = 0;
-                yjson_writer_begin_object(writer);
-                yjson_writer_key(writer, "path"); yjson_writer_string(writer, ns_path);
-                yjson_writer_key(writer, "role"); yjson_writer_string(writer, ns_role);
-                yjson_writer_end_object(writer);
+                json_writer_begin_object(writer);
+                json_writer_key(writer, "path"); json_writer_string(writer, ns_path);
+                json_writer_key(writer, "role"); json_writer_string(writer, ns_role);
+                json_writer_end_object(writer);
             }
         }
         if (!comma) break;
         cursor = comma + 1;
     }
-    yjson_writer_end_array(writer);
-    yjson_writer_end_object(writer);
+    json_writer_end_array(writer);
+    json_writer_end_object(writer);
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     send_json(stream, 200, data, len, keep_alive);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
+    return PICOMESH_OK_VOID();
 }
 
-struct describe_emit_ctx { struct yjson_writer *w; };
+struct describe_emit_ctx { struct json_writer *w; };
 
 static void describe_slot_cb(const char *name, method_slot slot, void *ud)
 {
     (void)slot;
     struct describe_emit_ctx *describe_ctx = ud;
-    yjson_writer_string(describe_ctx->w, name);
+    json_writer_string(describe_ctx->w, name);
 }
 
 /* --- root /_describe: list active services, each with a source tag ---
@@ -2278,7 +2435,7 @@ static void describe_slot_cb(const char *name, method_slot slot, void *ud)
  * everything `local` while the split mesh reports the backends `remote`. */
 struct describe_services_ctx {
     struct picomesh_engine *e;
-    struct yjson_writer *w;
+    struct json_writer *w;
     char seen[64][64];
     size_t seen_n;
 };
@@ -2289,7 +2446,7 @@ struct describe_services_ctx {
  * selects exactly that service's classes; the remainder is the class part
  * of the dotted path the console feeds back to /_rpc and /<svc.class>/_describe. */
 struct describe_class_ctx {
-    struct yjson_writer *w;
+    struct json_writer *w;
     const char *service;
     const char *prefix;   /* "<service>_" */
     size_t prefix_len;
@@ -2298,9 +2455,12 @@ struct describe_class_ctx {
 static void describe_method_cb(const char *name, method_slot slot, void *ud)
 {
     (void)slot;
-    yjson_writer_string((struct yjson_writer *)ud, name);
+    json_writer_string((struct json_writer *)ud, name);
 }
 
+/* class_for_each callback — its void signature is fixed by the iterator's cb
+ * type, so a slot-enumeration failure is absorbed here (chain rendered). */
+PICOMESH_EXTERNAL_CALLBACK
 static void describe_class_cb(const struct class *cls, const char *qname, void *ud)
 {
     struct describe_class_ctx *class_ctx = ud;
@@ -2309,13 +2469,17 @@ static void describe_class_cb(const struct class *cls, const char *qname, void *
     if (!*class_part) return;
     char dotpath[192];
     snprintf(dotpath, sizeof(dotpath), "%s.%s", class_ctx->service, class_part);
-    yjson_writer_begin_object(class_ctx->w);
-    yjson_writer_key(class_ctx->w, "class");   yjson_writer_string(class_ctx->w, dotpath);
-    yjson_writer_key(class_ctx->w, "qname");   yjson_writer_string(class_ctx->w, qname);
-    yjson_writer_key(class_ctx->w, "methods"); yjson_writer_begin_array(class_ctx->w);
-    class_for_each_slot(cls, describe_method_cb, class_ctx->w);
-    yjson_writer_end_array(class_ctx->w);
-    yjson_writer_end_object(class_ctx->w);
+    json_writer_begin_object(class_ctx->w);
+    json_writer_key(class_ctx->w, "class");   json_writer_string(class_ctx->w, dotpath);
+    json_writer_key(class_ctx->w, "qname");   json_writer_string(class_ctx->w, qname);
+    json_writer_key(class_ctx->w, "methods"); json_writer_begin_array(class_ctx->w);
+    struct picomesh_void_result slots_res = class_for_each_slot(cls, describe_method_cb, class_ctx->w);
+    if (PICOMESH_IS_ERR(slots_res)) {
+        picomesh_error_print(stderr, "describe_class_cb: class_for_each_slot", slots_res.error);
+        picomesh_error_destroy(slots_res.error);
+    }
+    json_writer_end_array(class_ctx->w);
+    json_writer_end_object(class_ctx->w);
 }
 
 /* Emit one {service, source, classes:[...]} object, deduped by name. The
@@ -2331,10 +2495,10 @@ static void describe_emit_service(struct describe_services_ctx *services_ctx, co
     if (services_ctx->seen_n < sizeof(services_ctx->seen) / sizeof(services_ctx->seen[0]))
         snprintf(services_ctx->seen[services_ctx->seen_n++], sizeof(services_ctx->seen[0]), "%s", name);
     int remote = services_ctx->e && picomesh_engine_service_ctx(services_ctx->e, name).peer != NULL;
-    yjson_writer_begin_object(services_ctx->w);
-    yjson_writer_key(services_ctx->w, "service"); yjson_writer_string(services_ctx->w, name);
-    yjson_writer_key(services_ctx->w, "source");  yjson_writer_string(services_ctx->w, remote ? "remote" : "local");
-    yjson_writer_key(services_ctx->w, "classes"); yjson_writer_begin_array(services_ctx->w);
+    json_writer_begin_object(services_ctx->w);
+    json_writer_key(services_ctx->w, "service"); json_writer_string(services_ctx->w, name);
+    json_writer_key(services_ctx->w, "source");  json_writer_string(services_ctx->w, remote ? "remote" : "local");
+    json_writer_key(services_ctx->w, "classes"); json_writer_begin_array(services_ctx->w);
     char prefix[80];
     int prefix_len = snprintf(prefix, sizeof(prefix), "%s_", name);
     struct describe_class_ctx class_ctx = {
@@ -2342,27 +2506,27 @@ static void describe_emit_service(struct describe_services_ctx *services_ctx, co
         .prefix_len = prefix_len > 0 ? (size_t)prefix_len : 0,
     };
     class_for_each(describe_class_cb, &class_ctx);
-    yjson_writer_end_array(services_ctx->w);
-    yjson_writer_end_object(services_ctx->w);
+    json_writer_end_array(services_ctx->w);
+    json_writer_end_object(services_ctx->w);
 }
 
 /* `plugins:` entries are plain strings — each names a local plugin. */
 static void describe_emit_plugins(struct describe_services_ctx *services_ctx,
-                                  const struct yconfig_node *list)
+                                  const struct config_node *list)
 {
-    if (!list || yconfig_node_kind(list) != YCONFIG_LIST) return;
-    size_t count = yconfig_node_size(list);
+    if (!list || config_node_kind(list) != CONFIG_LIST) return;
+    size_t count = config_node_size(list);
     for (size_t i = 0; i < count; ++i) {
-        const struct yconfig_node *entry = yconfig_node_at(list, i);
-        describe_emit_service(services_ctx, entry ? yconfig_node_as_string(entry, NULL) : NULL);
+        const struct config_node *entry = config_node_at(list, i);
+        describe_emit_service(services_ctx, entry ? config_node_as_string(entry, NULL) : NULL);
     }
 }
 
 /* for_each cb: capture one `remotes[]` map entry's `service:` value. */
-static int describe_grab_service_cb(const char *key, const struct yconfig_node *val, void *ud)
+static int describe_grab_service_cb(const char *key, const struct config_node *val, void *ud)
 {
     if (strcmp(key, "service") == 0) {
-        const char *service_str = yconfig_node_as_string(val, NULL);
+        const char *service_str = config_node_as_string(val, NULL);
         if (service_str) { snprintf((char *)ud, 64, "%s", service_str); return 1; /* stop */ }
     }
     return 0;
@@ -2370,15 +2534,15 @@ static int describe_grab_service_cb(const char *key, const struct yconfig_node *
 
 /* `remotes:` entries are maps carrying a `service:` field. */
 static void describe_emit_remotes(struct describe_services_ctx *services_ctx,
-                                  const struct yconfig_node *list)
+                                  const struct config_node *list)
 {
-    if (!list || yconfig_node_kind(list) != YCONFIG_LIST) return;
-    size_t count = yconfig_node_size(list);
+    if (!list || config_node_kind(list) != CONFIG_LIST) return;
+    size_t count = config_node_size(list);
     for (size_t i = 0; i < count; ++i) {
-        const struct yconfig_node *entry = yconfig_node_at(list, i);
-        if (!entry || yconfig_node_kind(entry) != YCONFIG_MAP) continue;
+        const struct config_node *entry = config_node_at(list, i);
+        if (!entry || config_node_kind(entry) != CONFIG_MAP) continue;
         char remote_name[64] = {0};
-        yconfig_node_for_each(entry, describe_grab_service_cb, remote_name);
+        config_node_for_each(entry, describe_grab_service_cb, remote_name);
         if (remote_name[0]) describe_emit_service(services_ctx, remote_name);
     }
 }
@@ -2387,25 +2551,24 @@ static void describe_emit_remotes(struct describe_services_ctx *services_ctx,
  * `mesh.services.<--name>.<named_suffix>` first (parent-config / collocated
  * run where --name is set), else the top-level `<top_key>` (split per-node
  * file the mesh writes per child). Returns the node or NULL. */
-static const struct yconfig_node *describe_node_list(struct picomesh_engine *engine,
+static struct config_node_ptr_result describe_node_list(struct picomesh_engine *engine,
                                                      const char *named_suffix,
                                                      const char *top_key)
 {
-    const struct yconfig *cfg = picomesh_engine_config(engine);
-    if (!cfg) return NULL;
-    struct yargv_chain *cli_chain = picomesh_engine_cli(engine);
-    const char *name = cli_chain ? yargv_get_string(cli_chain, "name", NULL) : NULL;
+    const struct config *cfg = picomesh_engine_config(engine);
+    if (!cfg) return PICOMESH_OK(config_node_ptr, NULL);
+    struct argv_chain *cli_chain = picomesh_engine_cli(engine);
+    const char *name = cli_chain ? argv_get_string(cli_chain, "name", NULL) : NULL;
     if (name && *name) {
         char path[256];
         snprintf(path, sizeof(path), "mesh.services.%s.%s", name, named_suffix);
-        struct yconfig_node_ptr_result named_res = yconfig_get(cfg, path);
-        if (PICOMESH_IS_OK(named_res) && named_res.value) return named_res.value;
-        if (PICOMESH_IS_ERR(named_res)) picomesh_error_destroy(named_res.error);
+        struct config_node_ptr_result named_res = config_get(cfg, path);
+        PICOMESH_RETURN_IF_ERR(config_node_ptr, named_res, "describe_node_list: named config read failed");
+        if (named_res.value) return named_res;
     }
-    struct yconfig_node_ptr_result top_res = yconfig_get(cfg, top_key);
-    if (PICOMESH_IS_OK(top_res) && top_res.value) return top_res.value;
-    if (PICOMESH_IS_ERR(top_res)) picomesh_error_destroy(top_res.error);
-    return NULL;
+    struct config_node_ptr_result top_res = config_get(cfg, top_key);
+    PICOMESH_RETURN_IF_ERR(config_node_ptr, top_res, "describe_node_list: top config read failed");
+    return top_res;
 }
 
 /* GET|POST /_describe[_tree] and /<service.class>/_describe[_tree].
@@ -2413,19 +2576,19 @@ static const struct yconfig_node *describe_node_list(struct picomesh_engine *eng
  * lists the gateway's configured backend services. `tree` currently
  * shares the shallow shape (one class level); deeper nesting can layer
  * on once a per-domain class enumerator exists. */
-static void route_describe(struct yloop_stream *stream, const char *class_dotpath,
+static struct picomesh_void_result route_describe(struct loop_stream *stream, const char *class_dotpath,
                            int tree, int keep_alive)
 {
     struct picomesh_engine *engine = picomesh_active_engine();
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
 
     if (class_dotpath && *class_dotpath) {
         char class_qname[160];
         size_t path_len = strlen(class_dotpath);
         if (path_len >= sizeof(class_qname)) {
-            yjson_writer_free(writer);
+            json_writer_free(writer);
             send_json_error(stream, 400, "_describe: path too long", keep_alive);
-            return;
+            return PICOMESH_OK_VOID();
         }
         memcpy(class_qname, class_dotpath, path_len + 1);
         for (char *cursor = class_qname; *cursor; ++cursor) if (*cursor == '.') *cursor = '_';
@@ -2433,14 +2596,19 @@ static void route_describe(struct yloop_stream *stream, const char *class_dotpat
         struct class_ptr_result class_res = class_by_name(class_qname);
         if (PICOMESH_IS_OK(class_res) && class_res.value) {
             /* Class path: list its method slots (names only). */
-            yjson_writer_begin_object(writer);
-            yjson_writer_key(writer, "path");    yjson_writer_string(writer, class_dotpath);
-            yjson_writer_key(writer, "class");   yjson_writer_string(writer, class_qname);
-            yjson_writer_key(writer, "methods"); yjson_writer_begin_array(writer);
+            json_writer_begin_object(writer);
+            json_writer_key(writer, "path");    json_writer_string(writer, class_dotpath);
+            json_writer_key(writer, "class");   json_writer_string(writer, class_qname);
+            json_writer_key(writer, "methods"); json_writer_begin_array(writer);
             struct describe_emit_ctx describe_ctx = {.w = writer};
-            class_for_each_slot(class_res.value, describe_slot_cb, &describe_ctx);
-            yjson_writer_end_array(writer);
-            yjson_writer_end_object(writer);
+            struct picomesh_void_result slots_res =
+                class_for_each_slot(class_res.value, describe_slot_cb, &describe_ctx);
+            if (PICOMESH_IS_ERR(slots_res)) {
+                picomesh_error_print(stderr, "route_describe: class_for_each_slot", slots_res.error);
+                picomesh_error_destroy(slots_res.error);
+            }
+            json_writer_end_array(writer);
+            json_writer_end_object(writer);
         } else {
             if (PICOMESH_IS_ERR(class_res)) picomesh_error_destroy(class_res.error);
             /* Not a class — maybe a fully-qualified method (service.class.method).
@@ -2449,22 +2617,22 @@ static void route_describe(struct yloop_stream *stream, const char *class_dotpat
              * console renders one field per — namespace/key/value, not one blob. */
             const struct jinvoke_params *params = jinvoke_params_for(class_qname);
             if (!params) {
-                yjson_writer_free(writer);
+                json_writer_free(writer);
                 send_json_error(stream, 404, "_describe: unknown class or method", keep_alive);
-                return;
+                return PICOMESH_OK_VOID();
             }
-            yjson_writer_begin_object(writer);
-            yjson_writer_key(writer, "path");   yjson_writer_string(writer, class_dotpath);
-            yjson_writer_key(writer, "method"); yjson_writer_string(writer, class_qname);
-            yjson_writer_key(writer, "params"); yjson_writer_begin_array(writer);
+            json_writer_begin_object(writer);
+            json_writer_key(writer, "path");   json_writer_string(writer, class_dotpath);
+            json_writer_key(writer, "method"); json_writer_string(writer, class_qname);
+            json_writer_key(writer, "params"); json_writer_begin_array(writer);
             for (size_t i = 0; i < params->count; ++i) {
-                yjson_writer_begin_object(writer);
-                yjson_writer_key(writer, "name"); yjson_writer_string(writer, params->items[i].name);
-                yjson_writer_key(writer, "type"); yjson_writer_string(writer, params->items[i].type);
-                yjson_writer_end_object(writer);
+                json_writer_begin_object(writer);
+                json_writer_key(writer, "name"); json_writer_string(writer, params->items[i].name);
+                json_writer_key(writer, "type"); json_writer_string(writer, params->items[i].type);
+                json_writer_end_object(writer);
             }
-            yjson_writer_end_array(writer);
-            yjson_writer_end_object(writer);
+            json_writer_end_array(writer);
+            json_writer_end_object(writer);
         }
     } else {
         /* Root: list the services THIS node can route to, each tagged
@@ -2473,29 +2641,34 @@ static void route_describe(struct yloop_stream *stream, const char *class_dotpat
          * `remotes:` peers reached over yrpc. Both come from the same
          * config the engine activated from — emitted local-first, then
          * remote, deduped, with the source decided by the peer check. */
-        yjson_writer_begin_object(writer);
-        yjson_writer_key(writer, "services");
-        yjson_writer_begin_array(writer);
+        json_writer_begin_object(writer);
+        json_writer_key(writer, "services");
+        json_writer_begin_array(writer);
         if (engine) {
             struct describe_services_ctx services_ctx = {.e = engine, .w = writer, .seen_n = 0};
-            describe_emit_plugins(&services_ctx, describe_node_list(engine, "plugins", "plugins"));
-            describe_emit_remotes(&services_ctx, describe_node_list(engine, "config.remotes", "remotes"));
+            struct config_node_ptr_result plugins_list = describe_node_list(engine, "plugins", "plugins");
+            if (PICOMESH_IS_ERR(plugins_list)) { picomesh_error_print(stderr, "describe plugins", plugins_list.error); picomesh_error_destroy(plugins_list.error); }
+            else describe_emit_plugins(&services_ctx, plugins_list.value);
+            struct config_node_ptr_result remotes_list = describe_node_list(engine, "config.remotes", "remotes");
+            if (PICOMESH_IS_ERR(remotes_list)) { picomesh_error_print(stderr, "describe remotes", remotes_list.error); picomesh_error_destroy(remotes_list.error); }
+            else describe_emit_remotes(&services_ctx, remotes_list.value);
         }
-        yjson_writer_end_array(writer);
-        yjson_writer_key(writer, "tree"); yjson_writer_bool(writer, tree ? true : false);
-        yjson_writer_end_object(writer);
+        json_writer_end_array(writer);
+        json_writer_key(writer, "tree"); json_writer_bool(writer, tree ? true : false);
+        json_writer_end_object(writer);
     }
 
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     send_json(stream, 200, data, len, keep_alive);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
+    return PICOMESH_OK_VOID();
 }
 
 /* If `path` is `/<dotpath>/_describe` or `/<dotpath>/_describe_tree`,
  * dispatch a describe for `<dotpath>` and return 1. The root forms
  * (/_describe, /_describe_tree) are handled by the caller. */
-static int try_hierarchical_describe(struct yloop_stream *stream, const char *path,
+static struct picomesh_int_result try_hierarchical_describe(struct loop_stream *stream, const char *path,
                                      int keep_alive)
 {
     const char *query = strchr(path, '?');
@@ -2513,29 +2686,33 @@ static int try_hierarchical_describe(struct yloop_stream *stream, const char *pa
     } else if (path_len > desc_suffix_len && memcmp(path + path_len - desc_suffix_len, desc_suffix, desc_suffix_len) == 0) {
         tree = 0; suffix_len = desc_suffix_len;
     } else {
-        return 0;
+        return PICOMESH_OK(picomesh_int, 0);
     }
 
     size_t dot_len = path_len - suffix_len;
-    if (dot_len == 0 || path[0] != '/') return 0;
+    if (dot_len == 0 || path[0] != '/') return PICOMESH_OK(picomesh_int, 0);
     char dotpath[160];
-    if (dot_len - 1 >= sizeof(dotpath)) return 0;
+    if (dot_len - 1 >= sizeof(dotpath)) return PICOMESH_OK(picomesh_int, 0);
     memcpy(dotpath, path + 1, dot_len - 1);
     dotpath[dot_len - 1] = 0;
-    route_describe(stream, dotpath, tree, keep_alive);
-    return 1;
+    struct picomesh_void_result describe_res = route_describe(stream, dotpath, tree, keep_alive);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, describe_res, "try_hierarchical_describe: route_describe failed");
+    return PICOMESH_OK(picomesh_int, 1);
 }
 
 /* A non-gateway yhttp node with a non-empty `remotes:` list is a
  * yrpc->yhttp transport bridge (gh#15): it fronts its configured remote
  * yrpc services with the generic JSON API and nothing else. */
-static int yhttp_node_has_remotes(struct picomesh_engine *engine)
+static struct picomesh_int_result yhttp_node_has_remotes(struct picomesh_engine *engine)
 {
-    const struct yconfig_node *remotes_node = describe_node_list(engine, "config.remotes", "remotes");
-    return remotes_node && yconfig_node_kind(remotes_node) == YCONFIG_LIST && yconfig_node_size(remotes_node) > 0;
+    struct config_node_ptr_result remotes_res = describe_node_list(engine, "config.remotes", "remotes");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, remotes_res, "yhttp_node_has_remotes: remotes config read failed");
+    const struct config_node *remotes_node = remotes_res.value;
+    return PICOMESH_OK(picomesh_int,
+        remotes_node && config_node_kind(remotes_node) == CONFIG_LIST && config_node_size(remotes_node) > 0 ? 1 : 0);
 }
 
-int yhttp_frontend_try(struct yloop_stream *stream,
+struct picomesh_int_result yhttp_frontend_try(struct loop_stream *stream,
                        const char *method, const char *path,
                        const char *headers_raw, size_t headers_raw_len,
                        const char *body, size_t body_len,
@@ -2552,21 +2729,21 @@ int yhttp_frontend_try(struct yloop_stream *stream,
      *     the app).
      * A pure backend child has neither, so it falls through to JSON. */
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return 0;
+    if (!engine) return PICOMESH_OK(picomesh_int, 0);
     int has_session_remote = picomesh_engine_service_ctx(engine, "session").peer != NULL;
-    struct yconfig_node_ptr_result serve_app_res =
-        yconfig_get(picomesh_engine_config(engine), "yhttp.serve_app");
-    int serve_app = PICOMESH_IS_OK(serve_app_res) && serve_app_res.value &&
-                    yconfig_node_as_bool(serve_app_res.value, 0);
+    struct config_node_ptr_result serve_app_res =
+        config_get(picomesh_engine_config(engine), "yhttp.serve_app");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, serve_app_res, "yhttp_frontend_try: yhttp.serve_app config read failed");
+    int serve_app = serve_app_res.value && config_node_as_bool(serve_app_res.value, 0);
     /* `yhttp.bridge_only`: an explicit opt-out of gateway mode. A pure
      * transport bridge that wants to front EVERY backend (so the service
      * console can inspect them all) must list `session` as a remote, which
      * would otherwise look like the auth gateway — this flag keeps it a
      * bridge: generic JSON API, no picoforge auth/HTML routes (gh#15). */
-    struct yconfig_node_ptr_result bridge_only_res =
-        yconfig_get(picomesh_engine_config(engine), "yhttp.bridge_only");
-    int bridge_only = PICOMESH_IS_OK(bridge_only_res) && bridge_only_res.value &&
-                      yconfig_node_as_bool(bridge_only_res.value, 0);
+    struct config_node_ptr_result bridge_only_res =
+        config_get(picomesh_engine_config(engine), "yhttp.bridge_only");
+    PICOMESH_RETURN_IF_ERR(picomesh_int, bridge_only_res, "yhttp_frontend_try: yhttp.bridge_only config read failed");
+    int bridge_only = bridge_only_res.value && config_node_as_bool(bridge_only_res.value, 0);
     /* The picoforge gateway (auth boundary): `session` wired as a remote, or
      * the collocated all-in-one `yhttp.serve_app`. It owns the auth/HTML
      * POSTs below. A non-gateway yhttp node with remotes is a generic
@@ -2574,8 +2751,14 @@ int yhttp_frontend_try(struct yloop_stream *stream,
      * node with neither (the mesh control parent, a standalone backend on
      * yhttp) is none of our business — fall through to the yhttp serve layer. */
     int is_gateway = (has_session_remote || serve_app) && !bridge_only;
-    int is_bridge = !is_gateway && yhttp_node_has_remotes(engine);
-    if (!is_gateway && !is_bridge) return 0;
+    struct picomesh_int_result has_remotes_res = yhttp_node_has_remotes(engine);
+    if (PICOMESH_IS_ERR(has_remotes_res)) {
+        picomesh_error_print(stderr, "yhttp_node_has_remotes", has_remotes_res.error);
+        picomesh_error_destroy(has_remotes_res.error);
+        return PICOMESH_OK(picomesh_int, 0);
+    }
+    int is_bridge = !is_gateway && has_remotes_res.value;
+    if (!is_gateway && !is_bridge) return PICOMESH_OK(picomesh_int, 0);
 
     int is_get = strcmp(method, "GET") == 0;
     int is_post = strcmp(method, "POST") == 0;
@@ -2591,17 +2774,19 @@ int yhttp_frontend_try(struct yloop_stream *stream,
          * (POST /_rpc?op=&id=) stays internal transport: defer to
          * yhttp.c by returning 0 when an op= query is present. */
         if (is_post && path_len == 5 && memcmp(path, "/_rpc", 5) == 0) {
-            if (query && strstr(query, "op=")) return 0;
+            if (query && strstr(query, "op=")) return PICOMESH_OK(picomesh_int, 0);
             route_json_rpc(stream, headers_raw, headers_raw_len, body, body_len, keep_alive);
-            return 1;
+            return PICOMESH_OK(picomesh_int, 1);
         }
 
         /* _describe / _describe_tree — root + hierarchical. */
         if (is_get || is_post) {
-            if (path_eq(path, "/_describe"))      { route_describe(stream, NULL, 0, keep_alive); return 1; }
-            if (path_eq(path, "/_describe_tree")) { route_describe(stream, NULL, 1, keep_alive); return 1; }
-            if (path_eq(path, "/_whoami"))        { route_whoami(stream, headers_raw, headers_raw_len, keep_alive); return 1; }
-            if (try_hierarchical_describe(stream, path, keep_alive)) return 1;
+            if (path_eq(path, "/_describe"))      { struct picomesh_void_result r = route_describe(stream, NULL, 0, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_describe", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
+            if (path_eq(path, "/_describe_tree")) { struct picomesh_void_result r = route_describe(stream, NULL, 1, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_describe", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
+            if (path_eq(path, "/_whoami"))        { struct picomesh_void_result r = route_whoami(stream, headers_raw, headers_raw_len, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_whoami", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
+            struct picomesh_int_result hd = try_hierarchical_describe(stream, path, keep_alive);
+            if (PICOMESH_IS_ERR(hd)) { picomesh_error_print(stderr, "try_hierarchical_describe", hd.error); picomesh_error_destroy(hd.error); }
+            else if (hd.value) return PICOMESH_OK(picomesh_int, 1);
         }
 
         /* GET /_perf — dump this process's LOCAL latency aggregate (op →
@@ -2615,7 +2800,7 @@ int yhttp_frontend_try(struct yloop_stream *stream,
             char dump[32768];
             size_t dump_len = yspan_dump(dump, sizeof(dump));
             send_html(stream, 200, dump, dump_len, keep_alive, NULL);
-            return 1;
+            return PICOMESH_OK(picomesh_int, 1);
         }
         /* /_trace was a misnomer for the local op aggregate above; it is
          * not a trace query. Point callers at /_perf and the collector. */
@@ -2626,7 +2811,7 @@ int yhttp_frontend_try(struct yloop_stream *stream,
                 "  - local latency table  -> GET /_perf\n"
                 "  - a request's trace     -> GET /traces/<trace_id> on the trace collector\n";
             send_html(stream, 200, moved, strlen(moved), keep_alive, NULL);
-            return 1;
+            return PICOMESH_OK(picomesh_int, 1);
         }
 
         /* Retire the legacy public surface ON THE GATEWAY. The mesh
@@ -2635,11 +2820,11 @@ int yhttp_frontend_try(struct yloop_stream *stream,
          * process with no `session` remote). */
         if (is_post && (path_eq(path, "/create") || path_eq(path, "/invoke"))) {
             send_json_error(stream, 410, "removed: use POST /_rpc {\"path\":\"service.class.method\",\"args\":[]}", keep_alive);
-            return 1;
+            return PICOMESH_OK(picomesh_int, 1);
         }
         if (is_get && path_len == 9 && memcmp(path, "/describe", 9) == 0) {
             send_json_error(stream, 410, "removed: use GET /<service.class>/_describe", keep_alive);
-            return 1;
+            return PICOMESH_OK(picomesh_int, 1);
         }
     }
 
@@ -2647,7 +2832,7 @@ int yhttp_frontend_try(struct yloop_stream *stream,
      * whole contract. The picoforge auth/HTML POSTs below belong only to
      * the gateway. Returning 0 lets the yhttp serve layer answer the
      * remaining transport-compat ops (binary /_rpc?op=, /create, /invoke). */
-    if (!is_gateway) return 0;
+    if (!is_gateway) return PICOMESH_OK(picomesh_int, 0);
 
     /* ---- AUTH + ACTION POSTs (the only non-API surface the gateway
      * keeps). These mint/clear the picomesh-sid cookie or mutate state and
@@ -2657,14 +2842,14 @@ int yhttp_frontend_try(struct yloop_stream *stream,
      * serves NO pages and NO static files — all GET HTML routes and the
      * static fallthrough have been removed (the frontend app renders every
      * page, sourcing data from this gateway over /_rpc + /_describe). ---- */
-    if (is_post && path_eq(path, "/login"))    { route_login_post(stream, body, body_len, keep_alive); return 1; }
+    if (is_post && path_eq(path, "/login"))    { struct picomesh_void_result r = route_login_post(stream, body, body_len, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_login_post", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
     if (is_post && path_eq(path, "/auth/github/callback")) {
         struct picomesh_void_result route_res = route_github_callback_post(stream, headers_raw, headers_raw_len, body, body_len, keep_alive);
         if (PICOMESH_IS_ERR(route_res)) { yerror("yhttp: %s", route_res.error.msg ? route_res.error.msg : "route failed"); picomesh_error_destroy(route_res.error); }
-        return 1;
+        return PICOMESH_OK(picomesh_int, 1);
     }
-    if (is_post && path_eq(path, "/register")) { route_register_post(stream, body, body_len, keep_alive); return 1; }
-    if (is_post && path_eq(path, "/logout"))   { route_logout(stream, headers_raw, headers_raw_len, keep_alive); return 1; }
+    if (is_post && path_eq(path, "/register")) { struct picomesh_void_result r = route_register_post(stream, body, body_len, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_register_post", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
+    if (is_post && path_eq(path, "/logout"))   { struct picomesh_void_result r = route_logout(stream, headers_raw, headers_raw_len, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_logout", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
 
     /* Resolve identity only here, for the authenticated action POSTs — the
      * API routes above (/_rpc, /_describe, /_whoami, /_perf) and the
@@ -2687,13 +2872,13 @@ int yhttp_frontend_try(struct yloop_stream *stream,
     if (uid) {
         const char *uname = caller.username;
         if (is_post && path_eq(path, "/repos/new"))
-            { route_repos_new_post(stream, uid, uname, body, body_len, keep_alive); return 1; }
+            { struct picomesh_void_result r = route_repos_new_post(stream, uid, uname, body, body_len, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_repos_new_post", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
         int site_admin = picomesh_groups_max_role(caller.groups_csv, "site") >=
                          picomesh_role_rank("maintainer");
         if (strncmp(path, "/admin/", 7) == 0 && site_admin) {
             /* Token administration lives in its own admin section. */
             if (is_post && path_eq(path, "/admin/tokens/mint_pat"))
-                { route_admin_tokens_mint_pat(stream, body, body_len, keep_alive); return 1; }
+                { struct picomesh_void_result r = route_admin_tokens_mint_pat(stream, body, body_len, keep_alive); if (PICOMESH_IS_ERR(r)) { char eb[8192]; picomesh_error_snprint(eb, sizeof(eb), r.error); picomesh_error_print(stderr, "route_admin_tokens_mint_pat", r.error); picomesh_error_destroy(r.error); send_json_error(stream, 500, eb, keep_alive); } return PICOMESH_OK(picomesh_int, 1); }
         }
     }
 
@@ -2707,11 +2892,11 @@ int yhttp_frontend_try(struct yloop_stream *stream,
      * bootstrap banner is unaffected. */
     if (is_get) {
         send_json_error(stream, 404, "no such GET route", keep_alive);
-        return 1;
+        return PICOMESH_OK(picomesh_int, 1);
     }
 
     /* Anything else — unknown POST, static asset — is NOT the gateway's
      * concern. Fall through to a 404 (the frontend app, not the gateway,
      * owns pages). */
-    return 0;
+    return PICOMESH_OK(picomesh_int, 0);
 }

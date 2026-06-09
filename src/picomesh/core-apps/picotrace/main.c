@@ -8,12 +8,12 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <picomesh/plugin/trace_collector/trace_collector.h>
-#include <picomesh/yargv/yargv.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/yloop/yloop.h>
+#include <picomesh/argv/argv.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/json/json.h>
+#include <picomesh/loop/loop.h>
 
 #include <picohttpparser.h>
 
@@ -146,15 +146,15 @@ static const char *reason(int status)
     }
 }
 
-static void send_response(struct yloop_stream *stream, int status, const char *ctype,
+static void send_response(struct loop_stream *stream, int status, const char *ctype,
                           const char *body, size_t body_len)
 {
     char header[512];
     int header_len = snprintf(header, sizeof(header),
         "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
         status, reason(status), ctype, body_len);
-    if (header_len > 0) yloop_write(stream, header, (size_t)header_len);
-    if (body && body_len) yloop_write(stream, body, body_len);
+    if (header_len > 0) loop_write(stream, header, (size_t)header_len);
+    if (body && body_len) loop_write(stream, body, body_len);
 }
 
 static int collector_connect(const char *host, int port)
@@ -177,24 +177,23 @@ struct collector_session {
     struct ctx ctx;
 };
 
-static int collector_open(const struct app_config *cfg, struct collector_session *session)
+static struct picomesh_int_result collector_open(const struct app_config *cfg, struct collector_session *session)
 {
     memset(session, 0, sizeof(*session));
-    if (!cfg || cfg->upstream_port <= 0) return 0;
+    if (!cfg || cfg->upstream_port <= 0) return PICOMESH_OK(picomesh_int, 0);
     int fd = collector_connect(cfg->upstream_host, cfg->upstream_port);
-    if (fd < 0) return 0;
+    if (fd < 0) return PICOMESH_OK(picomesh_int, 0);
     session->channel = peer_channel_create(fd);
-    if (!session->channel) { close(fd); return 0; }
+    if (!session->channel) { close(fd); return PICOMESH_OK(picomesh_int, 0); }
     session->ctx = (struct ctx){.peer = session->channel};
     struct object_ptr_result obj_r = trace_collector_trace_collector_create(&session->ctx);
     if (PICOMESH_IS_ERR(obj_r)) {
-        picomesh_error_destroy(obj_r.error);
         peer_channel_destroy(session->channel);
         session->channel = NULL;
-        return 0;
+        return PICOMESH_ERR(picomesh_int, "collector_open: collector create failed", obj_r);
     }
     session->obj = obj_r.value;
-    return 1;
+    return PICOMESH_OK(picomesh_int, 1);
 }
 
 static void collector_close(struct collector_session *session)
@@ -206,56 +205,56 @@ static void collector_close(struct collector_session *session)
     session->obj = NULL;
 }
 
-static char *collector_get_trace(const struct app_config *cfg, const char *trace_id)
+static struct picomesh_string_result collector_get_trace(const struct app_config *cfg, const char *trace_id)
 {
     struct collector_session session;
-    if (!collector_open(cfg, &session)) return NULL;
+    struct picomesh_int_result open_res = collector_open(cfg, &session);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, open_res, "collector_get_trace: open failed");
+    if (!open_res.value) return PICOMESH_OK(picomesh_string, NULL);
     struct picomesh_string_result get_trace_res =
         trace_collector_trace_collector_get_trace(&session.ctx, session.obj, NULL, trace_id ? trace_id : "");
-    char *out = NULL;
-    if (PICOMESH_IS_OK(get_trace_res)) out = get_trace_res.value;
-    else picomesh_error_destroy(get_trace_res.error);
     collector_close(&session);
-    return out;
+    PICOMESH_RETURN_IF_ERR(picomesh_string, get_trace_res, "collector_get_trace: query failed");
+    return get_trace_res;
 }
 
-static char *collector_traces(const struct app_config *cfg, const char *service,
+static struct picomesh_string_result collector_traces(const struct app_config *cfg, const char *service,
                               const char *status, uint32_t since_secs)
 {
     struct collector_session session;
-    if (!collector_open(cfg, &session)) return NULL;
+    struct picomesh_int_result open_res = collector_open(cfg, &session);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, open_res, "collector_traces: open failed");
+    if (!open_res.value) return PICOMESH_OK(picomesh_string, NULL);
     struct picomesh_string_result traces_res =
         trace_collector_trace_collector_traces(&session.ctx, session.obj, NULL,
                                                service ? service : "", status ? status : "", since_secs);
-    char *out = NULL;
-    if (PICOMESH_IS_OK(traces_res)) out = traces_res.value;
-    else picomesh_error_destroy(traces_res.error);
     collector_close(&session);
-    return out;
+    PICOMESH_RETURN_IF_ERR(picomesh_string, traces_res, "collector_traces: query failed");
+    return traces_res;
 }
 
-static char *collector_services(const struct app_config *cfg)
+static struct picomesh_string_result collector_services(const struct app_config *cfg)
 {
     struct collector_session session;
-    if (!collector_open(cfg, &session)) return NULL;
+    struct picomesh_int_result open_res = collector_open(cfg, &session);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, open_res, "collector_services: open failed");
+    if (!open_res.value) return PICOMESH_OK(picomesh_string, NULL);
     struct picomesh_string_result services_res = trace_collector_trace_collector_services(&session.ctx, session.obj, NULL);
-    char *out = NULL;
-    if (PICOMESH_IS_OK(services_res)) out = services_res.value;
-    else picomesh_error_destroy(services_res.error);
     collector_close(&session);
-    return out;
+    PICOMESH_RETURN_IF_ERR(picomesh_string, services_res, "collector_services: query failed");
+    return services_res;
 }
 
-static char *collector_stats(const struct app_config *cfg)
+static struct picomesh_string_result collector_stats(const struct app_config *cfg)
 {
     struct collector_session session;
-    if (!collector_open(cfg, &session)) return NULL;
+    struct picomesh_int_result open_res = collector_open(cfg, &session);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, open_res, "collector_stats: open failed");
+    if (!open_res.value) return PICOMESH_OK(picomesh_string, NULL);
     struct picomesh_string_result stats_res = trace_collector_trace_collector_stats(&session.ctx, session.obj, NULL);
-    char *out = NULL;
-    if (PICOMESH_IS_OK(stats_res)) out = stats_res.value;
-    else picomesh_error_destroy(stats_res.error);
     collector_close(&session);
-    return out;
+    PICOMESH_RETURN_IF_ERR(picomesh_string, stats_res, "collector_stats: query failed");
+    return stats_res;
 }
 
 /* Embed a JSON document inside a <script> block. Only '<' has to be
@@ -290,13 +289,15 @@ static void render_head(struct buf *buf)
         "</style></head><body><header><strong>picotrace</strong><span class=\"muted\">internal Picomesh trace browser</span></header><main>");
 }
 
-static void render_trace_detail(struct buf *buf, const struct app_config *cfg, const char *trace_id)
+static struct picomesh_void_result render_trace_detail(struct buf *buf, const struct app_config *cfg, const char *trace_id)
 {
-    if (!trace_id || !*trace_id) return;
-    char *json = collector_get_trace(cfg, trace_id);
+    if (!trace_id || !*trace_id) return PICOMESH_OK_VOID();
+    struct picomesh_string_result trace_res = collector_get_trace(cfg, trace_id);
+    char *json = PICOMESH_IS_OK(trace_res) ? trace_res.value : NULL;
+    if (PICOMESH_IS_ERR(trace_res)) { picomesh_error_print(stderr, "picotrace: collector query", trace_res.error); picomesh_error_destroy(trace_res.error); }
     if (!json) {
         buf_puts(buf, "<section class=\"panel\"><h2>Trace detail</h2><div class=\"panel-body\"><p class=\"err\">Cannot load trace.</p></div></section>");
-        return;
+        return PICOMESH_OK_VOID();
     }
     /* The server does no span parsing or layout: it hands the raw collector
      * JSON to the browser and lets Apache ECharts build the waterfall
@@ -349,9 +350,10 @@ static void render_trace_detail(struct buf *buf, const struct app_config *cfg, c
         "})();\n");
     buf_puts(buf, "</script></div></section>");
     free(json);
+    return PICOMESH_OK_VOID();
 }
 
-static void render_page(struct yloop_stream *stream, struct yloop *loop, const struct app_config *cfg,
+static struct picomesh_void_result render_page(struct loop_stream *stream, struct loop *loop, const struct app_config *cfg,
                         const char *full_path)
 {
     (void)loop;
@@ -370,21 +372,31 @@ static void render_page(struct yloop_stream *stream, struct yloop *loop, const s
          * page, reached by clicking a row in the results list. A breadcrumb
          * returns to the search list — no results table underneath. */
         buf_puts(&buf, "<p class=\"crumb\"><a href=\"/\">&larr; Search</a></p>");
-        render_trace_detail(&buf, cfg, trace);
+        struct picomesh_void_result detail_res = render_trace_detail(&buf, cfg, trace);
+        if (PICOMESH_IS_ERR(detail_res)) {
+            picomesh_error_print(stderr, "picotrace: render_trace_detail", detail_res.error);
+            picomesh_error_destroy(detail_res.error);
+        }
     } else {
         /* Search / results view: filter form, collector stats, results list. */
-        char *traces_json = collector_traces(cfg, service ? service : "", status ? status : "", (uint32_t)since);
-        char *services_json = collector_services(cfg);
-        char *stats_json = collector_stats(cfg);
+        struct picomesh_string_result traces_res = collector_traces(cfg, service ? service : "", status ? status : "", (uint32_t)since);
+        char *traces_json = PICOMESH_IS_OK(traces_res) ? traces_res.value : NULL;
+        if (PICOMESH_IS_ERR(traces_res)) { picomesh_error_print(stderr, "picotrace: collector query", traces_res.error); picomesh_error_destroy(traces_res.error); }
+        struct picomesh_string_result services_res = collector_services(cfg);
+        char *services_json = PICOMESH_IS_OK(services_res) ? services_res.value : NULL;
+        if (PICOMESH_IS_ERR(services_res)) { picomesh_error_print(stderr, "picotrace: collector query", services_res.error); picomesh_error_destroy(services_res.error); }
+        struct picomesh_string_result stats_res = collector_stats(cfg);
+        char *stats_json = PICOMESH_IS_OK(stats_res) ? stats_res.value : NULL;
+        if (PICOMESH_IS_ERR(stats_res)) { picomesh_error_print(stderr, "picotrace: collector query", stats_res.error); picomesh_error_destroy(stats_res.error); }
 
         buf_puts(&buf, "<section class=\"panel\"><h2>Search</h2><div class=\"panel-body\"><form method=\"get\" action=\"/\">");
         buf_puts(&buf, "<label>Service<select name=\"service\"><option value=\"\">All services</option>");
-        struct yjson_doc *svc_doc = services_json ? yjson_parse(services_json, strlen(services_json)) : NULL;
-        const struct yjson_value *svc_arr = svc_doc ? yjson_object_get(yjson_doc_root(svc_doc), "services") : NULL;
-        size_t svc_count = svc_arr ? yjson_array_size(svc_arr) : 0;
+        struct json_doc *svc_doc = services_json ? json_parse(services_json, strlen(services_json)) : NULL;
+        const struct json_value *svc_arr = svc_doc ? json_object_get(json_doc_root(svc_doc), "services") : NULL;
+        size_t svc_count = svc_arr ? json_array_size(svc_arr) : 0;
         for (size_t i = 0; i < svc_count; ++i) {
-            const struct yjson_value *entry = yjson_array_at(svc_arr, i);
-            const char *name = yjson_as_string(yjson_object_get(entry, "service_name"), "");
+            const struct json_value *entry = json_array_at(svc_arr, i);
+            const char *name = json_as_string(json_object_get(entry, "service_name"), "");
             buf_puts(&buf, "<option value=\""); buf_esc(&buf, name); buf_puts(&buf, "\"");
             if (service && strcmp(service, name) == 0) buf_puts(&buf, " selected");
             buf_puts(&buf, ">"); buf_esc(&buf, name); buf_puts(&buf, "</option>");
@@ -401,17 +413,17 @@ static void render_page(struct yloop_stream *stream, struct yloop *loop, const s
         buf_puts(&buf, "</select></label><label>Trace ID<input name=\"trace\" value=\"\"></label><button type=\"submit\">Search</button></form></div></section>");
 
         if (stats_json) {
-            struct yjson_doc *doc = yjson_parse(stats_json, strlen(stats_json));
+            struct json_doc *doc = json_parse(stats_json, strlen(stats_json));
             if (doc) {
-                const struct yjson_value *stats_root = yjson_doc_root(doc);
+                const struct json_value *stats_root = json_doc_root(doc);
                 buf_puts(&buf, "<section class=\"panel\"><h2>Collector</h2><div class=\"panel-body\"><span class=\"muted\">stored</span> ");
-                buf_printf(&buf, "%lld", (long long)yjson_as_int(yjson_object_get(stats_root, "stored"), 0));
+                buf_printf(&buf, "%lld", (long long)json_as_int(json_object_get(stats_root, "stored"), 0));
                 buf_puts(&buf, " &nbsp; <span class=\"muted\">ingested</span> ");
-                buf_printf(&buf, "%lld", (long long)yjson_as_int(yjson_object_get(stats_root, "ingested"), 0));
+                buf_printf(&buf, "%lld", (long long)json_as_int(json_object_get(stats_root, "ingested"), 0));
                 buf_puts(&buf, " &nbsp; <span class=\"muted\">evicted</span> ");
-                buf_printf(&buf, "%lld", (long long)yjson_as_int(yjson_object_get(stats_root, "evicted"), 0));
+                buf_printf(&buf, "%lld", (long long)json_as_int(json_object_get(stats_root, "evicted"), 0));
                 buf_puts(&buf, "</div></section>");
-                yjson_doc_free(doc);
+                json_doc_free(doc);
             }
         }
 
@@ -419,34 +431,34 @@ static void render_page(struct yloop_stream *stream, struct yloop *loop, const s
         if (!traces_json) {
             buf_puts(&buf, "<p class=\"err\">Cannot query trace collector through the configured upstream.</p>");
         } else {
-            struct yjson_doc *doc = yjson_parse(traces_json, strlen(traces_json));
-            const struct yjson_value *arr = doc ? yjson_object_get(yjson_doc_root(doc), "traces") : NULL;
-            size_t trace_count = arr ? yjson_array_size(arr) : 0;
+            struct json_doc *doc = json_parse(traces_json, strlen(traces_json));
+            const struct json_value *arr = doc ? json_object_get(json_doc_root(doc), "traces") : NULL;
+            size_t trace_count = arr ? json_array_size(arr) : 0;
             if (!trace_count) buf_puts(&buf, "<p class=\"muted\">No traces match.</p>");
             else {
                 buf_puts(&buf, "<table><thead><tr><th>Trace</th><th>Root</th><th>Service</th><th>Duration</th><th>Spans</th><th>Status</th></tr></thead><tbody>");
                 for (size_t i = 0; i < trace_count; ++i) {
-                    const struct yjson_value *trace_entry = yjson_array_at(arr, i);
-                    const char *trace_id = yjson_as_string(yjson_object_get(trace_entry, "trace_id"), "");
-                    const char *root = yjson_as_string(yjson_object_get(trace_entry, "root_name"), "");
-                    const char *service_name = yjson_as_string(yjson_object_get(trace_entry, "service_name"), "");
-                    const char *status_str = yjson_as_string(yjson_object_get(trace_entry, "status"), "ok");
-                    uint64_t duration_ns = (uint64_t)yjson_as_int(yjson_object_get(trace_entry, "duration_ns"), 0);
+                    const struct json_value *trace_entry = json_array_at(arr, i);
+                    const char *trace_id = json_as_string(json_object_get(trace_entry, "trace_id"), "");
+                    const char *root = json_as_string(json_object_get(trace_entry, "root_name"), "");
+                    const char *service_name = json_as_string(json_object_get(trace_entry, "service_name"), "");
+                    const char *status_str = json_as_string(json_object_get(trace_entry, "status"), "ok");
+                    uint64_t duration_ns = (uint64_t)json_as_int(json_object_get(trace_entry, "duration_ns"), 0);
                     char dur[32]; fmt_duration(dur, sizeof(dur), duration_ns);
                     /* Whole row links to the dedicated trace view. */
                     buf_puts(&buf, "<tr class=\"trace-row\" onclick=\"location='/?trace="); buf_esc(&buf, trace_id);
                     buf_puts(&buf, "'\"><td><a class=\"mono\" href=\"/?trace="); buf_esc(&buf, trace_id); buf_puts(&buf, "\">"); buf_esc(&buf, trace_id); buf_puts(&buf, "</a></td><td>");
                     buf_esc(&buf, root); buf_puts(&buf, "</td><td>"); buf_esc(&buf, service_name); buf_puts(&buf, "</td><td>"); buf_esc(&buf, dur); buf_puts(&buf, "</td><td>");
-                    buf_printf(&buf, "%lld", (long long)yjson_as_int(yjson_object_get(trace_entry, "span_count"), 0));
+                    buf_printf(&buf, "%lld", (long long)json_as_int(json_object_get(trace_entry, "span_count"), 0));
                     buf_puts(&buf, "</td><td><span class=\"badge "); buf_puts(&buf, strcmp(status_str, "error") == 0 ? "err" : "ok"); buf_puts(&buf, "\">"); buf_esc(&buf, status_str); buf_puts(&buf, "</span></td></tr>");
                 }
                 buf_puts(&buf, "</tbody></table>");
             }
-            if (doc) yjson_doc_free(doc);
+            if (doc) json_doc_free(doc);
         }
         buf_puts(&buf, "</div></section>");
 
-        if (svc_doc) yjson_doc_free(svc_doc);
+        if (svc_doc) json_doc_free(svc_doc);
         free(traces_json); free(services_json); free(stats_json);
     }
 
@@ -455,13 +467,17 @@ static void render_page(struct yloop_stream *stream, struct yloop *loop, const s
     buf_free(&buf);
 
     free(service); free(status); free(since_s); free(trace);
+    return PICOMESH_OK_VOID();
 }
 
-static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *user_data)
+/* Per-connection serve coroutine — its void signature is fixed by the loop's
+ * accept-handler API; a page-render failure is absorbed here (chain rendered). */
+PICOMESH_EXTERNAL_CALLBACK
+static void serve_one(struct loop *loop, struct loop_stream *stream, void *user_data)
 {
     const struct app_config *cfg = user_data;
     char *buf = malloc(REQ_BUF);
-    if (!buf) { yloop_close(stream); return; }
+    if (!buf) { loop_close(stream); return; }
     size_t total = 0, last = 0;
     const char *method = NULL, *path = NULL;
     size_t method_len = 0, path_len = 0;
@@ -470,26 +486,31 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *use
     size_t header_count = 0;
     int parsed = -1;
     while (total < REQ_BUF) {
-        size_t got = yloop_read_some(stream, buf + total, REQ_BUF - total);
-        if (got == 0) { free(buf); yloop_close(stream); return; }
-        total += got;
+        struct picomesh_size_result read_res = loop_read_some(stream, buf + total, REQ_BUF - total);
+        if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); free(buf); loop_close(stream); return; }
+        if (read_res.value == 0) { free(buf); loop_close(stream); return; } /* clean EOF */
+        total += read_res.value;
         header_count = MAX_HEADERS;
         parsed = phr_parse_request(buf, total, &method, &method_len, &path, &path_len,
                                    &minor, headers, &header_count, last);
         if (parsed > 0) break;
-        if (parsed == -1) { free(buf); yloop_close(stream); return; }
+        if (parsed == -1) { free(buf); loop_close(stream); return; }
         last = total;
     }
     (void)minor; (void)headers; (void)header_count;
     if (parsed <= 0 || !(method_len == 3 && memcmp(method, "GET", 3) == 0)) {
         send_response(stream, 404, "text/plain; charset=utf-8", "not found\n", 10);
-        free(buf); yloop_close(stream); return;
+        free(buf); loop_close(stream); return;
     }
     char full_path[2048];
     size_t copy = path_len < sizeof(full_path) - 1 ? path_len : sizeof(full_path) - 1;
     memcpy(full_path, path, copy); full_path[copy] = 0;
     if (full_path[0] == '/' && (full_path[1] == 0 || full_path[1] == '?')) {
-        render_page(stream, loop, cfg, full_path);
+        struct picomesh_void_result page_res = render_page(stream, loop, cfg, full_path);
+        if (PICOMESH_IS_ERR(page_res)) {
+            picomesh_error_print(stderr, "picotrace: render_page", page_res.error);
+            picomesh_error_destroy(page_res.error);
+        }
     } else if (strcmp(full_path, "/echarts.min.js") == 0) {
         /* Vendored ECharts, embedded in the binary — served locally so the
          * trace UI works with no CDN and in an airgapped environment. */
@@ -499,17 +520,17 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *use
         send_response(stream, 404, "text/plain; charset=utf-8", "not found\n", 10);
     }
     free(buf);
-    yloop_close(stream);
+    loop_close(stream);
 }
 
-static const struct yargv_option_def OPTIONS[] = {
-    {"--upstream-service", NULL, "upstream_service", "Mesh upstream service name (default trace_collector)", YARGV_VALUE, 0},
-    {"--upstream-host", NULL, "upstream_host", "Resolved upstream host (default 127.0.0.1)", YARGV_VALUE, 0},
-    {"--upstream-port", NULL, "upstream_port", "Resolved upstream port", YARGV_VALUE, 0},
-    {"--host", NULL, "host", "Bind address (default 127.0.0.1)", YARGV_VALUE, 0},
-    {"--port", NULL, "port", "Bind port (default 8232)", YARGV_VALUE, 0},
-    {"--verbose", "-v", "verbose", "Enable debug logging", YARGV_BOOL, 0},
-    {"--help", "-h", "help", "Show usage", YARGV_BOOL, 0},
+static const struct argv_option_def OPTIONS[] = {
+    {"--upstream-service", NULL, "upstream_service", "Mesh upstream service name (default trace_collector)", ARGV_VALUE, 0},
+    {"--upstream-host", NULL, "upstream_host", "Resolved upstream host (default 127.0.0.1)", ARGV_VALUE, 0},
+    {"--upstream-port", NULL, "upstream_port", "Resolved upstream port", ARGV_VALUE, 0},
+    {"--host", NULL, "host", "Bind address (default 127.0.0.1)", ARGV_VALUE, 0},
+    {"--port", NULL, "port", "Bind port (default 8232)", ARGV_VALUE, 0},
+    {"--verbose", "-v", "verbose", "Enable debug logging", ARGV_BOOL, 0},
+    {"--help", "-h", "help", "Show usage", ARGV_BOOL, 0},
 };
 
 static void usage(const char *prog)
@@ -526,53 +547,53 @@ int main(int argc, char **argv)
      * collector connection (a raw blocking fd) and the client response writes
      * both go to short-lived peers; under load the collector drops a query
      * mid-call, and without this the next write would terminate picotrace.
-     * The mesh-hosted services get this from yengine; this standalone app does
-     * not go through yengine, so it must set it itself. */
+     * The mesh-hosted services get this from engine; this standalone app does
+     * not go through engine, so it must set it itself. */
     signal(SIGPIPE, SIG_IGN);
 
-    struct yargv_chain_ptr_result parse_res = yargv_parse(OPTIONS, sizeof(OPTIONS) / sizeof(OPTIONS[0]), argc, argv);
+    struct argv_chain_ptr_result parse_res = argv_parse(OPTIONS, sizeof(OPTIONS) / sizeof(OPTIONS[0]), argc, argv);
     if (PICOMESH_IS_ERR(parse_res)) {
         fprintf(stderr, "picotrace: argv parse: %s\n", parse_res.error.msg ? parse_res.error.msg : "?");
         picomesh_error_destroy(parse_res.error);
         return 2;
     }
-    struct yargv_chain *cli = parse_res.value;
-    if (yargv_get_bool(cli, "help", 0)) { usage(argv[0]); yargv_chain_destroy(cli); return 0; }
-    if (yargv_get_bool(cli, "verbose", 0)) ytrace_set_all_enabled(true);
+    struct argv_chain *cli = parse_res.value;
+    if (argv_get_bool(cli, "help", 0)) { usage(argv[0]); argv_chain_destroy(cli); return 0; }
+    if (argv_get_bool(cli, "verbose", 0)) ytrace_set_all_enabled(true);
 
-    const char *host = yargv_get_string(cli, "host", "127.0.0.1");
-    int port = (int)yargv_get_int(cli, "port", 8232);
+    const char *host = argv_get_string(cli, "host", "127.0.0.1");
+    int port = (int)argv_get_int(cli, "port", 8232);
 
     struct app_config cfg = {
-        .upstream_service = yargv_get_string(cli, "upstream_service", "trace_collector"),
-        .upstream_host = yargv_get_string(cli, "upstream_host", "127.0.0.1"),
-        .upstream_port = (int)yargv_get_int(cli, "upstream_port", 0),
+        .upstream_service = argv_get_string(cli, "upstream_service", "trace_collector"),
+        .upstream_host = argv_get_string(cli, "upstream_host", "127.0.0.1"),
+        .upstream_port = (int)argv_get_int(cli, "upstream_port", 0),
     };
     if (cfg.upstream_port <= 0) {
         fprintf(stderr, "picotrace: --upstream-port is required when running outside mesh reconciliation\n");
-        yargv_chain_destroy(cli);
+        argv_chain_destroy(cli);
         return 1;
     }
-    struct yloop_ptr_result loop_res = yloop_create();
+    struct loop_ptr_result loop_res = loop_create();
     if (PICOMESH_IS_ERR(loop_res)) {
-        fprintf(stderr, "picotrace: yloop_create: %s\n", loop_res.error.msg ? loop_res.error.msg : "?");
+        fprintf(stderr, "picotrace: loop_create: %s\n", loop_res.error.msg ? loop_res.error.msg : "?");
         picomesh_error_destroy(loop_res.error);
-        yargv_chain_destroy(cli);
+        argv_chain_destroy(cli);
         return 1;
     }
-    struct yloop *loop = loop_res.value;
-    struct picomesh_void_result listen_res = yloop_listen_tcp(loop, host, port, serve_one, &cfg);
+    struct loop *loop = loop_res.value;
+    struct picomesh_void_result listen_res = loop_listen_tcp(loop, host, port, serve_one, &cfg);
     if (PICOMESH_IS_ERR(listen_res)) {
         fprintf(stderr, "picotrace: listen: %s\n", listen_res.error.msg ? listen_res.error.msg : "?");
         picomesh_error_destroy(listen_res.error);
-        yloop_destroy(loop);
-        yargv_chain_destroy(cli);
+        loop_destroy(loop);
+        argv_chain_destroy(cli);
         return 1;
     }
     yinfo("picotrace: listening on %s:%d (upstream=%s %s:%d)", host, port, cfg.upstream_service, cfg.upstream_host, cfg.upstream_port);
-    struct picomesh_void_result run_res = yloop_run(loop);
-    if (PICOMESH_IS_ERR(run_res)) picomesh_error_destroy(run_res.error);
-    yloop_destroy(loop);
-    yargv_chain_destroy(cli);
+    struct picomesh_void_result run_res = loop_run(loop);
+    if (PICOMESH_IS_ERR(run_res)) { picomesh_error_print(stderr, "picotrace: collector query", run_res.error); picomesh_error_destroy(run_res.error); }
+    loop_destroy(loop);
+    argv_chain_destroy(cli);
     return 0;
 }

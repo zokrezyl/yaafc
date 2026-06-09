@@ -4,21 +4,21 @@
  * routes it, writes the HTTP/1.1 response. Body must be Content-Length
  * delimited (no chunked yet); we cap bodies at 256 KB.
  *
- * Body parsing on the way in: simdjson (yjson_parse).
- * Body serialization on the way out: yjson_writer.
+ * Body parsing on the way in: simdjson (json_parse).
+ * Body serialization on the way out: json_writer.
  * Dispatch backend: jinvoke_for + the rpc handle table — same as yttp,
  * so the same instance handles span both frontends in one process. */
 
 #include <picomesh/frontends/yhttp/yhttp.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/jinvoke.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/jinvoke.h>
+#include <picomesh/config/config.h>
+#include <picomesh/json/json.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
 
 #include <unistd.h>
 
@@ -64,7 +64,7 @@ static int header_match(const struct phr_header *hdrs, size_t count,
     return 0;
 }
 
-static void send_response(struct yloop_stream *stream, int status,
+static void send_response(struct loop_stream *stream, int status,
                           const char *content_type,
                           const char *body, size_t body_len, int keep_alive)
 {
@@ -93,12 +93,12 @@ static void send_response(struct yloop_stream *stream, int status,
         body_len,
         keep_alive ? "keep-alive" : "close");
     if (written <= 0) return;
-    yloop_write(stream, header, (size_t)written);
-    if (body_len) yloop_write(stream, body, body_len);
+    loop_write(stream, header, (size_t)written);
+    if (body_len) loop_write(stream, body, body_len);
 }
 
 
-static void write_error_detail(struct yjson_writer *writer, const char *message)
+static void write_error_detail(struct json_writer *writer, const char *message)
 {
     const char *msg = message ? message : "";
     size_t first_len = strcspn(msg, "\n");
@@ -106,9 +106,9 @@ static void write_error_detail(struct yjson_writer *writer, const char *message)
     size_t copy = first_len < sizeof(first) - 1 ? first_len : sizeof(first) - 1;
     memcpy(first, msg, copy);
     first[copy] = 0;
-    yjson_writer_key(writer, "message"); yjson_writer_string(writer, first[0] ? first : msg);
-    yjson_writer_key(writer, "detail");  yjson_writer_string(writer, msg);
-    yjson_writer_key(writer, "trace");   yjson_writer_begin_array(writer);
+    json_writer_key(writer, "message"); json_writer_string(writer, first[0] ? first : msg);
+    json_writer_key(writer, "detail");  json_writer_string(writer, msg);
+    json_writer_key(writer, "trace");   json_writer_begin_array(writer);
     const char *cursor = msg;
     while (*cursor) {
         const char *newline = strchr(cursor, '\n');
@@ -117,34 +117,49 @@ static void write_error_detail(struct yjson_writer *writer, const char *message)
         size_t line_copy = line_len < sizeof(line) - 1 ? line_len : sizeof(line) - 1;
         memcpy(line, cursor, line_copy);
         line[line_copy] = 0;
-        yjson_writer_string(writer, line);
+        json_writer_string(writer, line);
         if (!newline) break;
         cursor = newline + 1;
     }
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
 }
 
-static void send_json_error(struct yloop_stream *stream, int status,
+static void send_json_error(struct loop_stream *stream, int status,
                             int code, const char *message, int keep_alive)
 {
     if (status >= 500) yerror("yhttp request failed: %s", message ? message : "");
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "error");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "code"); yjson_writer_int(writer, code);
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "error");
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "code"); json_writer_int(writer, code);
     write_error_detail(writer, message);
-    yjson_writer_end_object(writer);
-    yjson_writer_end_object(writer);
+    json_writer_end_object(writer);
+    json_writer_end_object(writer);
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     send_response(stream, status, "application/json", data, len, keep_alive);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
+}
+
+/* Absorb a route handler Result at the serve-loop boundary: render the full
+ * cause chain to stderr AND back to the client as a 500 body. The serve
+ * coroutine's void signature is fixed by the accept-handler API, so this is
+ * where the dispatch chain terminates. */
+static void absorb_route_result(struct loop_stream *stream, const char *label,
+                                struct picomesh_void_result res, int keep_alive)
+{
+    if (PICOMESH_IS_OK(res)) return;
+    char eb[8192];
+    picomesh_error_snprint(eb, sizeof(eb), res.error);
+    picomesh_error_print(stderr, label, res.error);
+    picomesh_error_destroy(res.error);
+    send_response(stream, 500, "application/json", eb, strlen(eb), keep_alive);
 }
 
 /* ---- route handlers --------------------------------------------- */
 
-static void route_root(struct yloop_stream *stream, int keep_alive)
+static void route_root(struct loop_stream *stream, int keep_alive)
 {
     static const char body[] =
         "picomesh/yhttp frontend\n"
@@ -156,88 +171,108 @@ static void route_root(struct yloop_stream *stream, int keep_alive)
 }
 
 
-static void route_create(struct yloop_stream *stream, const char *body, size_t blen,
+static struct picomesh_void_result route_create(struct loop_stream *stream, const char *body, size_t blen,
                          int keep_alive)
 {
-    struct yjson_doc *doc = yjson_parse(body, blen);
-    if (!doc) { send_json_error(stream, 400, -32700, "invalid JSON", keep_alive); return; }
-    const struct yjson_value *root = yjson_doc_root(doc);
-    const char *cls = yjson_as_string(yjson_object_get(root, "class"), NULL);
+    struct json_doc *doc = json_parse(body, blen);
+    if (!doc) { send_json_error(stream, 400, -32700, "invalid JSON", keep_alive); return PICOMESH_OK_VOID(); }
+    const struct json_value *root = json_doc_root(doc);
+    const char *cls = json_as_string(json_object_get(root, "class"), NULL);
     if (!cls) {
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         send_json_error(stream, 400, -32602, "create: missing 'class'", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     struct class_ptr_result class_res = class_by_name(cls);
     if (PICOMESH_IS_ERR(class_res)) {
+        picomesh_error_print(stderr, "route_create: class_by_name", class_res.error);
         picomesh_error_destroy(class_res.error);
         char msg[256];
         snprintf(msg, sizeof(msg), "create: unknown class '%s'", cls);
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         send_json_error(stream, 404, -32601, msg, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     struct object_ptr_result alloc_res = object_alloc(class_res.value);
     if (PICOMESH_IS_ERR(alloc_res)) {
+        char eb[8192];
+        picomesh_error_snprint(eb, sizeof(eb), alloc_res.error);
+        picomesh_error_print(stderr, "route_create: object_alloc", alloc_res.error);
         picomesh_error_destroy(alloc_res.error);
-        yjson_doc_free(doc);
-        send_json_error(stream, 500, -32603, "create: object_alloc failed", keep_alive);
-        return;
+        json_doc_free(doc);
+        send_json_error(stream, 500, -32603, eb, keep_alive);
+        return PICOMESH_OK_VOID();
     }
     uint64_t handle = rpc_register_object(alloc_res.value);
-    yjson_doc_free(doc);
+    if (handle == 0) {
+        /* Object table full — free the leaked object, don't hand back handle 0. */
+        object_free(alloc_res.value);
+        json_doc_free(doc);
+        send_json_error(stream, 500, -32603, "create: object handle table full", keep_alive);
+        return PICOMESH_OK_VOID();
+    }
+    json_doc_free(doc);
 
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "handle"); yjson_writer_int(writer, (int64_t)handle);
-    yjson_writer_end_object(writer);
-    size_t len; const char *data = yjson_writer_data(writer, &len);
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "handle"); json_writer_int(writer, (int64_t)handle);
+    json_writer_end_object(writer);
+    size_t len; const char *data = json_writer_data(writer, &len);
     send_response(stream, 200, "application/json", data, len, keep_alive);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
+    return PICOMESH_OK_VOID();
 }
 
-static void route_invoke(struct yloop_stream *stream, const char *body, size_t blen,
+static struct picomesh_void_result route_invoke(struct loop_stream *stream, const char *body, size_t blen,
                          int keep_alive)
 {
-    struct yjson_doc *doc = yjson_parse(body, blen);
-    if (!doc) { send_json_error(stream, 400, -32700, "invalid JSON", keep_alive); return; }
-    const struct yjson_value *root = yjson_doc_root(doc);
-    const char *method = yjson_as_string(yjson_object_get(root, "method"), NULL);
-    int64_t handle = yjson_as_int(yjson_object_get(root, "handle"), 0);
-    const struct yjson_value *args = yjson_object_get(root, "args");
+    struct json_doc *doc = json_parse(body, blen);
+    if (!doc) { send_json_error(stream, 400, -32700, "invalid JSON", keep_alive); return PICOMESH_OK_VOID(); }
+    const struct json_value *root = json_doc_root(doc);
+    const char *method = json_as_string(json_object_get(root, "method"), NULL);
+    int64_t handle = json_as_int(json_object_get(root, "handle"), 0);
+    const struct json_value *args = json_object_get(root, "args");
 
-    if (!method) { yjson_doc_free(doc); send_json_error(stream, 400, -32602, "invoke: missing 'method'", keep_alive); return; }
-    if (!handle) { yjson_doc_free(doc); send_json_error(stream, 400, -32602, "invoke: missing/zero 'handle'", keep_alive); return; }
+    if (!method) { json_doc_free(doc); send_json_error(stream, 400, -32602, "invoke: missing 'method'", keep_alive); return PICOMESH_OK_VOID(); }
+    if (!handle) { json_doc_free(doc); send_json_error(stream, 400, -32602, "invoke: missing/zero 'handle'", keep_alive); return PICOMESH_OK_VOID(); }
 
     void *obj = rpc_handle_resolve((uint64_t)handle);
-    if (!obj) { yjson_doc_free(doc); send_json_error(stream, 404, -32602, "invoke: unknown handle", keep_alive); return; }
+    if (!obj) { json_doc_free(doc); send_json_error(stream, 404, -32602, "invoke: unknown handle", keep_alive); return PICOMESH_OK_VOID(); }
 
     jinvoke_fn invoke_fn = jinvoke_for(method);
     if (!invoke_fn) {
         char msg[256]; snprintf(msg, sizeof(msg), "invoke: no jinvoke for '%s'", method);
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         send_json_error(stream, 404, -32601, msg, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "result");
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "result");
     char err[8192] = {0};
     /* Legacy /invoke is the bootstrap control plane (mesh parent):
      * the object is local to this process — NULL ctx, NULL headers. */
-    int invoke_rc = invoke_fn(NULL, (struct object *)obj, NULL, args, writer, err, sizeof(err));
-    if (invoke_rc != 0) {
-        yjson_writer_free(writer);
-        yjson_doc_free(doc);
-        send_json_error(stream, 500, -32000, err[0] ? err : "invoke: impl failed", keep_alive);
-        return;
+    struct picomesh_void_result invoke_res =
+        invoke_fn(NULL, (struct object *)obj, NULL, args, writer, err, sizeof(err));
+    if (PICOMESH_IS_ERR(invoke_res)) {
+        /* Render the full cause chain to both stderr and the 500 body so the
+         * caller sees why the impl failed, not just a generic message. */
+        char eb[8192];
+        picomesh_error_snprint(eb, sizeof(eb), invoke_res.error);
+        picomesh_error_print(stderr, "route_invoke: impl", invoke_res.error);
+        picomesh_error_destroy(invoke_res.error);
+        json_writer_free(writer);
+        json_doc_free(doc);
+        send_json_error(stream, 500, -32000, eb[0] ? eb : (err[0] ? err : "invoke: impl failed"), keep_alive);
+        return PICOMESH_OK_VOID();
     }
-    yjson_writer_end_object(writer);
-    size_t len; const char *data = yjson_writer_data(writer, &len);
+    json_writer_end_object(writer);
+    size_t len; const char *data = json_writer_data(writer, &len);
     send_response(stream, 200, "application/json", data, len, keep_alive);
-    yjson_writer_free(writer);
-    yjson_doc_free(doc);
+    json_writer_free(writer);
+    json_doc_free(doc);
+    return PICOMESH_OK_VOID();
 }
 
 /* Forward-decl for the URL ?key=val extractor; the real definition
@@ -278,7 +313,7 @@ static int header_get(const char *raw, size_t raw_len, const char *name,
  * same packed-args payload the legacy yrpc protocol carried; we just
  * wrap it in HTTP so auth and (later) tracing context can travel as
  * headers. Mirrors yaapp's `POST /_rpc` boundary at the gateway. */
-static void route_rpc_binary(struct yloop_stream *stream,
+static struct picomesh_void_result route_rpc_binary(struct loop_stream *stream,
                              const char *path,
                              const char *headers_raw, size_t headers_raw_len,
                              const char *body, size_t body_len,
@@ -287,7 +322,7 @@ static void route_rpc_binary(struct yloop_stream *stream,
     char op_s[16] = {0}, id_s[16] = {0};
     query_get(path, "op",  op_s, sizeof(op_s));
     query_get(path, "id",  id_s, sizeof(id_s));
-    if (!*op_s) { send_json_error(stream, 400, -32602, "_rpc: missing op", keep_alive); return; }
+    if (!*op_s) { send_json_error(stream, 400, -32602, "_rpc: missing op", keep_alive); return PICOMESH_OK_VOID(); }
     enum rpc_op op = (enum rpc_op)atoi(op_s);
     uint32_t id  = (uint32_t)strtoul(id_s, NULL, 10);
 
@@ -310,37 +345,52 @@ static void route_rpc_binary(struct yloop_stream *stream,
     size_t resp_len = 0;
     switch (op) {
     case RPC_OP_CALL: {
-        rpc_skel_fn skel_fn = rpc_skel_for((method_slot)id);
-        if (skel_fn) resp_len = skel_fn(body, body_len, resp, sizeof(resp));
+        struct rpc_skel_fn_result skel = rpc_skel_for((method_slot)id);
+        if (PICOMESH_IS_ERR(skel)) {
+            picomesh_error_print(stderr, "_rpc: skel lookup failed", skel.error);
+            picomesh_error_destroy(skel.error);
+        } else if (skel.value) {
+            struct picomesh_size_result sr =
+                skel.value(body, body_len, resp, sizeof(resp));
+            if (PICOMESH_IS_ERR(sr)) {
+                picomesh_error_print(stderr, "_rpc: skel failed", sr.error);
+                picomesh_error_destroy(sr.error);
+            } else {
+                resp_len = sr.value;
+            }
+        }
         break;
     }
     case RPC_OP_RESOLVE_SLOT:
     case RPC_OP_GET_CLASS:
     case RPC_OP_CREATE:
-    case RPC_OP_DESTROY:
-        /* Dispatch the admin ops via the existing inline handlers.
-         * They take (body, body_len, resp, resp_max) → bytes_written. */
-        {
-            extern size_t rpc_handle_admin_op(enum rpc_op op,
-                const void *body, size_t body_len, void *resp, size_t resp_max);
-            resp_len = rpc_handle_admin_op(op, body, body_len, resp, sizeof(resp));
+    case RPC_OP_DESTROY: {
+        struct picomesh_size_result ar =
+            rpc_handle_admin_op(op, body, body_len, resp, sizeof(resp));
+        if (PICOMESH_IS_ERR(ar)) {
+            picomesh_error_print(stderr, "_rpc: admin op failed", ar.error);
+            picomesh_error_destroy(ar.error);
+        } else {
+            resp_len = ar.value;
         }
         break;
+    }
     }
     rpc_set_current_caller(0, 0);
 
     send_response(stream, 200, "application/octet-stream", (const char *)resp, resp_len, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 struct describe_ctx {
-    struct yjson_writer *w;
+    struct json_writer *w;
 };
 
 static void describe_emit(const char *name, method_slot slot, void *ud)
 {
     (void)slot;
     struct describe_ctx *describe_ctx = ud;
-    yjson_writer_string(describe_ctx->w, name);
+    json_writer_string(describe_ctx->w, name);
 }
 
 /* Extract the value of ?class=… from a URL like /describe?class=foo. */
@@ -369,32 +419,37 @@ static const char *query_get(const char *path, const char *key,
     return NULL;
 }
 
-static void route_describe(struct yloop_stream *stream, const char *path,
+static struct picomesh_void_result route_describe(struct loop_stream *stream, const char *path,
                            int keep_alive)
 {
     char cls[128];
     if (!query_get(path, "class", cls, sizeof(cls))) {
         send_json_error(stream, 400, -32602, "describe: missing ?class=", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     struct class_ptr_result class_res = class_by_name(cls);
     if (PICOMESH_IS_ERR(class_res)) {
         picomesh_error_destroy(class_res.error);
         char msg[256]; snprintf(msg, sizeof(msg), "describe: unknown class '%s'", cls);
         send_json_error(stream, 404, -32601, msg, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "class");   yjson_writer_string(writer, cls);
-    yjson_writer_key(writer, "methods"); yjson_writer_begin_array(writer);
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "class");   json_writer_string(writer, cls);
+    json_writer_key(writer, "methods"); json_writer_begin_array(writer);
     struct describe_ctx describe_ctx = {.w = writer};
-    class_for_each_slot(class_res.value, describe_emit, &describe_ctx);
-    yjson_writer_end_array(writer);
-    yjson_writer_end_object(writer);
-    size_t len; const char *data = yjson_writer_data(writer, &len);
+    struct picomesh_void_result slots_res = class_for_each_slot(class_res.value, describe_emit, &describe_ctx);
+    if (PICOMESH_IS_ERR(slots_res)) {
+        picomesh_error_print(stderr, "route_describe: class_for_each_slot", slots_res.error);
+        picomesh_error_destroy(slots_res.error);
+    }
+    json_writer_end_array(writer);
+    json_writer_end_object(writer);
+    size_t len; const char *data = json_writer_data(writer, &len);
     send_response(stream, 200, "application/json", data, len, keep_alive);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
+    return PICOMESH_OK_VOID();
 }
 
 /* ---- request loop ---------------------------------------------- */
@@ -405,13 +460,19 @@ static int starts_with(const char *str, size_t str_len, const char *prefix)
     return str_len >= prefix_len && memcmp(str, prefix, prefix_len) == 0;
 }
 
-static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
+/* Per-connection serve coroutine — its void signature is fixed by the loop's
+ * accept-handler API and there is no caller to propagate a Result to, so route
+ * dispatch failures are absorbed here (their chain rendered to stderr and into
+ * the response). This is the transport boundary the route handlers propagate up
+ * to. */
+PICOMESH_EXTERNAL_CALLBACK
+static void serve_one(struct loop *loop, struct loop_stream *stream, void *ud)
 {
     (void)loop;
     (void)ud; /* gh#5: no static_root to read anymore */
     yinfo("yhttp: peer connected");
     char *buf = malloc(YHTTP_REQ_BUF);
-    if (!buf) { yloop_close(stream); return; }
+    if (!buf) { loop_close(stream); return; }
 
     for (;;) {
         size_t buf_len = 0;
@@ -433,9 +494,10 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
             /* read_some: returns whatever bytes are available, not
              * exactly `chunk` — critical for HTTP request lines that
              * arrive in single packets shorter than our buffer. */
-            size_t got = yloop_read_some(stream, buf + buf_len, chunk);
-            if (got == 0) goto close_peer;
-            buf_len += got;
+            struct picomesh_size_result read_res = loop_read_some(stream, buf + buf_len, chunk);
+            if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); goto close_peer; }
+            if (read_res.value == 0) goto close_peer; /* clean EOF */
+            buf_len += read_res.value;
             num_headers = YHTTP_MAX_HEADERS;
             parsed = phr_parse_request(buf, buf_len,
                                        &phr_method, &phr_method_len,
@@ -462,10 +524,11 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
             while ((long)body_present < content_length) {
                 if (header_end + content_length > YHTTP_REQ_BUF) goto close_peer;
                 size_t need = (size_t)content_length - body_present;
-                size_t got = yloop_read_some(stream, buf + buf_len, need);
-                if (got == 0) goto close_peer;
-                buf_len += got;
-                body_present += got;
+                struct picomesh_size_result read_res = loop_read_some(stream, buf + buf_len, need);
+                if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); goto close_peer; }
+                if (read_res.value == 0) goto close_peer; /* clean EOF */
+                buf_len += read_res.value;
+                body_present += read_res.value;
             }
         }
         const char *body = buf + header_end;
@@ -486,8 +549,22 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
          * they pattern-match on URL, render HTML, and short-circuit if
          * they take ownership. Returns 0 → fall through to static /
          * JSON-API routes below. */
-        if (yhttp_frontend_try(stream, method, phr_path, buf, header_end,
-                               body, (size_t)content_length, keep_alive)) {
+        struct picomesh_int_result try_res =
+            yhttp_frontend_try(stream, method, phr_path, buf, header_end,
+                               body, (size_t)content_length, keep_alive);
+        if (PICOMESH_IS_ERR(try_res)) {
+            /* Transport boundary: render the full cause chain to BOTH the log
+             * and the 500 response body so the operator sees exactly what
+             * failed, chain intact. */
+            char eb[8192];
+            picomesh_error_snprint(eb, sizeof(eb), try_res.error);
+            picomesh_error_print(stderr, "yhttp_frontend_try", try_res.error);
+            picomesh_error_destroy(try_res.error);
+            send_response(stream, 500, "application/json", eb, strlen(eb), keep_alive);
+            if (!keep_alive) goto close_peer;
+            continue;
+        }
+        if (try_res.value) {
             if (!keep_alive) goto close_peer;
             continue;
         }
@@ -500,7 +577,8 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
             send_response(stream, 200, "text/plain", "", 0, keep_alive);
         } else if (strcmp(method, "GET") == 0) {
             if (starts_with(phr_path, phr_path_len, "/describe")) {
-                route_describe(stream, phr_path, keep_alive);
+                absorb_route_result(stream, "route_describe",
+                                    route_describe(stream, phr_path, keep_alive), keep_alive);
             } else if (strcmp(phr_path, "/") == 0) {
                 route_root(stream, keep_alive);
             } else {
@@ -508,13 +586,16 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
             }
         } else if (strcmp(method, "POST") == 0) {
             if (strcmp(phr_path, "/create") == 0) {
-                route_create(stream, body, (size_t)content_length, keep_alive);
+                absorb_route_result(stream, "route_create",
+                                    route_create(stream, body, (size_t)content_length, keep_alive), keep_alive);
             } else if (strcmp(phr_path, "/invoke") == 0) {
-                route_invoke(stream, body, (size_t)content_length, keep_alive);
+                absorb_route_result(stream, "route_invoke",
+                                    route_invoke(stream, body, (size_t)content_length, keep_alive), keep_alive);
             } else if (strncmp(phr_path, "/_rpc", 5) == 0 &&
                        (phr_path[5] == 0 || phr_path[5] == '?')) {
-                route_rpc_binary(stream, phr_path, buf, header_end,
-                                 body, (size_t)content_length, keep_alive);
+                absorb_route_result(stream, "route_rpc_binary",
+                                    route_rpc_binary(stream, phr_path, buf, header_end,
+                                                     body, (size_t)content_length, keep_alive), keep_alive);
             } else {
                 send_json_error(stream, 404, -32601, "no such POST route", keep_alive);
             }
@@ -527,7 +608,7 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
 close_peer:
     free(buf);
     yinfo("yhttp: peer disconnected");
-    yloop_close(stream);
+    loop_close(stream);
 }
 
 struct yhttp_frontend_ptr_result yhttp_start(struct picomesh_engine *engine,
@@ -537,17 +618,17 @@ struct yhttp_frontend_ptr_result yhttp_start(struct picomesh_engine *engine,
     const char *host = (cfg && cfg->host) ? cfg->host : "127.0.0.1";
     int port = (cfg && cfg->port > 0) ? cfg->port : 8080;
 
-    struct yloop *loop = picomesh_engine_loop(engine);
+    struct loop *loop = picomesh_engine_loop(engine);
     if (!loop) return PICOMESH_ERR(yhttp_frontend_ptr, "yhttp_start: engine has no loop");
 
     struct yhttp_frontend *frontend = calloc(1, sizeof(*frontend));
     if (!frontend) return PICOMESH_ERR(yhttp_frontend_ptr, "yhttp_start: calloc failed");
     frontend->engine = engine;
 
-    struct picomesh_void_result listen_res = yloop_listen_tcp(loop, host, port, serve_one, frontend);
+    struct picomesh_void_result listen_res = loop_listen_tcp(loop, host, port, serve_one, frontend);
     if (PICOMESH_IS_ERR(listen_res)) {
         free(frontend);
-        return PICOMESH_ERR(yhttp_frontend_ptr, "yhttp_start: yloop_listen_tcp failed", listen_res);
+        return PICOMESH_ERR(yhttp_frontend_ptr, "yhttp_start: loop_listen_tcp failed", listen_res);
     }
     yinfo("yhttp: listening on %s:%d", host, port);
     return PICOMESH_OK(yhttp_frontend_ptr, frontend);

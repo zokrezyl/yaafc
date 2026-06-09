@@ -6,6 +6,10 @@ static accounts_accounts_claim_username_fn _accounts_accounts_accounts_accounts_
 __attribute__((unused))
 static accounts_accounts_release_username_fn _accounts_accounts_accounts_accounts_release_username_check = accounts_accounts_release_username_impl;
 __attribute__((unused))
+static accounts_accounts_allocate_uid_fn _accounts_accounts_accounts_accounts_allocate_uid_check = accounts_accounts_allocate_uid_impl;
+__attribute__((unused))
+static accounts_accounts_uid_for_username_fn _accounts_accounts_accounts_accounts_uid_for_username_check = accounts_accounts_uid_for_username_impl;
+__attribute__((unused))
 static accounts_accounts_register_fn _accounts_accounts_accounts_accounts_register_check = accounts_accounts_register_impl;
 __attribute__((unused))
 static accounts_accounts_exists_fn _accounts_accounts_accounts_accounts_exists_check = accounts_accounts_exists_impl;
@@ -54,6 +58,8 @@ struct class_ptr_result accounts_accounts_class_get(void)
     static const struct op ops[] = {
         {"accounts", "accounts_claim_username", (method_id_t)accounts_accounts_claim_username, (impl_t)accounts_accounts_claim_username_impl},
         {"accounts", "accounts_release_username", (method_id_t)accounts_accounts_release_username, (impl_t)accounts_accounts_release_username_impl},
+        {"accounts", "accounts_allocate_uid", (method_id_t)accounts_accounts_allocate_uid, (impl_t)accounts_accounts_allocate_uid_impl},
+        {"accounts", "accounts_uid_for_username", (method_id_t)accounts_accounts_uid_for_username, (impl_t)accounts_accounts_uid_for_username_impl},
         {"accounts", "accounts_register", (method_id_t)accounts_accounts_register, (impl_t)accounts_accounts_register_impl},
         {"accounts", "accounts_exists", (method_id_t)accounts_accounts_exists, (impl_t)accounts_accounts_exists_impl},
         {"accounts", "accounts_set_balance", (method_id_t)accounts_accounts_set_balance, (impl_t)accounts_accounts_set_balance_impl},

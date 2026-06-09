@@ -26,10 +26,10 @@
  *   list_services()                                 → JSON [{service_name, instances:[…]}]
  *   count()                                         → number of live instances */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yjson/yjson.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/json/json.h>
 
 #include <pthread.h>
 #include <stdint.h>
@@ -168,19 +168,19 @@ struct picomesh_string_result registry_registry_resolve_impl(struct ctx *ctx, st
 
 /* Emit the instances of `name` as a JSON array onto an open writer. Caller
  * holds the lock. */
-static void registry_write_instances(struct yjson_writer *writer,
+static void registry_write_instances(struct json_writer *writer,
                                      struct registry_state *state, const char *name)
 {
-    yjson_writer_begin_array(writer);
+    json_writer_begin_array(writer);
     for (size_t i = 0; i < REGISTRY_MAX_ENTRIES; ++i) {
         if (!state->entries[i].used || strcmp(state->entries[i].name, name) != 0) continue;
-        yjson_writer_begin_object(writer);
-        yjson_writer_key(writer, "instance_id"); yjson_writer_string(writer, state->entries[i].instance_id);
-        yjson_writer_key(writer, "host");        yjson_writer_string(writer, state->entries[i].host);
-        yjson_writer_key(writer, "port");        yjson_writer_int(writer, (int64_t)state->entries[i].port);
-        yjson_writer_end_object(writer);
+        json_writer_begin_object(writer);
+        json_writer_key(writer, "instance_id"); json_writer_string(writer, state->entries[i].instance_id);
+        json_writer_key(writer, "host");        json_writer_string(writer, state->entries[i].host);
+        json_writer_key(writer, "port");        json_writer_int(writer, (int64_t)state->entries[i].port);
+        json_writer_end_object(writer);
     }
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@registry:registry:registry_discover_service")
@@ -190,23 +190,23 @@ struct picomesh_json_result registry_registry_discover_service_impl(struct ctx *
     (void)ctx; (void)obj; (void)hdrs;
     if (!name) name = "";
     struct registry_state *state = registry_state();
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_json, "registry_discover: writer alloc failed");
     pthread_mutex_lock(&state->mu);
     size_t total = 0;
     for (size_t i = 0; i < REGISTRY_MAX_ENTRIES; ++i) {
         if (state->entries[i].used && strcmp(state->entries[i].name, name) == 0) total++;
     }
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "service_name"); yjson_writer_string(writer, name);
-    yjson_writer_key(writer, "instances");    registry_write_instances(writer, state, name);
-    yjson_writer_key(writer, "total_instances"); yjson_writer_int(writer, (int64_t)total);
-    yjson_writer_end_object(writer);
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "service_name"); json_writer_string(writer, name);
+    json_writer_key(writer, "instances");    registry_write_instances(writer, state, name);
+    json_writer_key(writer, "total_instances"); json_writer_int(writer, (int64_t)total);
+    json_writer_end_object(writer);
     pthread_mutex_unlock(&state->mu);
     size_t len = 0;
-    const char *jdata = yjson_writer_data(writer, &len);
+    const char *jdata = json_writer_data(writer, &len);
     char *out = strdup(jdata ? jdata : "{}");
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "registry_discover: out of memory");
     return PICOMESH_OK(picomesh_json, out);
 }
@@ -217,10 +217,10 @@ struct picomesh_json_result registry_registry_list_services_impl(struct ctx *ctx
 {
     (void)ctx; (void)obj; (void)hdrs;
     struct registry_state *state = registry_state();
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_json, "registry_list: writer alloc failed");
     pthread_mutex_lock(&state->mu);
-    yjson_writer_begin_array(writer);
+    json_writer_begin_array(writer);
     /* One object per distinct service name: emit at the lowest slot carrying
      * that name so each name appears once. */
     for (size_t i = 0; i < REGISTRY_MAX_ENTRIES; ++i) {
@@ -232,17 +232,17 @@ struct picomesh_json_result registry_registry_list_services_impl(struct ctx *ctx
             }
         }
         if (!first) continue;
-        yjson_writer_begin_object(writer);
-        yjson_writer_key(writer, "service_name"); yjson_writer_string(writer, state->entries[i].name);
-        yjson_writer_key(writer, "instances");    registry_write_instances(writer, state, state->entries[i].name);
-        yjson_writer_end_object(writer);
+        json_writer_begin_object(writer);
+        json_writer_key(writer, "service_name"); json_writer_string(writer, state->entries[i].name);
+        json_writer_key(writer, "instances");    registry_write_instances(writer, state, state->entries[i].name);
+        json_writer_end_object(writer);
     }
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
     pthread_mutex_unlock(&state->mu);
     size_t len = 0;
-    const char *jdata = yjson_writer_data(writer, &len);
+    const char *jdata = json_writer_data(writer, &len);
     char *out = strdup(jdata ? jdata : "[]");
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "registry_list: out of memory");
     return PICOMESH_OK(picomesh_json, out);
 }

@@ -6,19 +6,19 @@
  * and the webapp read traces back through the query methods via the
  * gateway's /_rpc + /_describe — service-driven, no hand-rolled routes.
  *
- * State is an in-memory, bounded span store (ycore/ytelemetry_store). No
+ * State is an in-memory, bounded span store (core/ytelemetry_store). No
  * durable storage in v1. This process holds no other plugins and reaches
  * no backends. */
 
 #include <stdio.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/ytelemetry_store.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/yplatform/time.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/ytelemetry_store.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/config/config.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/json/json.h>
+#include <picomesh/platform/time.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -29,7 +29,7 @@ struct PICOMESH_CLASS_ANNOTATE("class@trace_collector:trace_collector") trace_co
 
 static uint64_t collector_now_ns(void)
 {
-    return (uint64_t)picomesh_yplatform_time_wall_ms() * 1000000ull;
+    return (uint64_t)picomesh_platform_time_wall_ms() * 1000000ull;
 }
 
 /* Size the in-memory store from this process's config the first time the
@@ -37,44 +37,58 @@ static uint64_t collector_now_ns(void)
  * (retention). Idempotent (ytelemetry_store_init only honours the first
  * call); the `done` flag just skips the per-call config lookup. Safe across
  * the collector's worker threads — same value, idempotent init. */
-static int64_t collector_cfg_int(const struct yconfig *cfg, const char *key)
+static struct picomesh_int64_result collector_cfg_int(const struct config *cfg, const char *key)
 {
-    struct yconfig_node_ptr_result config_res = yconfig_get(cfg, key);
-    return (PICOMESH_IS_OK(config_res) && config_res.value) ? yconfig_node_as_int(config_res.value, 0) : 0;
+    struct config_node_ptr_result config_res = config_get(cfg, key);
+    PICOMESH_RETURN_IF_ERR(picomesh_int64, config_res, "collector_cfg_int: config read failed");
+    return PICOMESH_OK(picomesh_int64, config_res.value ? config_node_as_int(config_res.value, 0) : 0);
 }
 
-static void collector_ensure_store(void)
+static struct picomesh_void_result collector_ensure_store(void)
 {
     static int done = 0;
-    if (done) return;
+    if (done) return PICOMESH_OK_VOID();
     struct ytelemetry_store_config store_cfg = {0};
     struct picomesh_engine *engine = picomesh_active_engine();
     if (engine) {
-        const struct yconfig *cfg = picomesh_engine_config(engine);
-        int64_t config_value;
-        if ((config_value = collector_cfg_int(cfg, "telemetry.max_spans")) > 0) store_cfg.max_spans = (size_t)config_value;
-        if ((config_value = collector_cfg_int(cfg, "telemetry.max_age_seconds")) > 0) store_cfg.max_age_seconds = (uint64_t)config_value;
-        if ((config_value = collector_cfg_int(cfg, "telemetry.shards")) > 0) store_cfg.shards = (unsigned)config_value;
-        if ((config_value = collector_cfg_int(cfg, "telemetry.bucket_spans")) > 0) store_cfg.bucket_spans = (size_t)config_value;
-        if ((config_value = collector_cfg_int(cfg, "telemetry.flush_ms")) > 0) store_cfg.flush_ms = (uint64_t)config_value;
+        const struct config *cfg = picomesh_engine_config(engine);
+        struct picomesh_int64_result cfg_value;
+        cfg_value = collector_cfg_int(cfg, "telemetry.max_spans");
+        PICOMESH_RETURN_IF_ERR(picomesh_void, cfg_value, "collector: telemetry.max_spans");
+        if (cfg_value.value > 0) store_cfg.max_spans = (size_t)cfg_value.value;
+        cfg_value = collector_cfg_int(cfg, "telemetry.max_age_seconds");
+        PICOMESH_RETURN_IF_ERR(picomesh_void, cfg_value, "collector: telemetry.max_age_seconds");
+        if (cfg_value.value > 0) store_cfg.max_age_seconds = (uint64_t)cfg_value.value;
+        cfg_value = collector_cfg_int(cfg, "telemetry.shards");
+        PICOMESH_RETURN_IF_ERR(picomesh_void, cfg_value, "collector: telemetry.shards");
+        if (cfg_value.value > 0) store_cfg.shards = (unsigned)cfg_value.value;
+        cfg_value = collector_cfg_int(cfg, "telemetry.bucket_spans");
+        PICOMESH_RETURN_IF_ERR(picomesh_void, cfg_value, "collector: telemetry.bucket_spans");
+        if (cfg_value.value > 0) store_cfg.bucket_spans = (size_t)cfg_value.value;
+        cfg_value = collector_cfg_int(cfg, "telemetry.flush_ms");
+        PICOMESH_RETURN_IF_ERR(picomesh_void, cfg_value, "collector: telemetry.flush_ms");
+        if (cfg_value.value > 0) store_cfg.flush_ms = (uint64_t)cfg_value.value;
     }
     ytelemetry_store_init_config(&store_cfg); /* any field left 0 takes its built-in default */
     done = 1;
+    return PICOMESH_OK_VOID();
 }
 
 /* Render a query-writer's JSON into an owned heap string the caller frees. */
-static struct picomesh_string_result render(void (*emit)(struct yjson_writer *, void *),
+static struct picomesh_string_result render(void (*emit)(struct json_writer *, void *),
                                             void *user_data)
 {
-    collector_ensure_store(); /* config applies on first query too, not only ingest */
-    struct yjson_writer *writer = yjson_writer_new();
+    /* config applies on first query too, not only ingest */
+    struct picomesh_void_result store_res = collector_ensure_store();
+    PICOMESH_RETURN_IF_ERR(picomesh_string, store_res, "trace_collector: store init failed");
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_string, "trace_collector: writer alloc failed");
     emit(writer, user_data);
     size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     char *out = malloc(len + 1);
     if (out) { memcpy(out, data, len); out[len] = 0; }
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_string, "trace_collector: out of memory");
     return PICOMESH_OK(picomesh_string, out);
 }
@@ -86,7 +100,8 @@ struct picomesh_void_result trace_collector_trace_collector_ingest_impl(
     struct ctx *ctx, struct object *obj, struct yheaders *hdrs, const char *span_json)
 {
     (void)ctx; (void)obj; (void)hdrs;
-    collector_ensure_store();
+    struct picomesh_void_result store_res = collector_ensure_store();
+    PICOMESH_RETURN_IF_ERR(picomesh_void, store_res, "trace_collector_ingest: store init failed");
     /* The store tallies malformed/evicted spans (queryable via store_stats),
      * so bad input is not invisible. Ingest is fire-and-forget at the wire,
      * so we still return OK regardless — the caller never waits on this.
@@ -101,7 +116,7 @@ struct picomesh_void_result trace_collector_trace_collector_ingest_impl(
 
 struct trace_arg { const char *a; const char *b; uint64_t n; };
 
-static void emit_trace(struct yjson_writer *writer, void *user_data)
+static void emit_trace(struct json_writer *writer, void *user_data)
 {
     ytelemetry_store_write_trace(writer, ((struct trace_arg *)user_data)->a);
 }
@@ -115,7 +130,7 @@ struct picomesh_string_result trace_collector_trace_collector_get_trace_impl(
     return render(emit_trace, &arg);
 }
 
-static void emit_traces(struct yjson_writer *writer, void *user_data)
+static void emit_traces(struct json_writer *writer, void *user_data)
 {
     struct trace_arg *arg = user_data;
     ytelemetry_store_write_traces(writer, (arg->a && *arg->a) ? arg->a : NULL,
@@ -139,7 +154,7 @@ struct picomesh_string_result trace_collector_trace_collector_traces_impl(
     return render(emit_traces, &arg);
 }
 
-static void emit_services(struct yjson_writer *writer, void *user_data)
+static void emit_services(struct json_writer *writer, void *user_data)
 {
     (void)user_data;
     ytelemetry_store_write_services(writer);
@@ -153,7 +168,7 @@ struct picomesh_string_result trace_collector_trace_collector_services_impl(
     return render(emit_services, NULL);
 }
 
-static void emit_operations(struct yjson_writer *writer, void *user_data)
+static void emit_operations(struct json_writer *writer, void *user_data)
 {
     const char *service = ((struct trace_arg *)user_data)->a;
     ytelemetry_store_write_operations(writer, (service && *service) ? service : NULL);
@@ -168,7 +183,7 @@ struct picomesh_string_result trace_collector_trace_collector_operations_impl(
     return render(emit_operations, &arg);
 }
 
-static void emit_latency(struct yjson_writer *writer, void *user_data)
+static void emit_latency(struct json_writer *writer, void *user_data)
 {
     struct trace_arg *arg = user_data;
     ytelemetry_store_write_latency(writer, (arg->a && *arg->a) ? arg->a : NULL,
@@ -186,7 +201,7 @@ struct picomesh_string_result trace_collector_trace_collector_latency_impl(
     return render(emit_latency, &arg);
 }
 
-static void emit_stats(struct yjson_writer *writer, void *user_data)
+static void emit_stats(struct json_writer *writer, void *user_data)
 {
     (void)user_data;
     ytelemetry_store_write_stats(writer);
@@ -197,11 +212,12 @@ struct picomesh_string_result trace_collector_trace_collector_stats_impl(
     struct ctx *ctx, struct object *obj, struct yheaders *hdrs)
 {
     (void)ctx; (void)obj; (void)hdrs;
-    collector_ensure_store();
+    struct picomesh_void_result store_res = collector_ensure_store();
+    PICOMESH_RETURN_IF_ERR(picomesh_string, store_res, "trace_collector_stats: store init failed");
     return render(emit_stats, NULL);
 }
 
-static void emit_errors(struct yjson_writer *writer, void *user_data)
+static void emit_errors(struct json_writer *writer, void *user_data)
 {
     ytelemetry_store_write_errors(writer, ((struct trace_arg *)user_data)->n);
 }

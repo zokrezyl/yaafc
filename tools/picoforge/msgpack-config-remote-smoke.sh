@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # #22 smoke: a picomesh C node reaches a FOREIGN msgpack service declared as a
-# CONFIG remote (`transport: msgpack`) — proving the async yloop config-remote
+# CONFIG remote (`transport: msgpack`) — proving the async loop config-remote
 # path, NOT the `--transport msgpack client` CLI path. The node runs as a yhttp
 # bridge; a /_rpc call for calculator.calc.* resolves the configured remote and
 # forwards it over the async MessagePack transport to the Python server.

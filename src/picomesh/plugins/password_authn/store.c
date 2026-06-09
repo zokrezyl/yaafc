@@ -14,12 +14,12 @@
  *   count       → number of registered users
  */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yengine/engine.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/engine/engine.h>
 #include <picomesh/plugin/sharded_storage/sharded_storage.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/rpc.h>
 #include <string.h>
 
 #include <stdint.h>

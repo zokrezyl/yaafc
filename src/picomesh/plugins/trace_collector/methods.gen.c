@@ -1,11 +1,11 @@
 /* GENERATED — do not edit. */
 #include "trace_collector.internal.h"
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
 #include <picomesh/allocator/allocator.h>
 #include <stdint.h>
@@ -45,7 +45,9 @@ struct picomesh_void_result trace_collector_trace_collector_ingest(struct ctx * 
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.ingest", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_void, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_ingest: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_void, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_void, "trace_collector_trace_collector_ingest: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -56,7 +58,10 @@ struct picomesh_void_result trace_collector_trace_collector_ingest(struct ctx * 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_void, "trace_collector_trace_collector_ingest: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_void, "trace_collector_trace_collector_ingest: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -119,7 +124,9 @@ struct picomesh_void_result trace_collector_trace_collector_ingest(struct ctx * 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_void, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_ingest: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_void, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_void, "trace_collector_trace_collector_ingest: remote error (no msg)");
             goto _rpc_done;
         }
         _ret = PICOMESH_OK_VOID(); goto _rpc_done;
@@ -167,7 +174,9 @@ struct picomesh_string_result trace_collector_trace_collector_get_trace(struct c
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.get_trace", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_get_trace: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_get_trace: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -190,7 +199,10 @@ struct picomesh_string_result trace_collector_trace_collector_get_trace(struct c
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_get_trace: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_get_trace: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -253,7 +265,9 @@ struct picomesh_string_result trace_collector_trace_collector_get_trace(struct c
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_get_trace: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_get_trace: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_get_trace: truncated string response"); goto _rpc_done; }
@@ -311,7 +325,9 @@ struct picomesh_string_result trace_collector_trace_collector_traces(struct ctx 
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.traces", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_traces: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_traces: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -334,7 +350,10 @@ struct picomesh_string_result trace_collector_trace_collector_traces(struct ctx 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_traces: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_traces: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -407,7 +426,9 @@ struct picomesh_string_result trace_collector_trace_collector_traces(struct ctx 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_traces: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_traces: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_traces: truncated string response"); goto _rpc_done; }
@@ -462,7 +483,9 @@ struct picomesh_string_result trace_collector_trace_collector_services(struct ct
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.services", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_services: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_services: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -485,7 +508,10 @@ struct picomesh_string_result trace_collector_trace_collector_services(struct ct
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_services: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_services: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -541,7 +567,9 @@ struct picomesh_string_result trace_collector_trace_collector_services(struct ct
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_services: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_services: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_services: truncated string response"); goto _rpc_done; }
@@ -597,7 +625,9 @@ struct picomesh_string_result trace_collector_trace_collector_operations(struct 
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.operations", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_operations: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_operations: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -620,7 +650,10 @@ struct picomesh_string_result trace_collector_trace_collector_operations(struct 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_operations: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_operations: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -683,7 +716,9 @@ struct picomesh_string_result trace_collector_trace_collector_operations(struct 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_operations: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_operations: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_operations: truncated string response"); goto _rpc_done; }
@@ -741,7 +776,9 @@ struct picomesh_string_result trace_collector_trace_collector_latency(struct ctx
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.latency", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_latency: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_latency: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -764,7 +801,10 @@ struct picomesh_string_result trace_collector_trace_collector_latency(struct ctx
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_latency: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_latency: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -837,7 +877,9 @@ struct picomesh_string_result trace_collector_trace_collector_latency(struct ctx
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_latency: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_latency: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_latency: truncated string response"); goto _rpc_done; }
@@ -892,7 +934,9 @@ struct picomesh_string_result trace_collector_trace_collector_stats(struct ctx *
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.stats", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_stats: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_stats: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -915,7 +959,10 @@ struct picomesh_string_result trace_collector_trace_collector_stats(struct ctx *
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_stats: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_stats: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -971,7 +1018,9 @@ struct picomesh_string_result trace_collector_trace_collector_stats(struct ctx *
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_stats: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_stats: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_stats: truncated string response"); goto _rpc_done; }
@@ -1027,7 +1076,9 @@ struct picomesh_string_result trace_collector_trace_collector_errors(struct ctx 
             if (!peer_channel_msgpack_call(_s->peer, "trace_collector.trace_collector.errors", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "trace_collector_trace_collector_errors: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_errors: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -1050,7 +1101,10 @@ struct picomesh_string_result trace_collector_trace_collector_errors(struct ctx 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_errors: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_errors: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -1109,7 +1163,9 @@ struct picomesh_string_result trace_collector_trace_collector_errors(struct ctx 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "trace_collector_trace_collector_errors: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_errors: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "trace_collector_trace_collector_errors: truncated string response"); goto _rpc_done; }

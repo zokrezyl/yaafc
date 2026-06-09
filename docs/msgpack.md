@@ -15,7 +15,7 @@ hand-authorable **input** (an IDL).
 
 ```
 annotated C (calc.c, [[clang::annotate]])
-   │  src/picomesh/yclass/gen/codegen.py   (clang AST)
+   │  src/picomesh/picoclass/gen/codegen.py   (clang AST)
    ▼
 model.yaml   ← language-neutral IR, regenerated every build
    │                                         \
@@ -44,7 +44,7 @@ generators need only the YAML — no clang, no C sources.
 
 ### Part 0 — shared active-service resolver
 
-- `include/picomesh/yengine/resolve.h`, `src/picomesh/yengine/resolve.c`
+- `include/picomesh/engine/resolve.h`, `src/picomesh/engine/resolve.c`
   - `picomesh_resolve_service_call(engine, "service.class.method")` — gates:
     the service must be an activated plugin **or** a configured remote on this
     node (registration == activation) **before** any class/method lookup; never
@@ -85,10 +85,10 @@ at that point.
 
 ### Part 1b — codegen minvoke (inbound dispatch)
 
-- `include/picomesh/yclass/minvoke.h`, `src/picomesh/yclass/minvoke.c` —
+- `include/picomesh/picoclass/minvoke.h`, `src/picomesh/picoclass/minvoke.c` —
   `minvoke_fn` / `minvoke_for` / `minvoke_add_lookup`, the msgpack twin of
   jinvoke.
-- `src/picomesh/yclass/gen/codegen.py`: `emit_minvoke` / `emit_munpack_arg` /
+- `src/picomesh/picoclass/gen/codegen.py`: `emit_minvoke` / `emit_munpack_arg` /
   `emit_minvoke_write_result` / `emit_minvoke_table` — per method, decode
   positional msgpack args (with per-type width/signedness/range checks) → call
   the public stub → encode the result. Emitted into every plugin's
@@ -102,7 +102,7 @@ at that point.
   Decodes the `{v,op,path,args,kwargs,headers}` envelope, resolves via
   `picomesh_resolve_service_call`, dispatches via `minvoke_for`, encodes
   `{v,ok,result|error}`. Implements `op=invoke` + a minimal `op=describe`.
-- `ymain.c`: `--frontend msgpack` wired into the serve dispatch + validation +
+- `main.c`: `--frontend msgpack` wired into the serve dispatch + validation +
   usage.
 
 ### Part 1d — reference client + inbound smoke
@@ -115,16 +115,16 @@ at that point.
 
 ### Part 2 — outbound transport (C → foreign), caller side
 
-- `src/picomesh/yclass/rpc.h` (decls); `src/picomesh/yclass/rpc.c`:
+- `src/picomesh/picoclass/rpc.h` (decls); `src/picomesh/picoclass/rpc.c`:
   `RPC_MODE_MSGPACK`; `peer_channel_create_msgpack(fd)`;
   `peer_channel_is_msgpack(s)`; `peer_channel_msgpack_call(...)` — wraps a
   pre-encoded args array in the envelope, big-endian length-frames it, blocking
   round-trip, returns the response's `result` value bytes.
-- `src/picomesh/yclass/gen/codegen.py`: `emit_msgpack_remote_branch` /
+- `src/picomesh/picoclass/gen/codegen.py`: `emit_msgpack_remote_branch` /
   `emit_mpack_write_arg` / `emit_mpack_read_result` / `dotted_path` — when
   `ctx->peer` is a msgpack channel, the `methods.gen.c` stub encodes args,
   calls `peer_channel_msgpack_call`, decodes the result.
-- `ymain.c`: `client --transport msgpack`.
+- `main.c`: `client --transport msgpack`.
 - `tools/msgpack-client/calculator_server_impl.py` — foreign service built on the
   **generated** server skeleton (only the four arithmetic bodies are hand-written;
   `tools/msgpack-client/echo_server.py` is kept as the fully-hand-written
@@ -196,7 +196,7 @@ bash tools/picoforge/msgpack-outbound-smoke.sh   # outbound 3/3
    directly, so only the C-client side of this case is missing.)
 
 3. **Engine config `transport: msgpack` for remotes — DONE (gh#22).**
-   `remotes: [{service, host, port, transport: msgpack}]` now opens a yloop-aware
+   `remotes: [{service, host, port, transport: msgpack}]` now opens a loop-aware
    async MessagePack transport per worker (`msgpack_async_client` in `engine.c`):
    lazy connect, framed coroutine-yielding read/write (never blocks the loop),
    reconnect on drop, and a cooperative serial gate (the envelope carries no

@@ -21,13 +21,13 @@
  * with list access cannot harvest a live session credential.
  */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yplatform/time.h>
-#include <picomesh/ycore/idkey.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/platform/time.h>
+#include <picomesh/core/idkey.h>
 #include <picomesh/plugin/relational_storage/relational_sql.h>
 
 #include <errno.h>
@@ -98,18 +98,19 @@ struct picomesh_string_result session_session_start_impl(struct ctx *ctx, struct
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_string, "session_start: open failed", open_res);
     rel_handle.shard = picomesh_fnv1a32(sid); /* lookup cluster: shard by the sid we issue */
 
-    struct yjson_writer *args_writer = yjson_writer_new();
-    yjson_writer_begin_array(args_writer);
-    yjson_writer_string(args_writer, sid);
-    yjson_writer_int(args_writer, (int64_t)user_id);
-    yjson_writer_string(args_writer, access_jwt);
-    yjson_writer_string(args_writer, refresh_token);
-    yjson_writer_int(args_writer, picomesh_yplatform_time_wall_ms() / 1000);
+    struct json_writer *args_writer = json_writer_new();
+    json_writer_begin_array(args_writer);
+    json_writer_string(args_writer, sid);
+    json_writer_int(args_writer, (int64_t)user_id);
+    json_writer_string(args_writer, access_jwt);
+    json_writer_string(args_writer, refresh_token);
+    json_writer_int(args_writer, picomesh_platform_time_wall_ms() / 1000);
     char *args = rel_args_take(args_writer);
-    int changes = rel_exec_changes(&rel_handle, hdrs,
+    struct picomesh_int_result changes_res = rel_exec_changes(&rel_handle, hdrs,
         "INSERT INTO sessions(sid,uid,access_jwt,refresh_token,created_at) VALUES(?,?,?,?,?)", args);
     free(args);
-    if (changes < 1) return PICOMESH_ERR(picomesh_string, "session_start: insert failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_string, changes_res, "session_start: insert failed");
+    if (changes_res.value < 1) return PICOMESH_ERR(picomesh_string, "session_start: insert failed");
 
     yinfo("session: started user=%u", user_id); /* never log the sid */
     char *out = strdup(sid);
@@ -128,8 +129,10 @@ struct picomesh_string_result session_session_jwt_impl(struct ctx *ctx, struct o
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_string, "session_jwt: open failed", open_res);
     rel_handle.shard = picomesh_fnv1a32(sid ? sid : "");
     char *args = rel_args1s(sid ? sid : "");
-    char *jwt = rel_query_str(&rel_handle, hdrs, "SELECT access_jwt FROM sessions WHERE sid=?", args, "access_jwt");
+    struct picomesh_string_result jwt_res = rel_query_str(&rel_handle, hdrs, "SELECT access_jwt FROM sessions WHERE sid=?", args, "access_jwt");
     free(args);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, jwt_res, "session_jwt: query failed");
+    char *jwt = jwt_res.value;
     if (!jwt) {
         char *empty = strdup("");
         return empty ? PICOMESH_OK(picomesh_string, empty) : PICOMESH_ERR(picomesh_string, "session_jwt: out of memory");
@@ -148,9 +151,10 @@ struct picomesh_uint32_result session_session_lookup_impl(struct ctx *ctx, struc
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_uint32, "session_lookup: open failed", open_res);
     rel_handle.shard = picomesh_fnv1a32(sid);
     char *args = rel_args1s(sid);
-    int64_t uid = rel_query_int(&rel_handle, hdrs, "SELECT uid FROM sessions WHERE sid=?", args, "uid", 0, NULL);
+    struct picomesh_int64_result uid_res = rel_query_int(&rel_handle, hdrs, "SELECT uid FROM sessions WHERE sid=?", args, "uid", 0, NULL);
     free(args);
-    return PICOMESH_OK(picomesh_uint32, (uint32_t)uid);
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, uid_res, "session_lookup: query failed");
+    return PICOMESH_OK(picomesh_uint32, (uint32_t)uid_res.value);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@session:session:session_destroy")
@@ -164,10 +168,10 @@ struct picomesh_int_result session_session_destroy_impl(struct ctx *ctx, struct 
     if (PICOMESH_IS_ERR(open_res)) return PICOMESH_ERR(picomesh_int, "session_destroy: open failed", open_res);
     rel_handle.shard = picomesh_fnv1a32(sid);
     char *args = rel_args1s(sid);
-    int changes = rel_exec_changes(&rel_handle, hdrs, "DELETE FROM sessions WHERE sid=?", args);
+    struct picomesh_int_result changes_res = rel_exec_changes(&rel_handle, hdrs, "DELETE FROM sessions WHERE sid=?", args);
     free(args);
-    if (changes < 0) return PICOMESH_ERR(picomesh_int, "session_destroy: delete failed");
-    return PICOMESH_OK(picomesh_int, changes > 0 ? 1 : 0);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, changes_res, "session_destroy: delete failed");
+    return PICOMESH_OK(picomesh_int, changes_res.value > 0 ? 1 : 0);
 }
 
 PICOMESH_CLASS_ANNOTATE("override@session:session:session_count_active")

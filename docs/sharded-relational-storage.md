@@ -390,7 +390,7 @@ purpose → instance name.
 - **session_id / refresh_token** — already canonical (lowercase hex from a
   CSPRNG); hashed verbatim.
 - **hash** — FNV-1a 32-bit, promoted to the shared header
-  `picomesh/ycore/idkey.h` as `picomesh_fnv1a32`. The gateway, webapp, accounts,
+  `picomesh/core/idkey.h` as `picomesh_fnv1a32`. The gateway, webapp, accounts,
   session and token_issuer all call this one symbol, so the shard key cannot
   drift between producer and consumer. Shard key = `picomesh_fnv1a32(canonical_key)`;
   the engine then does `% N`. (The gateway/webapp `hash_username` keep only the

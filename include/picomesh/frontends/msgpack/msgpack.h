@@ -21,7 +21,7 @@
 #ifndef PICOMESH_FRONTENDS_MSGPACK_MSGPACK_H
 #define PICOMESH_FRONTENDS_MSGPACK_MSGPACK_H
 
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
 struct picomesh_engine;
 struct msgpack_frontend;

@@ -1,11 +1,11 @@
 /* GENERATED — do not edit. */
 #include "password_authn.internal.h"
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
 #include <picomesh/allocator/allocator.h>
 #include <stdint.h>
@@ -46,7 +46,9 @@ struct picomesh_int_result password_authn_password_authn_register(struct ctx * c
             if (!peer_channel_msgpack_call(_s->peer, "password_authn.password_authn.register", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "password_authn_password_authn_register: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "password_authn_password_authn_register: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -59,7 +61,10 @@ struct picomesh_int_result password_authn_password_authn_register(struct ctx * c
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "password_authn_password_authn_register: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "password_authn_password_authn_register: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -121,7 +126,9 @@ struct picomesh_int_result password_authn_password_authn_register(struct ctx * c
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "password_authn_password_authn_register: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "password_authn_password_authn_register: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "password_authn_password_authn_register: truncated RPC payload"); goto _rpc_done; }
@@ -173,7 +180,9 @@ struct picomesh_int_result password_authn_password_authn_authenticate(struct ctx
             if (!peer_channel_msgpack_call(_s->peer, "password_authn.password_authn.authenticate", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "password_authn_password_authn_authenticate: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "password_authn_password_authn_authenticate: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -186,7 +195,10 @@ struct picomesh_int_result password_authn_password_authn_authenticate(struct ctx
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "password_authn_password_authn_authenticate: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "password_authn_password_authn_authenticate: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -248,7 +260,9 @@ struct picomesh_int_result password_authn_password_authn_authenticate(struct ctx
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "password_authn_password_authn_authenticate: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "password_authn_password_authn_authenticate: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "password_authn_password_authn_authenticate: truncated RPC payload"); goto _rpc_done; }
@@ -300,7 +314,9 @@ struct picomesh_int_result password_authn_password_authn_change_password(struct 
             if (!peer_channel_msgpack_call(_s->peer, "password_authn.password_authn.change_password", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "password_authn_password_authn_change_password: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "password_authn_password_authn_change_password: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -313,7 +329,10 @@ struct picomesh_int_result password_authn_password_authn_change_password(struct 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "password_authn_password_authn_change_password: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "password_authn_password_authn_change_password: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -375,7 +394,9 @@ struct picomesh_int_result password_authn_password_authn_change_password(struct 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "password_authn_password_authn_change_password: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "password_authn_password_authn_change_password: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "password_authn_password_authn_change_password: truncated RPC payload"); goto _rpc_done; }
@@ -425,7 +446,9 @@ struct picomesh_size_result password_authn_password_authn_count_registered(struc
             if (!peer_channel_msgpack_call(_s->peer, "password_authn.password_authn.count_registered", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "password_authn_password_authn_count_registered: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "password_authn_password_authn_count_registered: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -438,7 +461,10 @@ struct picomesh_size_result password_authn_password_authn_count_registered(struc
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "password_authn_password_authn_count_registered: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "password_authn_password_authn_count_registered: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -494,7 +520,9 @@ struct picomesh_size_result password_authn_password_authn_count_registered(struc
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "password_authn_password_authn_count_registered: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "password_authn_password_authn_count_registered: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "password_authn_password_authn_count_registered: truncated RPC payload"); goto _rpc_done; }
@@ -546,7 +574,9 @@ struct picomesh_json_result password_authn_password_authn_list(struct ctx * ctx,
             if (!peer_channel_msgpack_call(_s->peer, "password_authn.password_authn.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "password_authn_password_authn_list: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -569,7 +599,10 @@ struct picomesh_json_result password_authn_password_authn_list(struct ctx * ctx,
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -631,7 +664,9 @@ struct picomesh_json_result password_authn_password_authn_list(struct ctx * ctx,
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "password_authn_password_authn_list: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list: truncated string response"); goto _rpc_done; }
@@ -686,7 +721,9 @@ struct picomesh_json_result password_authn_password_authn_list_all(struct ctx * 
             if (!peer_channel_msgpack_call(_s->peer, "password_authn.password_authn.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "password_authn_password_authn_list_all: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list_all: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -709,7 +746,10 @@ struct picomesh_json_result password_authn_password_authn_list_all(struct ctx * 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list_all: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list_all: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -765,7 +805,9 @@ struct picomesh_json_result password_authn_password_authn_list_all(struct ctx * 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "password_authn_password_authn_list_all: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list_all: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "password_authn_password_authn_list_all: truncated string response"); goto _rpc_done; }

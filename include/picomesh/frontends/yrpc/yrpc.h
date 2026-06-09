@@ -1,8 +1,8 @@
 /* yrpc — binary RPC frontend.
  *
- * Wraps yloop_listen_tcp + rpc_server_run_io into a frontend that an
+ * Wraps loop_listen_tcp + rpc_dispatch_one into a frontend that an
  * engine driver can configure. One coroutine per peer; uses the
- * packed-header wire format documented in <picomesh/yclass/rpc.h>.
+ * packed-header wire format documented in <picomesh/picoclass/rpc.h>.
  *
  * Equivalent of yaapp's `yttp` plugin in role (transport-only,
  * delegates dispatch to the engine), but the wire is picomesh's native
@@ -12,7 +12,7 @@
 #ifndef PICOMESH_FRONTENDS_YRPC_YRPC_H
 #define PICOMESH_FRONTENDS_YRPC_YRPC_H
 
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
 struct picomesh_engine;
 struct yrpc_frontend;

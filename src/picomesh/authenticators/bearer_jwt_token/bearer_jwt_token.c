@@ -13,8 +13,8 @@
  * non-prefixed bearer that fails verification FAILS the chain (401). */
 
 #include <picomesh/authenticators/base.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/ysecurity/jwt_verifier.h>
+#include <picomesh/config/config.h>
+#include <picomesh/security/jwt_verifier.h>
 
 #include "../http_util.h"
 
@@ -31,17 +31,17 @@ struct bearer_jwt_state {
 };
 
 static struct picomesh_void_ptr_result bearer_jwt_create(struct picomesh_engine *engine,
-                                                         const struct yconfig_node *config)
+                                                         const struct config_node *config)
 {
     struct bearer_jwt_state *state = calloc(1, sizeof(*state));
     if (!state) return PICOMESH_ERR(picomesh_void_ptr, "bearer_jwt_token: out of memory");
     state->engine = engine;
 
-    const struct yconfig_node *rejects = yconfig_node_get(config, "reject_prefixes");
-    if (rejects && yconfig_node_kind(rejects) == YCONFIG_LIST) {
-        size_t count = yconfig_node_size(rejects);
+    const struct config_node *rejects = config_node_get(config, "reject_prefixes");
+    if (rejects && config_node_kind(rejects) == CONFIG_LIST) {
+        size_t count = config_node_size(rejects);
         for (size_t i = 0; i < count && state->reject_count < BEARER_JWT_MAX_PREFIXES; ++i) {
-            const char *prefix = yconfig_node_as_string(yconfig_node_at(rejects, i), NULL);
+            const char *prefix = config_node_as_string(config_node_at(rejects, i), NULL);
             if (prefix && *prefix) state->reject_prefixes[state->reject_count++] = prefix;
         }
     }
@@ -52,7 +52,7 @@ static struct picomesh_void_ptr_result bearer_jwt_create(struct picomesh_engine 
     return PICOMESH_OK(picomesh_void_ptr, state);
 }
 
-static struct picomesh_authn_outcome bearer_jwt_authenticate(void *state_ptr,
+static struct picomesh_authn_outcome_result bearer_jwt_authenticate(void *state_ptr,
                                                              const struct picomesh_authn_request *request)
 {
     struct bearer_jwt_state *state = state_ptr;
@@ -60,25 +60,30 @@ static struct picomesh_authn_outcome bearer_jwt_authenticate(void *state_ptr,
 
     char token[1100];
     if (!authn_bearer_token(request->headers_raw, request->headers_raw_len, token, sizeof(token)) || !token[0])
-        return outcome; /* no bearer → no match */
+        return PICOMESH_OK(picomesh_authn_outcome, outcome); /* no bearer → no match */
 
     for (size_t i = 0; i < state->reject_count; ++i) {
         size_t prefix_len = strlen(state->reject_prefixes[i]);
         if (strncmp(token, state->reject_prefixes[i], prefix_len) == 0)
-            return outcome; /* belongs to an opaque scheme → not our shape */
+            return PICOMESH_OK(picomesh_authn_outcome, outcome); /* belongs to an opaque scheme → not our shape */
     }
 
     struct picomesh_string_result claims = picomesh_jwt_verifier_verify(state->verifier, token);
     if (PICOMESH_IS_ERR(claims)) {
+        /* Verification failure is a denial (401); preserve the reason chain in
+         * the outcome and the log rather than flattening it to one line. */
+        char reason[512];
+        picomesh_error_snprint(reason, sizeof(reason), claims.error);
+        picomesh_error_print(stderr, "bearer_jwt_token: JWT verification", claims.error);
         picomesh_error_destroy(claims.error);
         outcome.source = "bearer_jwt_token";
-        outcome.error = strdup("bearer JWT failed verification");
-        return outcome;
+        outcome.error = strdup(reason);
+        return PICOMESH_OK(picomesh_authn_outcome, outcome);
     }
     free(claims.value);
     outcome.jwt = strdup(token);
     outcome.source = "bearer_jwt_token";
-    return outcome;
+    return PICOMESH_OK(picomesh_authn_outcome, outcome);
 }
 
 static void bearer_jwt_destroy(void *state_ptr)

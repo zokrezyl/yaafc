@@ -29,6 +29,30 @@ methods:
         type: uint32_t
       - name: username
         type: "const char *"
+  - slot: accounts_allocate_uid
+    domain: accounts
+    owning_class: accounts
+    return_type: struct picomesh_int64_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+  - slot: accounts_uid_for_username
+    domain: accounts
+    owning_class: accounts
+    return_type: struct picomesh_int64_result
+    args:
+      - name: ctx
+        type: "struct ctx *"
+      - name: obj
+        type: "struct object *"
+      - name: hdrs
+        type: "struct yheaders *"
+      - name: username
+        type: "const char *"
   - slot: accounts_register
     domain: accounts
     owning_class: accounts
@@ -280,6 +304,12 @@ classes:
       - slot: accounts_release_username
         slot_domain: accounts
         impl: accounts_accounts_release_username_impl
+      - slot: accounts_allocate_uid
+        slot_domain: accounts
+        impl: accounts_accounts_allocate_uid_impl
+      - slot: accounts_uid_for_username
+        slot_domain: accounts
+        impl: accounts_accounts_uid_for_username_impl
       - slot: accounts_register
         slot_domain: accounts
         impl: accounts_accounts_register_impl

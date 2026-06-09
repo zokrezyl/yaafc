@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_REGISTRY_H
 #define PICOMESH_PLUGIN_REGISTRY_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_json_result;
@@ -30,6 +30,6 @@ struct picomesh_json_result registry_registry_list_services(struct ctx * ctx, st
 struct picomesh_size_result registry_registry_count(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 
 /* ---- activation ---- */
-void picomesh_plugin_registry_register(void);
+struct picomesh_void_result picomesh_plugin_registry_register(void);
 
 #endif

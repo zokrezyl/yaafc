@@ -14,10 +14,10 @@
  * valid JWT FAILS the chain (401), it does not fall through. */
 
 #include <picomesh/authenticators/base.h>
-#include <picomesh/yengine/resolve.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/ysecurity/jwt_verifier.h>
-#include <picomesh/ysecurity/jwt.h>      /* picomesh_security_now */
+#include <picomesh/engine/resolve.h>
+#include <picomesh/config/config.h>
+#include <picomesh/security/jwt_verifier.h>
+#include <picomesh/security/jwt.h>      /* picomesh_security_now */
 #include <uthash.h>                       /* the project's standard hash map */
 
 #include "../http_util.h"
@@ -66,11 +66,11 @@ struct session_cookie_state {
 };
 
 static struct picomesh_void_ptr_result session_cookie_create(struct picomesh_engine *engine,
-                                                             const struct yconfig_node *config)
+                                                             const struct config_node *config)
 {
-    const char *cookie = yconfig_node_as_string(yconfig_node_get(config, "cookie"), "picomesh-sid");
-    const char *header = yconfig_node_as_string(yconfig_node_get(config, "header"), cookie);
-    const char *lookup = yconfig_node_as_string(yconfig_node_get(config, "lookup"), NULL);
+    const char *cookie = config_node_as_string(config_node_get(config, "cookie"), "picomesh-sid");
+    const char *header = config_node_as_string(config_node_get(config, "header"), cookie);
+    const char *lookup = config_node_as_string(config_node_get(config, "lookup"), NULL);
     if (!lookup || !*lookup)
         return PICOMESH_ERR(picomesh_void_ptr,
                             "session_cookie: `lookup` is required (e.g. session.session.session_jwt)");
@@ -81,8 +81,8 @@ static struct picomesh_void_ptr_result session_cookie_create(struct picomesh_eng
     state->cookie = cookie;
     state->header = header;
     state->lookup = lookup;
-    state->cache_ttl = (int64_t)yconfig_node_as_int(yconfig_node_get(config, "cache_ttl_seconds"), 5);
-    state->cache_max = (size_t)yconfig_node_as_int(yconfig_node_get(config, "cache_max"), SESSION_CACHE_MAX_DEFAULT);
+    state->cache_ttl = (int64_t)config_node_as_int(config_node_get(config, "cache_ttl_seconds"), 5);
+    state->cache_max = (size_t)config_node_as_int(config_node_get(config, "cache_max"), SESSION_CACHE_MAX_DEFAULT);
     state->cache = NULL;   /* uthash root; grows lazily on first insert */
     struct picomesh_void_ptr_result verifier = picomesh_jwt_verifier_create(engine);
     if (PICOMESH_IS_ERR(verifier)) { free(state); return PICOMESH_ERR(picomesh_void_ptr, "session_cookie: verifier create failed", verifier); }
@@ -98,7 +98,7 @@ static struct picomesh_authn_outcome fail(const char *reason)
     return outcome;
 }
 
-static struct picomesh_authn_outcome session_cookie_authenticate(void *state_ptr,
+static struct picomesh_authn_outcome_result session_cookie_authenticate(void *state_ptr,
                                                                  const struct picomesh_authn_request *request)
 {
     struct session_cookie_state *state = state_ptr;
@@ -107,7 +107,7 @@ static struct picomesh_authn_outcome session_cookie_authenticate(void *state_ptr
     char sid[160];
     if (!authn_cookie_value(request->headers_raw, request->headers_raw_len, state->cookie, sid, sizeof(sid)) || !sid[0]) {
         if (!authn_header_value(request->headers_raw, request->headers_raw_len, state->header, sid, sizeof(sid)) || !sid[0])
-            return outcome; /* no cookie/header → no match, try next */
+            return PICOMESH_OK(picomesh_authn_outcome, outcome); /* no cookie/header → no match, try next */
     }
 
     /* Cache fast path: a recently-resolved JWT for this sid → no RPC, no verify.
@@ -124,7 +124,7 @@ static struct picomesh_authn_outcome session_cookie_authenticate(void *state_ptr
              * re-resolves and fails closed if the session's JWT is truly expired. */
             if ((now - e->inserted) < state->cache_ttl && e->jwt_exp > now) {
                 char *hit = strdup(e->jwt);
-                if (hit) { outcome.jwt = hit; outcome.source = "session_cookie"; return outcome; }
+                if (hit) { outcome.jwt = hit; outcome.source = "session_cookie"; return PICOMESH_OK(picomesh_authn_outcome, outcome); }
                 /* strdup OOM → fall through to the slow path */
             } else {
                 /* stale TTL or expired JWT → drop it; the slow path re-resolves */
@@ -134,16 +134,29 @@ static struct picomesh_authn_outcome session_cookie_authenticate(void *state_ptr
     }
 
     char args[256];
-    if (!authn_build_string_args(args, sizeof(args), sid)) return fail("session id too long");
+    if (!authn_build_string_args(args, sizeof(args), sid))
+        return PICOMESH_OK(picomesh_authn_outcome, fail("session id too long"));
     struct picomesh_string_result lookup = picomesh_engine_invoke_json(state->engine, state->lookup, args, NULL);
-    if (PICOMESH_IS_ERR(lookup)) { picomesh_error_destroy(lookup.error); return fail("session lookup failed"); }
+    /* The lookup RPC breaking is infrastructure failure, not an auth denial:
+     * propagate the cause chain so it surfaces as a 500, not a silent 401. */
+    if (PICOMESH_IS_ERR(lookup))
+        return PICOMESH_ERR(picomesh_authn_outcome, "session_cookie: lookup RPC failed", lookup);
 
     char *jwt = authn_extract_jwt(lookup.value);
     free(lookup.value);
-    if (!jwt) return fail("unknown or expired session");
+    if (!jwt) return PICOMESH_OK(picomesh_authn_outcome, fail("unknown or expired session"));
 
     struct picomesh_string_result claims = picomesh_jwt_verifier_verify(state->verifier, jwt);
-    if (PICOMESH_IS_ERR(claims)) { picomesh_error_destroy(claims.error); free(jwt); return fail("session JWT failed verification"); }
+    if (PICOMESH_IS_ERR(claims)) {
+        /* A JWT that fails verification is a denial (401), but the reason chain
+         * is useful — render it into the failure outcome and the log. */
+        char reason[512];
+        picomesh_error_snprint(reason, sizeof(reason), claims.error);
+        picomesh_error_print(stderr, "session_cookie: JWT verification", claims.error);
+        picomesh_error_destroy(claims.error);
+        free(jwt);
+        return PICOMESH_OK(picomesh_authn_outcome, fail(reason));
+    }
     int64_t jwt_exp = authn_claims_exp(claims.value);
     free(claims.value);
 
@@ -174,7 +187,7 @@ static struct picomesh_authn_outcome session_cookie_authenticate(void *state_ptr
 
     outcome.jwt = jwt;
     outcome.source = "session_cookie";
-    return outcome;
+    return PICOMESH_OK(picomesh_authn_outcome, outcome);
 }
 
 static void session_cookie_destroy(void *state_ptr)

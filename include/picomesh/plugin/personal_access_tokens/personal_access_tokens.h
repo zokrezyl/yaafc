@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_PERSONAL_ACCESS_TOKENS_H
 #define PICOMESH_PLUGIN_PERSONAL_ACCESS_TOKENS_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_json_result;
@@ -31,6 +31,6 @@ struct picomesh_json_result personal_access_tokens_personal_access_tokens_list(s
 struct picomesh_json_result personal_access_tokens_personal_access_tokens_list_all(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 
 /* ---- activation ---- */
-void picomesh_plugin_personal_access_tokens_register(void);
+struct picomesh_void_result picomesh_plugin_personal_access_tokens_register(void);
 
 #endif

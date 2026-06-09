@@ -3,9 +3,9 @@
 #ifndef PICOFORGE_WEBAPP_INTERNAL_H
 #define PICOFORGE_WEBAPP_INTERNAL_H
 
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
-struct yloop;
+struct loop;
 
 struct webapp_config {
     const char *gateway_url;    /* e.g. "http://127.0.0.1:8090" */
@@ -19,9 +19,9 @@ struct webapp_config {
 };
 
 /* Start the HTTP listener on host:port. Spawns serve coroutines via
- * yloop_listen_tcp. Does NOT block — returns after the listener is
- * bound; the caller runs yloop_run() to actually serve. */
-struct picomesh_void_result webapp_start(struct yloop *loop,
+ * loop_listen_tcp. Does NOT block — returns after the listener is
+ * bound; the caller runs loop_run() to actually serve. */
+struct picomesh_void_result webapp_start(struct loop *loop,
                                          const char *host, int port,
                                          const struct webapp_config *cfg);
 

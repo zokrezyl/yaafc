@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(picomesh C CXX)
 
 # C++17 is the floor (simdjson requires it). The C bits stay C17; only
-# src/picomesh/yjson/yjson.cpp gets compiled as C++.
+# src/picomesh/json/json.cpp gets compiled as C++.
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -37,37 +37,37 @@ include(build-tools/picomesh/libs/libmdbx.cmake)
 include(build-tools/picomesh/libs/libgit2.cmake)
 include(build-tools/picomesh/libs/libcurl.cmake)
 
-# ---- yplatform backend selection -------------------------------------
+# ---- platform backend selection -------------------------------------
 #
-# yplatform abstractions get one backend file per platform. Backends
-# under src/picomesh/yplatform/<module>/<platform>.c. Today only `time`
+# platform abstractions get one backend file per platform. Backends
+# under src/picomesh/platform/<module>/<platform>.c. Today only `time`
 # is platform-split; future modules (paths, threads, sockets) follow
 # the same shape.
 if(WIN32)
-    set(PICOMESH_YPLATFORM_TIME_SRC src/picomesh/yplatform/time/windows.c)
+    set(PICOMESH_PLATFORM_TIME_SRC src/picomesh/platform/time/windows.c)
 else()
-    set(PICOMESH_YPLATFORM_TIME_SRC src/picomesh/yplatform/time/posix.c)
+    set(PICOMESH_PLATFORM_TIME_SRC src/picomesh/platform/time/posix.c)
 endif()
 
 # ---- picomesh runtime ---------------------------------------------------
 add_library(picomesh_runtime STATIC
-    src/picomesh/ycore/result.c
-    src/picomesh/ycore/ytrace.c
-    src/picomesh/ycore/yspan.c
-    src/picomesh/ycore/ytelemetry.c
-    src/picomesh/ycore/ytelemetry_store.c
-    src/picomesh/ycore/yperf.c
+    src/picomesh/core/result.c
+    src/picomesh/core/ytrace.c
+    src/picomesh/core/yspan.c
+    src/picomesh/core/ytelemetry.c
+    src/picomesh/core/ytelemetry_store.c
+    src/picomesh/core/yperf.c
     src/picomesh/allocator/allocator.c
-    src/picomesh/yclass/class.c
-    src/picomesh/yclass/rpc.c
-    src/picomesh/yclass/jinvoke.c
-    src/picomesh/yclass/minvoke.c
-    src/picomesh/yclass/yheaders.c
-    src/picomesh/ysecurity/sha256.c
-    src/picomesh/ysecurity/base64.c
-    src/picomesh/ysecurity/jwt.c
-    src/picomesh/ysecurity/jwt_verifier.c
-    src/picomesh/ysecurity/secret.c
+    src/picomesh/picoclass/class.c
+    src/picomesh/picoclass/rpc.c
+    src/picomesh/picoclass/jinvoke.c
+    src/picomesh/picoclass/minvoke.c
+    src/picomesh/picoclass/yheaders.c
+    src/picomesh/security/sha256.c
+    src/picomesh/security/base64.c
+    src/picomesh/security/jwt.c
+    src/picomesh/security/jwt_verifier.c
+    src/picomesh/security/secret.c
     src/picomesh/authenticators/registry.c
     src/picomesh/authenticators/session_cookie/session_cookie.c
     src/picomesh/authenticators/bearer_jwt_token/bearer_jwt_token.c
@@ -77,11 +77,11 @@ add_library(picomesh_runtime STATIC
     src/picomesh/authorizers/none/none.c
     src/picomesh/msgpack/msgpack.c
     src/cmp/cmp.c
-    src/picomesh/yco/coro.c
-    src/picomesh/yloop/yloop.c
-    src/picomesh/yloop/yexec.c
-    src/picomesh/yengine/engine.c
-    src/picomesh/yengine/resolve.c
+    src/picomesh/picoco/coro.c
+    src/picomesh/loop/loop.c
+    src/picomesh/loop/exec.c
+    src/picomesh/engine/engine.c
+    src/picomesh/engine/resolve.c
     src/picomesh/frontends/yrpc/yrpc.c
     src/picomesh/frontends/yttp/yttp.c
     src/picomesh/frontends/yhttp/yhttp.c
@@ -90,10 +90,10 @@ add_library(picomesh_runtime STATIC
     src/picomesh/frontends/msgpack/msgpack.c
     src/picomesh/frontends/cli/cli.c
     src/picohttpparser/picohttpparser.c
-    src/picomesh/yconfig/yconfig.c
-    src/picomesh/yargv/yargv.c
-    src/picomesh/yjson/yjson.cpp
-    ${PICOMESH_YPLATFORM_TIME_SRC}
+    src/picomesh/config/config.c
+    src/picomesh/argv/argv.c
+    src/picomesh/json/json.cpp
+    ${PICOMESH_PLATFORM_TIME_SRC}
 )
 target_include_directories(picomesh_runtime PUBLIC
     include
@@ -117,7 +117,7 @@ target_compile_definitions(picomesh_runtime PUBLIC _GNU_SOURCE)
 # picomesh_add_plugin(<name>
 #                  SOURCES <annotated-c-files...>)
 #
-# Drives src/picomesh/yclass/gen/codegen.py for one plugin module.
+# Drives src/picomesh/picoclass/gen/codegen.py for one plugin module.
 #
 # Layout invariant:
 #   - PUBLIC generated headers land in  include/picomesh/plugin/<name>/   (repo-wide include root)
@@ -179,12 +179,12 @@ function(picomesh_add_plugin NAME)
             OUTPUT ${_GEN_PUBLIC} ${_GEN_INTERNAL}
             COMMAND ${CMAKE_COMMAND} -E env
                 "PICOMESH_CODEGEN_EXTRA_INCLUDES=${_EXTRA_INCLUDE_PATH}"
-                uv run ${PICOMESH_ROOT}/src/picomesh/yclass/gen/codegen.py
+                uv run ${PICOMESH_ROOT}/src/picomesh/picoclass/gen/codegen.py
                     ${NAME}
                     ${PICOMESH_ROOT}/include
                     ${_SRC_DIR}
                     ${_SOURCES_FULL}
-            DEPENDS ${_SOURCES_FULL} ${PICOMESH_ROOT}/src/picomesh/yclass/gen/codegen.py
+            DEPENDS ${_SOURCES_FULL} ${PICOMESH_ROOT}/src/picomesh/picoclass/gen/codegen.py
             WORKING_DIRECTORY ${_SRC_DIR}
             COMMENT "codegen[${NAME}]: regenerating public/internal artefacts"
             VERBATIM
@@ -272,20 +272,20 @@ if(PICOMESH_ENABLE_CODEGEN)
                      picomesh_plugin_portalloc_codegen)
 endif()
 
-# ---- driver entry point (ymain) -------------------------------------
+# ---- driver entry point (main) -------------------------------------
 #
-# The main() now lives under src/picomesh/ymain/ — see that module's
+# The main() now lives under src/picomesh/main/ — see that module's
 # CMakeLists for the rationale (picomesh/<name>/ is the only sanctioned
 # place for compiled picomesh sources; bin/ used to host the driver but
 # was a wart).
-add_subdirectory(src/picomesh/ymain)
+add_subdirectory(src/picomesh/main)
 # ---- driver binary ---------------------------------------------------
 #
 # Plugin object libraries are linked as *direct sources* of the
 # executable rather than via target_link_libraries — object-file
 # sources never get dropped by the linker, so the codegen constructor
 # hooks (`__attribute__((constructor))`) fire reliably. The driver
-# entry point (picomesh_ymain) gets the same treatment.
+# entry point (picomesh_main) gets the same treatment.
 set(PICOMESH_PLUGIN_OBJECTS "")
 set(PICOMESH_PLUGIN_TARGETS "")
 foreach(_p ${PICOMESH_PLUGINS})
@@ -294,10 +294,10 @@ foreach(_p ${PICOMESH_PLUGINS})
 endforeach()
 
 add_executable(picomesh
-    $<TARGET_OBJECTS:picomesh_ymain>
+    $<TARGET_OBJECTS:picomesh_main>
     ${PICOMESH_PLUGIN_OBJECTS}
-    src/picomesh/yplatform/longjmp_chk_stub.c)
-add_dependencies(picomesh picomesh_ymain ${PICOMESH_PLUGIN_TARGETS})
+    src/picomesh/platform/longjmp_chk_stub.c)
+add_dependencies(picomesh picomesh_main ${PICOMESH_PLUGIN_TARGETS})
 # Plugins are consumed as raw $<TARGET_OBJECTS:>, so their PUBLIC link deps do
 # NOT propagate — the plugin objects' external libs must be named here too
 # (libgit2 for git_repo, libcurl for github_authn's GitHub OAuth HTTPS calls).
@@ -307,7 +307,7 @@ target_link_libraries(picomesh PRIVATE picomesh_runtime sqlite3 libmdbx libgit2 
 #
 # The picoforge page tier: a separate binary that mirrors the yaapp
 # git-yaapp page server — own HTTP listener, talks to a gateway via
-# POST /_rpc. No plugins, no mesh, no yclass dispatch — pure HTTP-client +
+# POST /_rpc. No plugins, no mesh, no picoclass dispatch — pure HTTP-client +
 # template-renderer process. Designed to work against either the picomesh
 # C gateway or the yaapp Python gateway interchangeably (the `/_rpc`
 # wire shape is the contract).
@@ -315,7 +315,7 @@ add_executable(picoforge-webapp
     src/picoforge/webapp/main.c
     src/picoforge/webapp/webapp.c
     src/picoforge/webapp/http_client.c
-    src/picomesh/yplatform/longjmp_chk_stub.c
+    src/picomesh/platform/longjmp_chk_stub.c
 )
 target_link_libraries(picoforge-webapp PRIVATE picomesh_runtime)
 target_include_directories(picoforge-webapp PRIVATE
@@ -347,7 +347,7 @@ add_executable(picotrace
     src/picomesh/core-apps/picotrace/main.c
     ${PICOTRACE_ECHARTS_GEN}
     $<TARGET_OBJECTS:picomesh_plugin_trace_collector>
-    src/picomesh/yplatform/longjmp_chk_stub.c
+    src/picomesh/platform/longjmp_chk_stub.c
 )
 target_link_libraries(picotrace PRIVATE picomesh_runtime)
 # The per-plugin codegen targets only exist when PICOMESH_ENABLE_CODEGEN is ON

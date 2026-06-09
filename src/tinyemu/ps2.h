@@ -10,7 +10,7 @@ uint32_t ps2_read_data(void *);
 void ps2_queue(void *, int b);
 void ps2_keyboard_set_translation(void *opaque, int mode);
 
-void ps2_put_keycode(PS2KbdState *s, BOOL is_down, int keycode);
+void ps2_put_kepicocode(PS2KbdState *s, BOOL is_down, int kepicocode);
 void ps2_mouse_event(PS2MouseState *s,
                      int dx, int dy, int dz, int buttons_state);
 

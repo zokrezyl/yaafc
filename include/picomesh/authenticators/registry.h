@@ -10,7 +10,7 @@
 #define PICOMESH_AUTHENTICATORS_REGISTRY_H
 
 #include <picomesh/authenticators/base.h>
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,11 +23,12 @@ struct picomesh_authn_chain;
  * loud — security config is never silently dropped. A NULL/empty list builds
  * an empty chain (every request is anonymous). */
 struct picomesh_void_ptr_result
-picomesh_authn_chain_build(struct picomesh_engine *engine, const struct yconfig_node *list);
+picomesh_authn_chain_build(struct picomesh_engine *engine, const struct config_node *list);
 
-/* Run the chain over `request`. The returned outcome's `jwt`/`error` are owned
- * — free with picomesh_authn_outcome_free. */
-struct picomesh_authn_outcome
+/* Run the chain over `request`. OK carries the outcome (whose owned
+ * `jwt`/`error` are freed with picomesh_authn_outcome_free); ERR carries an
+ * infrastructure failure's cause chain (an authenticator's downstream broke). */
+struct picomesh_authn_outcome_result
 picomesh_authn_chain_run(struct picomesh_authn_chain *chain,
                          const struct picomesh_authn_request *request);
 

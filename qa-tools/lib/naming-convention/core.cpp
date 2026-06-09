@@ -269,9 +269,9 @@ bool checker_visitor::VisitFunctionDecl(FunctionDecl *func)
 		return true;
 	/* Only flag the definition, never plain declarations. An extern
 	 * declaration of a function from another module (e.g. `extern void
-	 * yetty_yplatform_get_cache_dir(void);` inside ydraw-canvas.c)
+	 * yetty_platform_get_cache_dir(void);` inside ydraw-canvas.c)
 	 * would otherwise be flagged as "should be yetty_ydraw_..." even
-	 * though the function rightly belongs to yplatform. The definition
+	 * though the function rightly belongs to platform. The definition
 	 * site (which is what we own and what affects ABI) is the right
 	 * place to enforce the rule. */
 	if (!func->isThisDeclarationADefinition())

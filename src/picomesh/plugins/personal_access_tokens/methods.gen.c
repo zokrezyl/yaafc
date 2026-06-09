@@ -1,11 +1,11 @@
 /* GENERATED — do not edit. */
 #include "personal_access_tokens.internal.h"
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
 #include <picomesh/allocator/allocator.h>
 #include <stdint.h>
@@ -45,7 +45,9 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_mint
             if (!peer_channel_msgpack_call(_s->peer, "personal_access_tokens.personal_access_tokens.mint", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_uint32, _merr[0] ? strdup(_merr) : "personal_access_tokens_personal_access_tokens_mint: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_mint: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -58,7 +60,10 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_mint
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_mint: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_mint: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -117,7 +122,9 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_mint
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_uint32, _msg[0] ? strdup(_msg) : "personal_access_tokens_personal_access_tokens_mint: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_mint: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(uint32_t)) { _ret = PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_mint: truncated RPC payload"); goto _rpc_done; }
@@ -168,7 +175,9 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_look
             if (!peer_channel_msgpack_call(_s->peer, "personal_access_tokens.personal_access_tokens.lookup", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_uint32, _merr[0] ? strdup(_merr) : "personal_access_tokens_personal_access_tokens_lookup: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_lookup: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -181,7 +190,10 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_look
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_lookup: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_lookup: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -240,7 +252,9 @@ struct picomesh_uint32_result personal_access_tokens_personal_access_tokens_look
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_uint32, _msg[0] ? strdup(_msg) : "personal_access_tokens_personal_access_tokens_lookup: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_uint32, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_lookup: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(uint32_t)) { _ret = PICOMESH_ERR(picomesh_uint32, "personal_access_tokens_personal_access_tokens_lookup: truncated RPC payload"); goto _rpc_done; }
@@ -291,7 +305,9 @@ struct picomesh_int_result personal_access_tokens_personal_access_tokens_revoke(
             if (!peer_channel_msgpack_call(_s->peer, "personal_access_tokens.personal_access_tokens.revoke", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_int, _merr[0] ? strdup(_merr) : "personal_access_tokens_personal_access_tokens_revoke: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_int, "personal_access_tokens_personal_access_tokens_revoke: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -304,7 +320,10 @@ struct picomesh_int_result personal_access_tokens_personal_access_tokens_revoke(
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_int, "personal_access_tokens_personal_access_tokens_revoke: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_int, "personal_access_tokens_personal_access_tokens_revoke: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -363,7 +382,9 @@ struct picomesh_int_result personal_access_tokens_personal_access_tokens_revoke(
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_int, _msg[0] ? strdup(_msg) : "personal_access_tokens_personal_access_tokens_revoke: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_int, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_int, "personal_access_tokens_personal_access_tokens_revoke: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(int)) { _ret = PICOMESH_ERR(picomesh_int, "personal_access_tokens_personal_access_tokens_revoke: truncated RPC payload"); goto _rpc_done; }
@@ -414,7 +435,9 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_list_f
             if (!peer_channel_msgpack_call(_s->peer, "personal_access_tokens.personal_access_tokens.list_for_user", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "personal_access_tokens_personal_access_tokens_list_for_user: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_list_for_user: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -427,7 +450,10 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_list_f
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_list_for_user: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_list_for_user: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -486,7 +512,9 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_list_f
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "personal_access_tokens_personal_access_tokens_list_for_user: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_list_for_user: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_list_for_user: truncated RPC payload"); goto _rpc_done; }
@@ -536,7 +564,9 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_count_
             if (!peer_channel_msgpack_call(_s->peer, "personal_access_tokens.personal_access_tokens.count_active", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "personal_access_tokens_personal_access_tokens_count_active: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_count_active: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -549,7 +579,10 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_count_
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_count_active: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_count_active: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -605,7 +638,9 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_count_
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "personal_access_tokens_personal_access_tokens_count_active: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_count_active: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "personal_access_tokens_personal_access_tokens_count_active: truncated RPC payload"); goto _rpc_done; }
@@ -657,7 +692,9 @@ struct picomesh_json_result personal_access_tokens_personal_access_tokens_list(s
             if (!peer_channel_msgpack_call(_s->peer, "personal_access_tokens.personal_access_tokens.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "personal_access_tokens_personal_access_tokens_list: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -680,7 +717,10 @@ struct picomesh_json_result personal_access_tokens_personal_access_tokens_list(s
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -742,7 +782,9 @@ struct picomesh_json_result personal_access_tokens_personal_access_tokens_list(s
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "personal_access_tokens_personal_access_tokens_list: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list: truncated string response"); goto _rpc_done; }
@@ -797,7 +839,9 @@ struct picomesh_json_result personal_access_tokens_personal_access_tokens_list_a
             if (!peer_channel_msgpack_call(_s->peer, "personal_access_tokens.personal_access_tokens.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "personal_access_tokens_personal_access_tokens_list_all: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list_all: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -820,7 +864,10 @@ struct picomesh_json_result personal_access_tokens_personal_access_tokens_list_a
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list_all: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list_all: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -876,7 +923,9 @@ struct picomesh_json_result personal_access_tokens_personal_access_tokens_list_a
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "personal_access_tokens_personal_access_tokens_list_all: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list_all: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "personal_access_tokens_personal_access_tokens_list_all: truncated string response"); goto _rpc_done; }

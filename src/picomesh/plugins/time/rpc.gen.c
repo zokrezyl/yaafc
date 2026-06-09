@@ -1,14 +1,14 @@
 /* GENERATED — do not edit. */
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/jinvoke.h>
-#include <picomesh/yclass/minvoke.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/jinvoke.h>
+#include <picomesh/picoclass/minvoke.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/json/json.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/class.h>
 #include "time.internal.h"
 #include <limits.h>
 #include <stdint.h>
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static size_t time_clock_now_ms_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result time_clock_now_ms_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -42,7 +42,7 @@ static size_t time_clock_now_ms_skel(const void *_body, size_t _body_len,
     struct picomesh_int64_result _r = time_clock_now_ms(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "time_clock_now_ms_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -53,25 +53,25 @@ static size_t time_clock_now_ms_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "time_clock_now_ms_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t time_clock_sleep_ms_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result time_clock_sleep_ms_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -101,7 +101,7 @@ static size_t time_clock_sleep_ms_skel(const void *_body, size_t _body_len,
     struct picomesh_int64_result _r = time_clock_sleep_ms(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "time_clock_sleep_ms_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -112,27 +112,27 @@ static size_t time_clock_sleep_ms_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "time_clock_sleep_ms_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static int time_clock_now_ms_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result time_clock_now_ms_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] time_clock_now_ms");
     struct ctx local_ctx = {0};
@@ -143,19 +143,18 @@ static int time_clock_now_ms_jinvoke(struct ctx *ctx, struct object *obj, struct
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "time_clock_now_ms",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "time_clock_now_ms", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int time_clock_sleep_ms_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result time_clock_sleep_ms_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] time_clock_sleep_ms");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int64_result call_result = time_clock_sleep_ms(call_ctx, obj, hdrs, arg0);
@@ -164,21 +163,20 @@ static int time_clock_sleep_ms_jinvoke(struct ctx *ctx, struct object *obj, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "time_clock_sleep_ms",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "time_clock_sleep_ms", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int time_clock_now_ms_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result time_clock_now_ms_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "time_clock_now_ms: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "time_clock_now_ms: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -188,27 +186,26 @@ static int time_clock_now_ms_minvoke(struct ctx *ctx, struct object *obj, struct
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "time_clock_now_ms",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "time_clock_now_ms", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int time_clock_sleep_ms_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result time_clock_sleep_ms_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "time_clock_sleep_ms: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "time_clock_sleep_ms: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "ms: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "ms: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "ms: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "ms: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -219,11 +216,10 @@ static int time_clock_sleep_ms_minvoke(struct ctx *ctx, struct object *obj, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "time_clock_sleep_ms",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "time_clock_sleep_ms", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
 struct object_ptr_result time_clock_create(struct ctx *ctx)
@@ -311,11 +307,11 @@ static const struct time_skel_row time_skel_rows[] = {
     {"time_clock_sleep_ms", time_clock_sleep_ms_skel}
 };
 
-static rpc_skel_fn time_skel_lookup(method_slot slot)
+static rpc_skel_fn time_skel_lookup(const char *name)
 {
-    struct const_char_ptr_result nr = method_slot_name(slot);
-    if (PICOMESH_IS_ERR(nr)) { picomesh_error_destroy(nr.error); return NULL; }
-    const char *name = nr.value;
+    /* rpc_skel_for has already resolved the slot to its qname (the only
+     * Result-returning step), so this hook is a pure name→fn lookup that
+     * never has to swallow an error. */
     for (size_t i = 0; i < sizeof(time_skel_rows) / sizeof(time_skel_rows[0]); ++i)
         if (strcmp(time_skel_rows[i].name, name) == 0)
             return time_skel_rows[i].fn;
@@ -325,18 +321,16 @@ static rpc_skel_fn time_skel_lookup(method_slot slot)
 /* ---- time: registration entry point (called from the driver for
  *      config-ACTIVATED plugins only — registration is activation) ---- */
 
-void picomesh_plugin_time_register(void)
+struct picomesh_void_result picomesh_plugin_time_register(void)
 {
     struct picomesh_void_result _ar = class_add_accessor_lookup(time_accessor_lookup);
-    if (PICOMESH_IS_ERR(_ar)) {
-        picomesh_error_print(stderr, "picomesh_plugin_time_register", _ar.error);
-        picomesh_error_destroy(_ar.error);
-        abort();
-    }
+    PICOMESH_RETURN_IF_ERR(picomesh_void, _ar,
+                           "picomesh_plugin_time_register: add accessor lookup");
     rpc_add_skel_lookup(time_skel_lookup);
     jinvoke_add_lookup(time_jinvoke_lookup);
     minvoke_add_lookup(time_minvoke_lookup);
     jinvoke_params_add_lookup(time_params_lookup);
     { struct class_ptr_result reg = time_clock_class_get();
-      if (PICOMESH_IS_ERR(reg)) picomesh_error_destroy(reg.error); }
+      PICOMESH_RETURN_IF_ERR(picomesh_void, reg, "time register: prewarm time_clock_class_get"); }
+    return PICOMESH_OK_VOID();
 }

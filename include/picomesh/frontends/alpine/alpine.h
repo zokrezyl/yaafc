@@ -28,7 +28,7 @@
 #ifndef PICOMESH_FRONTENDS_ALPINE_ALPINE_H
 #define PICOMESH_FRONTENDS_ALPINE_ALPINE_H
 
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
 struct picomesh_engine;
 struct alpine_frontend;

@@ -4,7 +4,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <picomesh/allocator/allocator.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/core/ytrace.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -68,7 +68,7 @@ struct picomesh_allocator *picomesh_allocator_thread(void)
     /* Thread-local: each loop/worker thread carves from its own pool with no
      * lock. Created on first use, lives for the thread's lifetime (the loop and
      * worker threads are process-lifetime, so the storage is reclaimed at
-     * exit). Mirrors the thread-local pattern in yco/coro.c. */
+     * exit). Mirrors the thread-local pattern in picoco/coro.c. */
     static _Thread_local struct picomesh_allocator *self = NULL;
     if (!self) self = picomesh_allocator_create();
     return self;

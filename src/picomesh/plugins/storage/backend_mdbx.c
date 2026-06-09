@@ -1,6 +1,6 @@
 /* libmdbx backend for the storage plugin.
  *
- * Shape: one shared MDBX_env per process (path from yconfig
+ * Shape: one shared MDBX_env per process (path from config
  * `storage.mdbx_path`, default a per-service directory under
  * /tmp), one named MDBX_dbi per logical context. The env is opened
  * lazily on first use and held for the lifetime of the process.
@@ -11,16 +11,16 @@
  *
  * Note on shared state: the rule against file-scope mutable state has
  * an established exception for "lazy const init" patterns (the same
- * shape the yclass codegen uses for class accessor caches). The MDBX
+ * shape the picoclass codegen uses for class accessor caches). The MDBX
  * env is opened-once and treated as an immutable handle for the rest
  * of the process. Same for the DBI cache — once a DBI handle is
  * registered it stays valid for the env's lifetime. */
 
 #include "backends.h"
 
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yconfig/yconfig.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/config/config.h>
 
 #include <mdbx.h>
 
@@ -49,7 +49,11 @@ struct mdbx_dbi_entry {
  * Thread-safety: we serialize the open path with a pthread_once-style
  * guard. After init, the env handle is read-only and can be shared
  * freely (libmdbx is internally multi-threaded). */
-static MDBX_env *mdbx_shared_env(void)
+/* `path` is the configured data directory (resolved once in ensure_backend) —
+ * REQUIRED, no hardcoded default, so a misconfigured node can't silently write
+ * its db to a shared/wrong path. The env is a process-global opened once; the
+ * first object's path wins. */
+static MDBX_env *mdbx_shared_env(const char *path)
 {
     static MDBX_env *env = NULL;
     static pthread_mutex_t init_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -60,18 +64,6 @@ static MDBX_env *mdbx_shared_env(void)
     pthread_mutex_lock(&init_mu);
     if (env || tried) { pthread_mutex_unlock(&init_mu); return env; }
 
-    /* The data directory is REQUIRED config — no hardcoded default, so a
-     * misconfigured node can't silently write its db to a shared/wrong path. */
-    const char *path = NULL;
-    struct picomesh_engine *e = picomesh_active_engine();
-    if (e) {
-        struct yconfig_node_ptr_result r =
-            yconfig_get(picomesh_engine_config(e), "storage.mdbx_path");
-        if (PICOMESH_IS_OK(r) && r.value) {
-            const char *s = yconfig_node_as_string(r.value, NULL);
-            if (s && *s) path = s;
-        }
-    }
     if (!path || !*path) {
         ywarn("storage[mdbx]: required config 'storage.mdbx_path' is missing — "
               "refusing to fall back to a shared default");
@@ -202,7 +194,7 @@ static enum storage_rc bmdbx_setup(struct storage_data *d, const char *context,
                                    MDBX_env **out_env, MDBX_dbi *out_dbi)
 {
     if (!storage_context_is_valid(context)) return STORAGE_RC_BAD_CONTEXT;
-    MDBX_env *env = mdbx_shared_env();
+    MDBX_env *env = mdbx_shared_env(d->data_path);
     if (!env) return STORAGE_RC_OPEN_FAILED;
     d->be.mdbx.opened = 1;
     enum storage_rc rc = STORAGE_RC_OK;

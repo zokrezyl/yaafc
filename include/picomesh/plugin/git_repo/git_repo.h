@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_GIT_REPO_H
 #define PICOMESH_PLUGIN_GIT_REPO_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_json_result;
@@ -41,6 +41,6 @@ struct picomesh_json_result git_repo_git_repo_list(struct ctx * ctx, struct obje
 struct picomesh_json_result git_repo_git_repo_list_all(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 
 /* ---- activation ---- */
-void picomesh_plugin_git_repo_register(void);
+struct picomesh_void_result picomesh_plugin_git_repo_register(void);
 
 #endif

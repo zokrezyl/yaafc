@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_SHARDED_STORAGE_H
 #define PICOMESH_PLUGIN_SHARDED_STORAGE_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int64_result;
 struct picomesh_int_result;
@@ -35,6 +35,6 @@ struct picomesh_int_result sharded_storage_db_put_if_absent(struct ctx * ctx, st
 struct picomesh_int_result sharded_storage_db_compare_and_set(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * context, const char * key, const char * expected, const char * replacement);
 
 /* ---- activation ---- */
-void picomesh_plugin_sharded_storage_register(void);
+struct picomesh_void_result picomesh_plugin_sharded_storage_register(void);
 
 #endif

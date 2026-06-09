@@ -24,12 +24,12 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <picomesh/frontends/alpine/alpine.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/yargv/yargv.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/config/config.h>
+#include <picomesh/argv/argv.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
 
 #include <picohttpparser.h>
 
@@ -275,9 +275,7 @@ static const char ALPINE_CONSOLE_HTML[] =
 
 /* ---- tiny HTTP helpers ----------------------------------------------- */
 
-extern size_t yloop_write(struct yloop_stream *s, const void *buf, size_t n);
-
-static void send_resp(struct yloop_stream *stream, int status, const char *reason,
+static void send_resp(struct loop_stream *stream, int status, const char *reason,
                       const char *ctype, const char *body, size_t blen)
 {
     char header[512];
@@ -294,8 +292,8 @@ static void send_resp(struct yloop_stream *stream, int status, const char *reaso
         "\r\n",
         status, reason, ctype, blen);
     if (header_len <= 0) return;
-    yloop_write(stream, header, (size_t)header_len);
-    if (blen) yloop_write(stream, body, blen);
+    loop_write(stream, header, (size_t)header_len);
+    if (blen) loop_write(stream, body, blen);
 }
 
 static int hdr_match(const struct phr_header *hdrs, size_t count, const char *want,
@@ -383,19 +381,20 @@ static int authorized(const struct alpine_frontend *frontend, const struct phr_h
 /* Open a fresh upstream connection, forward the request, relay the full
  * close-delimited response back to the browser. The console token (if any)
  * is NOT forwarded — it gates the console, not the upstream. */
-static void proxy_upstream(struct yloop *loop, struct yloop_stream *client,
+static struct picomesh_void_result proxy_upstream(struct loop *loop, struct loop_stream *client,
                            const struct alpine_frontend *frontend,
                            const char *method, const char *path,
                            const char *ctype, const char *body, size_t blen)
 {
-    struct yloop_stream_ptr_result upstream_res = yloop_connect_tcp(loop, frontend->up_host, frontend->up_port);
+    struct loop_stream_ptr_result upstream_res = loop_connect_tcp(loop, frontend->up_host, frontend->up_port);
     if (PICOMESH_IS_ERR(upstream_res)) {
+        picomesh_error_print(stderr, "alpine proxy: upstream connect", upstream_res.error);
         picomesh_error_destroy(upstream_res.error);
         static const char msg[] = "{\"error\":\"alpine: upstream connect failed\"}";
         send_resp(client, 502, "Bad Gateway", "application/json", msg, sizeof(msg) - 1);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    struct yloop_stream *upstream = upstream_res.value;
+    struct loop_stream *upstream = upstream_res.value;
 
     char head[4096];
     int head_len = snprintf(head, sizeof(head),
@@ -408,36 +407,42 @@ static void proxy_upstream(struct yloop *loop, struct yloop_stream *client,
     if (head_len > 0)
         head_len += snprintf(head + head_len, sizeof(head) - (size_t)head_len, "Content-Length: %zu\r\n\r\n", blen);
     if (head_len <= 0 || (size_t)head_len >= sizeof(head)) {
-        yloop_close(upstream);
+        loop_close(upstream);
         static const char msg[] = "{\"error\":\"alpine: request too large to proxy\"}";
         send_resp(client, 502, "Bad Gateway", "application/json", msg, sizeof(msg) - 1);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    yloop_write(upstream, head, (size_t)head_len);
-    if (blen) yloop_write(upstream, body, blen);
+    loop_write(upstream, head, (size_t)head_len);
+    if (blen) loop_write(upstream, body, blen);
 
     /* Upstream was asked to close, so read to EOF == full response. */
     char *response = malloc(ALPINE_RESP_BUF);
-    if (!response) { yloop_close(upstream); yloop_close(client); return; }
+    if (!response) { loop_close(upstream); loop_close(client); return PICOMESH_OK_VOID(); }
     size_t response_len = 0;
     for (;;) {
         if (response_len >= ALPINE_RESP_BUF) break;
-        size_t got = yloop_read_some(upstream, response + response_len, ALPINE_RESP_BUF - response_len);
-        if (got == 0) break;
-        response_len += got;
+        struct picomesh_size_result read_res = loop_read_some(upstream, response + response_len, ALPINE_RESP_BUF - response_len);
+        if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); break; }
+        if (read_res.value == 0) break; /* clean EOF */
+        response_len += read_res.value;
     }
-    yloop_close(upstream);
-    if (response_len) yloop_write(client, response, response_len);
+    loop_close(upstream);
+    if (response_len) loop_write(client, response, response_len);
     free(response);
+    return PICOMESH_OK_VOID();
 }
 
 /* ---- per-connection serve coroutine (one request, then close) -------- */
 
-static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
+/* Per-connection serve coroutine — its void signature is fixed by the loop's
+ * accept-handler API; a proxy failure is absorbed here (chain rendered inside
+ * proxy_upstream, which also returns a 502 to the browser). */
+PICOMESH_EXTERNAL_CALLBACK
+static void serve_one(struct loop *loop, struct loop_stream *stream, void *ud)
 {
     struct alpine_frontend *frontend = ud;
     char *buf = malloc(ALPINE_REQ_BUF);
-    if (!buf) { yloop_close(stream); return; }
+    if (!buf) { loop_close(stream); return; }
 
     size_t buf_len = 0;
     int minor = 0;
@@ -451,9 +456,10 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
         if (buf_len >= ALPINE_REQ_BUF) goto done;
         size_t chunk = ALPINE_REQ_BUF - buf_len;
         if (chunk > 4096) chunk = 4096;
-        size_t got = yloop_read_some(stream, buf + buf_len, chunk);
-        if (got == 0) goto done;
-        buf_len += got;
+        struct picomesh_size_result read_res = loop_read_some(stream, buf + buf_len, chunk);
+        if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); goto done; }
+        if (read_res.value == 0) goto done; /* clean EOF */
+        buf_len += read_res.value;
         header_count = ALPINE_MAX_HEADERS;
         parsed = phr_parse_request(buf, buf_len, &method_ptr, &method_len, &path, &path_len, &minor, hdrs, &header_count, 0);
     }
@@ -467,10 +473,11 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
         size_t have = buf_len - header_end;
         while ((long)have < clen) {
             if (header_end + (size_t)clen > ALPINE_REQ_BUF) goto done;
-            size_t got = yloop_read_some(stream, buf + buf_len, (size_t)clen - have);
-            if (got == 0) goto done;
-            buf_len += got;
-            have += got;
+            struct picomesh_size_result read_res = loop_read_some(stream, buf + buf_len, (size_t)clen - have);
+            if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); goto done; }
+            if (read_res.value == 0) goto done; /* clean EOF */
+            buf_len += read_res.value;
+            have += read_res.value;
         }
     }
     const char *body = buf + header_end;
@@ -501,8 +508,13 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
     if (wants_proxy(path, is_get, is_post)) {
         char ctype[128] = {0};
         hdr_match(hdrs, header_count, "Content-Type", ctype, sizeof(ctype));
-        proxy_upstream(loop, stream, frontend, method, path, ctype[0] ? ctype : "application/json",
-                       body, (size_t)clen);
+        struct picomesh_void_result proxy_res =
+            proxy_upstream(loop, stream, frontend, method, path, ctype[0] ? ctype : "application/json",
+                           body, (size_t)clen);
+        if (PICOMESH_IS_ERR(proxy_res)) {
+            picomesh_error_print(stderr, "alpine: proxy_upstream", proxy_res.error);
+            picomesh_error_destroy(proxy_res.error);
+        }
         goto done;
     }
 
@@ -514,31 +526,27 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
 
 done:
     free(buf);
-    yloop_close(stream);
+    loop_close(stream);
 }
 
 /* ---- config + start -------------------------------------------------- */
 
 /* Fetch `alpine.<suffix>` for this node, honoring the engine's service
  * projection (top level) with a fallback to the un-projected parent path. */
-static const struct yconfig_node *alpine_cfg(struct picomesh_engine *engine, const char *suffix)
+static const struct config_node *alpine_cfg(struct picomesh_engine *engine, const char *suffix)
 {
-    const struct yconfig *cfg = picomesh_engine_config(engine);
+    const struct config *cfg = picomesh_engine_config(engine);
     if (!cfg) return NULL;
-    struct yargv_chain *cli = picomesh_engine_cli(engine);
-    const char *name = cli ? yargv_get_string(cli, "name", NULL) : NULL;
+    struct argv_chain *cli = picomesh_engine_cli(engine);
+    const char *name = cli ? argv_get_string(cli, "name", NULL) : NULL;
     char path[256];
     if (name && *name) {
         snprintf(path, sizeof(path), "mesh.services.%s.config.alpine.%s", name, suffix);
-        struct yconfig_node_ptr_result node_res = yconfig_get(cfg, path);
-        if (PICOMESH_IS_OK(node_res) && node_res.value) return node_res.value;
-        if (PICOMESH_IS_ERR(node_res)) picomesh_error_destroy(node_res.error);
+        const struct config_node *node = config_get_node(cfg, path);
+        if (node) return node;
     }
     snprintf(path, sizeof(path), "alpine.%s", suffix);
-    struct yconfig_node_ptr_result node_res = yconfig_get(cfg, path);
-    if (PICOMESH_IS_OK(node_res) && node_res.value) return node_res.value;
-    if (PICOMESH_IS_ERR(node_res)) picomesh_error_destroy(node_res.error);
-    return NULL;
+    return config_get_node(cfg, path);
 }
 
 struct alpine_upstream_fields {
@@ -546,14 +554,14 @@ struct alpine_upstream_fields {
     int port;
 };
 
-static int alpine_upstream_cb(const char *key, const struct yconfig_node *val, void *ud)
+static int alpine_upstream_cb(const char *key, const struct config_node *val, void *ud)
 {
     struct alpine_upstream_fields *upstream = ud;
     if (strcmp(key, "host") == 0) {
-        const char *host = yconfig_node_as_string(val, NULL);
+        const char *host = config_node_as_string(val, NULL);
         if (host) snprintf(upstream->host, sizeof(upstream->host), "%s", host);
     } else if (strcmp(key, "port") == 0) {
-        upstream->port = (int)yconfig_node_as_int(val, 0);
+        upstream->port = (int)config_node_as_int(val, 0);
     }
     return 0;
 }
@@ -565,14 +573,14 @@ struct alpine_frontend_ptr_result alpine_start(struct picomesh_engine *engine,
     const char *host = (cfg && cfg->host) ? cfg->host : "127.0.0.1";
     int port = (cfg && cfg->port > 0) ? cfg->port : 8231;
 
-    struct yloop *loop = picomesh_engine_loop(engine);
+    struct loop *loop = picomesh_engine_loop(engine);
     if (!loop) return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: engine has no loop");
 
     /* Resolve the upstream yhttp endpoint this console proxies to. */
     struct alpine_upstream_fields upstream = {.host = "127.0.0.1", .port = 0};
-    const struct yconfig_node *upstream_node = alpine_cfg(engine, "upstream");
-    if (upstream_node && yconfig_node_kind(upstream_node) == YCONFIG_MAP)
-        yconfig_node_for_each(upstream_node, alpine_upstream_cb, &upstream);
+    const struct config_node *upstream_node = alpine_cfg(engine, "upstream");
+    if (upstream_node && config_node_kind(upstream_node) == CONFIG_MAP)
+        config_node_for_each(upstream_node, alpine_upstream_cb, &upstream);
     if (upstream.port <= 0)
         return PICOMESH_ERR(alpine_frontend_ptr,
                             "alpine_start: config.alpine.upstream.port is required "
@@ -584,18 +592,18 @@ struct alpine_frontend_ptr_result alpine_start(struct picomesh_engine *engine,
     snprintf(frontend->up_host, sizeof(frontend->up_host), "%s", upstream.host[0] ? upstream.host : "127.0.0.1");
     frontend->up_port = upstream.port;
 
-    const struct yconfig_node *token_node = alpine_cfg(engine, "token");
-    const char *token = token_node ? yconfig_node_as_string(token_node, NULL) : NULL;
+    const struct config_node *token_node = alpine_cfg(engine, "token");
+    const char *token = token_node ? config_node_as_string(token_node, NULL) : NULL;
     if (token && *token) {
         frontend->token = strdup(token);
         if (!frontend->token) { free(frontend); return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: strdup failed"); }
     }
 
-    struct picomesh_void_result listen_res = yloop_listen_tcp(loop, host, port, serve_one, frontend);
+    struct picomesh_void_result listen_res = loop_listen_tcp(loop, host, port, serve_one, frontend);
     if (PICOMESH_IS_ERR(listen_res)) {
         free(frontend->token);
         free(frontend);
-        return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: yloop_listen_tcp failed", listen_res);
+        return PICOMESH_ERR(alpine_frontend_ptr, "alpine_start: loop_listen_tcp failed", listen_res);
     }
     yinfo("alpine: console on %s:%d -> upstream %s:%d (%s)",
           host, port, frontend->up_host, frontend->up_port, frontend->token ? "token-gated" : "open");

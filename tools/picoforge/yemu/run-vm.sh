@@ -35,7 +35,7 @@ MEM="${MEM:-512M}"
 # it mounts /proc /sys /dev, brings up slirp net + a tmpfs /tmp, then hands
 # the mesh / webapp / probe services to runit (runsvdir /etc/service).
 # console=hvc0 wires the service output to our stdio chardev.
-CMDLINE="console=hvc0 earlycon=sbi root=/dev/vda rw init=/opt/picoforge/init"
+CMDLINE="console=hvc0 earlpicocon=sbi root=/dev/vda rw init=/opt/picoforge/init"
 
 echo "==> launching qemu-system-riscv64 (picomesh demo)"
 echo "    kernel    $KERNEL"

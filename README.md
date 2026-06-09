@@ -17,16 +17,16 @@ etc.".  picomesh keeps the same idea but in C, with:
   the yetty PoC defined.
 - **libco-backed coroutines** — `picomesh_coro_spawn / yield / resume`
   thin wrapper around higan-emu/libco.
-- **libuv-backed event loop with coroutine streams** — `yloop_listen_tcp`
+- **libuv-backed event loop with coroutine streams** — `loop_listen_tcp`
   accepts connections, spawns one coroutine per peer, and provides
-  `yloop_read / yloop_write` that look blocking but yield on EAGAIN.
+  `loop_read / loop_write` that look blocking but yield on EAGAIN.
 - **Transparent RPC** — the same generated stub dispatches locally when
   `ctx->session == NULL` and falls through to `rpc_call(RPC_OP_CALL, …)`
   when a session is attached.  Caller code is identical either way.
 
 The class/RPC model is lifted from
 `yetty-optimize-ygui/poc/class-object-model/`.  The coroutine layer is
-adapted from the same project's `yco/` + `yplatform/coroutine/`.
+adapted from the same project's `picoco/` + `platform/coroutine/`.
 
 ## Build
 
@@ -71,18 +71,18 @@ build-tools/
   picomesh/libs/<lib>.cmake               per-lib IMPORTED target stub
 
 include/picomesh/
-  ycore/{result,ytrace}.h              error chain + switchable trace
-  yclass/{class,rpc}.h                 class registry + dispatch + RPC wire
-  yco/coro.h                           libco-backed coroutines
-  yloop/yloop.h                        libuv event loop + coro streams
-  yengine/engine.h                     engine lifecycle (init/run/stop)
-  yplatform/time.h                     cross-platform time + sleep
+  core/{result,ytrace}.h              error chain + switchable trace
+  picoclass/{class,rpc}.h                 class registry + dispatch + RPC wire
+  picoco/coro.h                           libco-backed coroutines
+  loop/loop.h                        libuv event loop + coro streams
+  engine/engine.h                     engine lifecycle (init/run/stop)
+  platform/time.h                     cross-platform time + sleep
   frontends/yrpc/yrpc.h                binary RPC frontend
 
 src/picomesh/
-  ycore/ yclass/ yco/ yloop/           runtime implementation
-  yengine/                             engine lifecycle
-  yplatform/time/{posix,windows}.c     per-platform backends
+  core/ picoclass/ picoco/ loop/           runtime implementation
+  engine/                             engine lifecycle
+  platform/time/{posix,windows}.c     per-platform backends
   frontends/yrpc/                      yrpc frontend
   plugins/
     storage/    — KV store: kv_set / kv_get / kv_count
@@ -125,7 +125,7 @@ name* — multiple classes per file are not supported yet.
 
 ## Configuration
 
-The engine loads `yconfig` at startup. Precedence matches yaapp's
+The engine loads `config` at startup. Precedence matches yaapp's
 `Config.create(defaults, path)` exactly — lowest to highest:
 
 1. `--config KEY=VALUE` CLI overrides (lowest; treated as *defaults*).
@@ -147,7 +147,7 @@ picomesh [--config-file PATH] [--config KEY=VALUE]... [--env KEY=VALUE]...
       (serve | client | config-dump)
 ```
 
-`--env KEY=VALUE` is applied as `setenv()` before yconfig runs, so any
+`--env KEY=VALUE` is applied as `setenv()` before config runs, so any
 `${KEY}` substitutions in config strings pick them up.
 
 `picomesh config-dump` prints the fully-resolved config tree — handy for
@@ -156,15 +156,15 @@ debugging precedence.
 Plugins read their own subtree:
 
 ```c
-const struct yconfig_node *cfg = picomesh_engine_plugin_config(e, "storage");
-const char *backend = yconfig_node_as_string(
+const struct config_node *cfg = picomesh_engine_plugin_config(e, "storage");
+const char *backend = config_node_as_string(
     map_get(cfg, "backend"), "memory");
 ```
 
 Dot-path access with parent-chain inheritance works too:
 
 ```c
-struct yconfig_node_ptr_result r = yconfig_get(cfg, "storage.host");
+struct config_node_ptr_result r = config_get(cfg, "storage.host");
 /* falls back to top-level `host` when `storage.host` is absent */
 ```
 
@@ -172,8 +172,8 @@ struct yconfig_node_ptr_result r = yconfig_get(cfg, "storage.host");
 
 What's in:
 
-- Foundation runtime (Result, ytrace, class/RPC, coroutines, yloop).
-- Cross-platform time (`yplatform/time`) with POSIX + Win32 backends.
+- Foundation runtime (Result, ytrace, class/RPC, coroutines, loop).
+- Cross-platform time (`platform/time`) with POSIX + Win32 backends.
 - Codegen: classes, mixins, inheritance, same-domain and cross-domain
   overrides.
 - TCP RPC server using libuv + per-connection coroutines.
@@ -200,7 +200,7 @@ What's in:
   byte-compatible.
 - **SQLite-backed storage** (`storage_sql` class): set/get/del/exists/
   count with string keys + int64 values, persisted to the path from
-  yconfig (`storage.db_path`). libsqlite3 is built locally via the
+  config (`storage.db_path`). libsqlite3 is built locally via the
   3rdparty pattern.
 - **Inter-plugin RPC clients**: `picomesh_engine_add_remote(name, host,
   port)` and `picomesh_engine_remote(name)`; auto-open via

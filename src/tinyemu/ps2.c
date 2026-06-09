@@ -128,26 +128,26 @@ void ps2_queue(void *opaque, int b)
 #define INPUT_MAKE_KEY_MIN 96
 #define INPUT_MAKE_KEY_MAX 127
 
-static const uint8_t linux_input_to_keycode_set1[INPUT_MAKE_KEY_MAX - INPUT_MAKE_KEY_MIN + 1] = {
+static const uint8_t linux_input_to_kepicocode_set1[INPUT_MAKE_KEY_MAX - INPUT_MAKE_KEY_MIN + 1] = {
     0x1c, 0x1d, 0x35, 0x00, 0x38, 0x00, 0x47, 0x48, 
     0x49, 0x4b, 0x4d, 0x4f, 0x50, 0x51, 0x52, 0x53, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0x5c, 0x5d, 
 };
 
-/* keycode is a Linux input layer keycode. We only support the PS/2
-   keycode set 1 */
-void ps2_put_keycode(PS2KbdState *s, BOOL is_down, int keycode)
+/* kepicocode is a Linux input layer kepicocode. We only support the PS/2
+   kepicocode set 1 */
+void ps2_put_kepicocode(PS2KbdState *s, BOOL is_down, int kepicocode)
 {
-    if (keycode >= INPUT_MAKE_KEY_MIN) {
-        if (keycode > INPUT_MAKE_KEY_MAX)
+    if (kepicocode >= INPUT_MAKE_KEY_MIN) {
+        if (kepicocode > INPUT_MAKE_KEY_MAX)
             return;
-        keycode = linux_input_to_keycode_set1[keycode - INPUT_MAKE_KEY_MIN];
-        if (keycode == 0)
+        kepicocode = linux_input_to_kepicocode_set1[kepicocode - INPUT_MAKE_KEY_MIN];
+        if (kepicocode == 0)
             return;
         ps2_queue(&s->common, 0xe0);
     }
-    ps2_queue(&s->common, keycode | ((!is_down) << 7));
+    ps2_queue(&s->common, kepicocode | ((!is_down) << 7));
 }
 
 uint32_t ps2_read_data(void *opaque)

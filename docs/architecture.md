@@ -76,7 +76,7 @@ picoforge-webapp
 
 The webapp is intentionally separate from the Picomesh transport frontends. It
 renders HTML pages and serves static assets. It does not link plugins, does not
-open backend ports, and does not dispatch yclass methods directly.
+open backend ports, and does not dispatch picoclass methods directly.
 
 The webapp gets data from the gateway through:
 
@@ -441,8 +441,8 @@ include/picomesh/              public framework headers
 src/picomesh/                  framework/runtime implementation
 src/picomesh/frontends/        transport adapters
 src/picomesh/plugins/          framework/application service plugins
-src/picomesh/yclass/gen/       code generator
-src/picomesh/ymain/            picomesh main command
+src/picomesh/picoclass/gen/       code generator
+src/picomesh/main/            picomesh main command
 
 src/picoforge/webapp/          browser-facing Picoforge webapp
 assets/picoforge/              Picoforge config/ + static/ assets

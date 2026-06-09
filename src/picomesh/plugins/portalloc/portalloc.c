@@ -35,12 +35,12 @@
  * provided it is still bindable; a lease whose port was stolen is dropped
  * and reassigned. State is in-memory (persistence is a follow-up). */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/yjson/yjson.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/config/config.h>
+#include <picomesh/json/json.h>
 
 #include <pthread.h>
 #include <stdint.h>
@@ -83,22 +83,24 @@ static struct portalloc_state *portalloc_state(void)
 
 /* Parse the inclusive "LO-HI" range from `portalloc.port_range`; fall back to
  * the built-in default when unset or malformed. */
-static void portalloc_range(uint32_t *lo, uint32_t *hi)
+static struct picomesh_void_result portalloc_range(uint32_t *lo, uint32_t *hi)
 {
     *lo = PORTALLOC_DEFAULT_LO;
     *hi = PORTALLOC_DEFAULT_HI;
     struct picomesh_engine *engine = picomesh_active_engine();
-    if (!engine) return;
-    struct yconfig_node_ptr_result config_res =
-        yconfig_get(picomesh_engine_config(engine), "portalloc.port_range");
-    if (PICOMESH_IS_OK(config_res) && config_res.value) {
-        const char *range_str = yconfig_node_as_string(config_res.value, NULL);
+    if (!engine) return PICOMESH_OK_VOID();
+    struct config_node_ptr_result config_res =
+        config_get(picomesh_engine_config(engine), "portalloc.port_range");
+    PICOMESH_RETURN_IF_ERR(picomesh_void, config_res, "portalloc_range: config read failed");
+    if (config_res.value) {
+        const char *range_str = config_node_as_string(config_res.value, NULL);
         unsigned range_lo = 0, range_hi = 0;
         if (range_str && sscanf(range_str, "%u-%u", &range_lo, &range_hi) == 2 && range_lo > 0 && range_hi >= range_lo) {
             *lo = range_lo;
             *hi = range_hi;
         }
     }
+    return PICOMESH_OK_VOID();
 }
 
 /* True iff (host, port) can be bound right now. A PLAIN bind — deliberately no
@@ -135,7 +137,8 @@ struct picomesh_uint32_result portalloc_portalloc_allocate_impl(struct ctx *ctx,
     if (!host || !*host) host = "127.0.0.1";
     struct portalloc_state *state = portalloc_state();
     uint32_t lo, hi;
-    portalloc_range(&lo, &hi);
+    struct picomesh_void_result range_res = portalloc_range(&lo, &hi);
+    PICOMESH_RETURN_IF_ERR(picomesh_uint32, range_res, "portalloc_allocate: port range failed");
 
     pthread_mutex_lock(&state->mu);
 
@@ -217,24 +220,24 @@ struct picomesh_size_result portalloc_portalloc_count_used_impl(struct ctx *ctx,
 static struct picomesh_json_result portalloc_list_window(struct portalloc_state *state,
                                                          int64_t offset, int64_t limit)
 {
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_json, "portalloc_list: writer alloc failed");
-    yjson_writer_begin_array(writer);
+    json_writer_begin_array(writer);
     int64_t skip = offset > 0 ? offset : 0, emitted = 0;
     for (size_t i = 0; i < PORTALLOC_MAX_ENTRIES && (limit < 0 || emitted < limit); ++i) {
         if (!state->entries[i].used) continue;
         if (skip > 0) { --skip; continue; }
-        yjson_writer_begin_object(writer);
-        yjson_writer_key(writer, "service"); yjson_writer_string(writer, state->entries[i].service_name);
-        yjson_writer_key(writer, "port");    yjson_writer_int(writer, (int64_t)state->entries[i].port);
-        yjson_writer_end_object(writer);
+        json_writer_begin_object(writer);
+        json_writer_key(writer, "service"); json_writer_string(writer, state->entries[i].service_name);
+        json_writer_key(writer, "port");    json_writer_int(writer, (int64_t)state->entries[i].port);
+        json_writer_end_object(writer);
         ++emitted;
     }
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     char *out = strdup(data ? data : "[]");
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "portalloc_list: strdup failed");
     return PICOMESH_OK(picomesh_json, out);
 }

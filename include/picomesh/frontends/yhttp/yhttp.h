@@ -27,7 +27,7 @@
 #ifndef PICOMESH_FRONTENDS_YHTTP_YHTTP_H
 #define PICOMESH_FRONTENDS_YHTTP_YHTTP_H
 
-#include <picomesh/ycore/result.h>
+#include <picomesh/core/result.h>
 
 struct picomesh_engine;
 struct yhttp_frontend;

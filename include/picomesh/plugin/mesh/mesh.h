@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_MESH_H
 #define PICOMESH_PLUGIN_MESH_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_size_result;
@@ -32,6 +32,6 @@ struct picomesh_int_result mesh_mesh_reconcile_from_config(struct ctx * ctx, str
 struct picomesh_int_result mesh_mesh_reconcile(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 
 /* ---- activation ---- */
-void picomesh_plugin_mesh_register(void);
+struct picomesh_void_result picomesh_plugin_mesh_register(void);
 
 #endif

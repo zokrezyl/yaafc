@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_CALCULATOR_H
 #define PICOMESH_PLUGIN_CALCULATOR_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int64_result;
 struct yheaders;
@@ -25,6 +25,6 @@ struct picomesh_int64_result calculator_calc_mul(struct ctx * ctx, struct object
 struct picomesh_int64_result calculator_calc_div(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, int64_t x, int64_t y);
 
 /* ---- activation ---- */
-void picomesh_plugin_calculator_register(void);
+struct picomesh_void_result picomesh_plugin_calculator_register(void);
 
 #endif

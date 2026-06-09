@@ -25,14 +25,14 @@
  * The raw token is a bearer secret: it is returned exactly once at creation and
  * never stored, logged, or recoverable — only its SHA-256 hash is persisted. */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ysecurity/sha256.h>
-#include <picomesh/ysecurity/jwt.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/json/json.h>
+#include <picomesh/security/sha256.h>
+#include <picomesh/security/jwt.h>
 #include <picomesh/plugin/sharded_storage/sharded_storage.h>
 #include <picomesh/plugin/token_issuer/token_issuer.h>
 
@@ -137,27 +137,27 @@ static int ra_alloc_token(char *out, size_t cap)
 /* Serialize a runner record to owned JSON. */
 static char *ra_record_to_json(const struct ra_record *rec)
 {
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return NULL;
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "name");      yjson_writer_string(writer, rec->name);
-    yjson_writer_key(writer, "labels");    yjson_writer_string(writer, rec->labels);
-    yjson_writer_key(writer, "version");   yjson_writer_string(writer, rec->version);
-    yjson_writer_key(writer, "host");      yjson_writer_string(writer, rec->host);
-    yjson_writer_key(writer, "status");    yjson_writer_string(writer, rec->status);
-    yjson_writer_key(writer, "last_seen"); yjson_writer_int(writer, rec->last_seen);
-    yjson_writer_key(writer, "tok_hash");  yjson_writer_string(writer, rec->tok_hash);
-    yjson_writer_end_object(writer);
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "name");      json_writer_string(writer, rec->name);
+    json_writer_key(writer, "labels");    json_writer_string(writer, rec->labels);
+    json_writer_key(writer, "version");   json_writer_string(writer, rec->version);
+    json_writer_key(writer, "host");      json_writer_string(writer, rec->host);
+    json_writer_key(writer, "status");    json_writer_string(writer, rec->status);
+    json_writer_key(writer, "last_seen"); json_writer_int(writer, rec->last_seen);
+    json_writer_key(writer, "tok_hash");  json_writer_string(writer, rec->tok_hash);
+    json_writer_end_object(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     return out;
 }
 
-static void ra_copy_field(char *dst, size_t cap, const struct yjson_value *obj, const char *key)
+static void ra_copy_field(char *dst, size_t cap, const struct json_value *obj, const char *key)
 {
-    const char *value = yjson_as_string(yjson_object_get(obj, key), "");
+    const char *value = json_as_string(json_object_get(obj, key), "");
     snprintf(dst, cap, "%s", value ? value : "");
 }
 
@@ -170,10 +170,10 @@ static struct picomesh_int_result ra_record_load(struct ra_storage *storage, str
     struct picomesh_string_result get_res = sharded_storage_db_get(&storage->c, storage->obj, hdrs, RA_CTX, key);
     if (PICOMESH_IS_ERR(get_res)) return PICOMESH_ERR(picomesh_int, "runner_agent: record read failed", get_res);
     if (!get_res.value || !get_res.value[0]) { free(get_res.value); return PICOMESH_OK(picomesh_int, 0); }
-    struct yjson_doc *doc = yjson_parse(get_res.value, strlen(get_res.value));
+    struct json_doc *doc = json_parse(get_res.value, strlen(get_res.value));
     free(get_res.value);
     if (!doc) return PICOMESH_ERR(picomesh_int, "runner_agent: record parse failed");
-    const struct yjson_value *obj = yjson_doc_root(doc);
+    const struct json_value *obj = json_doc_root(doc);
     memset(rec, 0, sizeof(*rec));
     ra_copy_field(rec->name, sizeof(rec->name), obj, "name");
     ra_copy_field(rec->labels, sizeof(rec->labels), obj, "labels");
@@ -181,8 +181,8 @@ static struct picomesh_int_result ra_record_load(struct ra_storage *storage, str
     ra_copy_field(rec->host, sizeof(rec->host), obj, "host");
     ra_copy_field(rec->status, sizeof(rec->status), obj, "status");
     ra_copy_field(rec->tok_hash, sizeof(rec->tok_hash), obj, "tok_hash");
-    rec->last_seen = yjson_as_int(yjson_object_get(obj, "last_seen"), 0);
-    yjson_doc_free(doc);
+    rec->last_seen = json_as_int(json_object_get(obj, "last_seen"), 0);
+    json_doc_free(doc);
     return PICOMESH_OK(picomesh_int, 1);
 }
 
@@ -238,27 +238,39 @@ struct picomesh_json_result runner_agent_runner_agent_create_token_impl(struct c
     struct picomesh_void_result store_res = ra_record_store(&storage, hdrs, runner_id, &rec);
     if (PICOMESH_IS_ERR(store_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: persist record failed", store_res);
 
+    /* Build the response BEFORE writing the token→id mapping (the write that
+     * makes the token usable). The storage layer has no multi-key transaction,
+     * so order to avoid the one harmful partial state: a usable credential the
+     * client never receives. If encoding fails here, no mapping exists yet, so
+     * no usable token is stranded — only a tokenless record (benign). */
+    struct json_writer *writer = json_writer_new();
+    if (!writer) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: writer alloc failed");
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "runner_id"); json_writer_int(writer, (int64_t)runner_id);
+    json_writer_key(writer, "token");     json_writer_string(writer, token);
+    json_writer_end_object(writer);
+    size_t len = 0;
+    const char *data = json_writer_data(writer, &len);
+    char *out = data ? strdup(data) : NULL;
+    json_writer_free(writer);
+    if (!out) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: encode failed");
+
     char tok_key[80];
     snprintf(tok_key, sizeof(tok_key), "tok:%s", rec.tok_hash);
     char id_str[16];
     snprintf(id_str, sizeof(id_str), "%u", runner_id);
     struct picomesh_int_result tok_set_res = sharded_storage_db_set(&storage.c, storage.obj, hdrs, RA_CTX, tok_key, id_str);
-    if (PICOMESH_IS_ERR(tok_set_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: persist token failed", tok_set_res);
+    if (PICOMESH_IS_ERR(tok_set_res)) { free(out); return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: persist token failed", tok_set_res); }
 
+    /* The active-count is a soft metric, not a security control. The credential
+     * is already created and the client must receive it, so a count-bump failure
+     * is logged (count may drift low) rather than failing the whole creation. */
     struct picomesh_int64_result count_res = ra_incr(&storage, hdrs, "count", 1);
-    if (PICOMESH_IS_ERR(count_res)) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: bump count failed", count_res);
+    if (PICOMESH_IS_ERR(count_res)) {
+        picomesh_error_print(stderr, "runner_agent_create_token: active-count bump (count may drift low)", count_res.error);
+        picomesh_error_destroy(count_res.error);
+    }
 
-    struct yjson_writer *writer = yjson_writer_new();
-    if (!writer) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: writer alloc failed");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "runner_id"); yjson_writer_int(writer, (int64_t)runner_id);
-    yjson_writer_key(writer, "token");     yjson_writer_string(writer, token);
-    yjson_writer_end_object(writer);
-    size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
-    char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(writer);
-    if (!out) return PICOMESH_ERR(picomesh_json, "runner_agent_create_token: encode failed");
     /* The raw token is never logged — only the runner id. */
     yinfo("runner_agent: created runner=%u name=%s", runner_id, rec.name);
     return PICOMESH_OK(picomesh_json, out);
@@ -352,8 +364,18 @@ struct picomesh_int_result runner_agent_runner_agent_revoke_token_impl(struct ct
     snprintf(rec.status, sizeof(rec.status), "disabled");
     struct picomesh_void_result store_res = ra_record_store(&storage, hdrs, runner_id, &rec);
     if (PICOMESH_IS_ERR(store_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: record write failed", store_res);
+
+    /* Token mapping is deleted and the record is now `disabled`: the revoke has
+     * already taken effect (the token can no longer authenticate). The active-
+     * count is a soft metric. If the decrement fails, do NOT return an error —
+     * the caller would retry, hit the `disabled` short-circuit above, and never
+     * reconcile the count, leaving it permanently high. Log the drift and report
+     * success instead. */
     struct picomesh_int64_result count_res = ra_incr(&storage, hdrs, "count", -1);
-    if (PICOMESH_IS_ERR(count_res)) return PICOMESH_ERR(picomesh_int, "runner_agent_revoke_token: count update failed", count_res);
+    if (PICOMESH_IS_ERR(count_res)) {
+        picomesh_error_print(stderr, "runner_agent_revoke_token: active-count decrement (count may drift high)", count_res.error);
+        picomesh_error_destroy(count_res.error);
+    }
     yinfo("runner_agent: revoked runner=%u", runner_id);
     return PICOMESH_OK(picomesh_int, 1);
 }
@@ -432,21 +454,21 @@ struct picomesh_json_result runner_agent_runner_agent_get_impl(struct ctx *ctx, 
     if (load_res.value == 0) { char *empty = strdup("{}"); return empty ? PICOMESH_OK(picomesh_json, empty)
                                                                   : PICOMESH_ERR(picomesh_json, "runner_agent_get: oom"); }
     /* Echo the record but never the token hash — that is at-rest secret material. */
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_json, "runner_agent_get: writer alloc failed");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "runner_id"); yjson_writer_int(writer, (int64_t)runner_id);
-    yjson_writer_key(writer, "name");      yjson_writer_string(writer, rec.name);
-    yjson_writer_key(writer, "labels");    yjson_writer_string(writer, rec.labels);
-    yjson_writer_key(writer, "version");   yjson_writer_string(writer, rec.version);
-    yjson_writer_key(writer, "host");      yjson_writer_string(writer, rec.host);
-    yjson_writer_key(writer, "status");    yjson_writer_string(writer, rec.status);
-    yjson_writer_key(writer, "last_seen"); yjson_writer_int(writer, rec.last_seen);
-    yjson_writer_end_object(writer);
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "runner_id"); json_writer_int(writer, (int64_t)runner_id);
+    json_writer_key(writer, "name");      json_writer_string(writer, rec.name);
+    json_writer_key(writer, "labels");    json_writer_string(writer, rec.labels);
+    json_writer_key(writer, "version");   json_writer_string(writer, rec.version);
+    json_writer_key(writer, "host");      json_writer_string(writer, rec.host);
+    json_writer_key(writer, "status");    json_writer_string(writer, rec.status);
+    json_writer_key(writer, "last_seen"); json_writer_int(writer, rec.last_seen);
+    json_writer_end_object(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "runner_agent_get: encode failed");
     return PICOMESH_OK(picomesh_json, out);
 }

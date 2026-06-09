@@ -121,7 +121,7 @@ static bool is_foreign_location(SourceLocation loc, const SourceManager &sm)
  * Check if a type is a Result type whose propagation we enforce. It must end in
  * "_result" AND be declared in first-party code. The location test (not a name
  * prefix) is what keeps legitimate non-"yetty_"-prefixed result types such as
- * `rectangle_result` and `yplatform_coro_ptr_result` in scope while excluding
+ * `rectangle_result` and `platform_coro_ptr_result` in scope while excluding
  * third-party look-alikes like `ma_result`.
  */
 static bool is_enforced_result_type(QualType type, const ASTContext &ctx)

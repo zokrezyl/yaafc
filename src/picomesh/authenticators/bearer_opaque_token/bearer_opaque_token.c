@@ -16,9 +16,9 @@
  * prefix but resolves to no valid JWT FAILS the chain (401). */
 
 #include <picomesh/authenticators/base.h>
-#include <picomesh/yengine/resolve.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/ysecurity/jwt_verifier.h>
+#include <picomesh/engine/resolve.h>
+#include <picomesh/config/config.h>
+#include <picomesh/security/jwt_verifier.h>
 
 #include "../http_util.h"
 #include "../jwt_util.h"
@@ -35,10 +35,10 @@ struct bearer_opaque_state {
 };
 
 static struct picomesh_void_ptr_result bearer_opaque_create(struct picomesh_engine *engine,
-                                                            const struct yconfig_node *config)
+                                                            const struct config_node *config)
 {
-    const char *prefix = yconfig_node_as_string(yconfig_node_get(config, "prefix"), NULL);
-    const char *lookup = yconfig_node_as_string(yconfig_node_get(config, "lookup"), NULL);
+    const char *prefix = config_node_as_string(config_node_get(config, "prefix"), NULL);
+    const char *lookup = config_node_as_string(config_node_get(config, "lookup"), NULL);
     if (!prefix || !*prefix)
         return PICOMESH_ERR(picomesh_void_ptr, "bearer_opaque_token: `prefix` is required (e.g. \"pat_\")");
     if (!lookup || !*lookup)
@@ -63,7 +63,7 @@ static struct picomesh_authn_outcome fail(const char *reason)
     return outcome;
 }
 
-static struct picomesh_authn_outcome bearer_opaque_authenticate(void *state_ptr,
+static struct picomesh_authn_outcome_result bearer_opaque_authenticate(void *state_ptr,
                                                                 const struct picomesh_authn_request *request)
 {
     struct bearer_opaque_state *state = state_ptr;
@@ -71,27 +71,38 @@ static struct picomesh_authn_outcome bearer_opaque_authenticate(void *state_ptr,
 
     char token[512];
     if (!authn_bearer_token(request->headers_raw, request->headers_raw_len, token, sizeof(token)) || !token[0])
-        return outcome; /* no bearer → no match */
+        return PICOMESH_OK(picomesh_authn_outcome, outcome); /* no bearer → no match */
     if (strncmp(token, state->prefix, strlen(state->prefix)) != 0)
-        return outcome; /* not our prefix → let another opaque entry try */
+        return PICOMESH_OK(picomesh_authn_outcome, outcome); /* not our prefix → let another opaque entry try */
 
     char args[1100];
-    if (!authn_build_string_args(args, sizeof(args), token)) return fail("opaque token too long");
+    if (!authn_build_string_args(args, sizeof(args), token))
+        return PICOMESH_OK(picomesh_authn_outcome, fail("opaque token too long"));
 
     struct picomesh_string_result lookup = picomesh_engine_invoke_json(state->engine, state->lookup, args, NULL);
-    if (PICOMESH_IS_ERR(lookup)) { picomesh_error_destroy(lookup.error); return fail("opaque token lookup failed"); }
+    /* The lookup RPC breaking is infrastructure failure: propagate the chain
+     * (→ 500), don't flatten it into a 401 denial. */
+    if (PICOMESH_IS_ERR(lookup))
+        return PICOMESH_ERR(picomesh_authn_outcome, "bearer_opaque_token: lookup RPC failed", lookup);
 
     char *jwt = authn_extract_jwt(lookup.value);
     free(lookup.value);
-    if (!jwt) return fail("opaque token did not resolve to a JWT");
+    if (!jwt) return PICOMESH_OK(picomesh_authn_outcome, fail("opaque token did not resolve to a JWT"));
 
     struct picomesh_string_result claims = picomesh_jwt_verifier_verify(state->verifier, jwt);
-    if (PICOMESH_IS_ERR(claims)) { picomesh_error_destroy(claims.error); free(jwt); return fail("opaque-token JWT failed verification"); }
+    if (PICOMESH_IS_ERR(claims)) {
+        char reason[512];
+        picomesh_error_snprint(reason, sizeof(reason), claims.error);
+        picomesh_error_print(stderr, "bearer_opaque_token: JWT verification", claims.error);
+        picomesh_error_destroy(claims.error);
+        free(jwt);
+        return PICOMESH_OK(picomesh_authn_outcome, fail(reason));
+    }
     free(claims.value);
 
     outcome.jwt = jwt;
     outcome.source = "bearer_opaque_token";
-    return outcome;
+    return PICOMESH_OK(picomesh_authn_outcome, outcome);
 }
 
 static void bearer_opaque_destroy(void *state_ptr)

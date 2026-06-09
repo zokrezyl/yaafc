@@ -1,8 +1,8 @@
 /* Authorizer registry: build the one authorizer from config, run it. */
 
 #include <picomesh/authorizers/registry.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/config/config.h>
+#include <picomesh/core/ytrace.h>
 
 #include "types.h"
 
@@ -28,11 +28,11 @@ static const struct picomesh_authorizer_ops *find_ops(const char *type_name)
 }
 
 struct picomesh_void_ptr_result
-picomesh_authorizer_build(struct picomesh_engine *engine, const struct yconfig_node *config)
+picomesh_authorizer_build(struct picomesh_engine *engine, const struct config_node *config)
 {
-    if (!config || yconfig_node_kind(config) != YCONFIG_MAP)
+    if (!config || config_node_kind(config) != CONFIG_MAP)
         return PICOMESH_ERR(picomesh_void_ptr, "authorizer_build: `authorizer:` must be a map with a `type`");
-    const char *type_name = yconfig_node_as_string(yconfig_node_get(config, "type"), NULL);
+    const char *type_name = config_node_as_string(config_node_get(config, "type"), NULL);
     if (!type_name)
         return PICOMESH_ERR(picomesh_void_ptr, "authorizer_build: `authorizer.type` is required");
     const struct picomesh_authorizer_ops *ops = find_ops(type_name);
@@ -52,14 +52,14 @@ picomesh_authorizer_build(struct picomesh_engine *engine, const struct yconfig_n
     return PICOMESH_OK(picomesh_void_ptr, authorizer);
 }
 
-struct picomesh_authz_decision
+struct picomesh_authz_decision_result
 picomesh_authorizer_decide(struct picomesh_authorizer *authorizer, const char *endpoint,
-                           const struct yjson_value *args, const char *jwt)
+                           const struct json_value *args, const char *jwt)
 {
     if (!authorizer) {
         struct picomesh_authz_decision deny = {.allowed = 0, .status = 403};
         snprintf(deny.reason, sizeof(deny.reason), "no authorizer configured");
-        return deny;
+        return PICOMESH_OK(picomesh_authz_decision, deny);
     }
     return authorizer->ops->authorize(authorizer->state, endpoint, args, jwt);
 }

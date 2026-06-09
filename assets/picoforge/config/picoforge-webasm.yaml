@@ -70,7 +70,7 @@ mesh:
           # SINGLE-THREADED runtime: the wasm build has no pthreads, so the
           # git commit executor must not try to spawn worker threads. Default
           # is 8 (→ 8 uv_thread_create calls); pin to 1 so git ops run on the
-          # one shard (and yexec falls back to inline if even that can't
+          # one shard (and exec falls back to inline if even that can't
           # start). Critical for the webasm/node VM where threads are absent.
           commit_shards: 1
         # relational_storage hosts FOUR logical databases in this ONE process —

@@ -1,14 +1,14 @@
 /* GENERATED — do not edit. */
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/jinvoke.h>
-#include <picomesh/yclass/minvoke.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/jinvoke.h>
+#include <picomesh/picoclass/minvoke.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/json/json.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/class.h>
 #include "mesh.internal.h"
 #include <limits.h>
 #include <stdint.h>
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static size_t mesh_mesh_register_service_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_register_service_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -50,7 +50,7 @@ static size_t mesh_mesh_register_service_skel(const void *_body, size_t _body_le
     struct picomesh_int_result _r = mesh_mesh_register_service(&_local, _obj, _hdrs, _v1, _v2);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_register_service_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -61,25 +61,25 @@ static size_t mesh_mesh_register_service_skel(const void *_body, size_t _body_le
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_register_service_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_resolve_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_resolve_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -109,7 +109,7 @@ static size_t mesh_mesh_resolve_skel(const void *_body, size_t _body_len,
     struct picomesh_uint32_result _r = mesh_mesh_resolve(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_resolve_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -120,25 +120,25 @@ static size_t mesh_mesh_resolve_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_resolve_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_forget_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_forget_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -168,7 +168,7 @@ static size_t mesh_mesh_forget_skel(const void *_body, size_t _body_len,
     struct picomesh_int_result _r = mesh_mesh_forget(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_forget_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -179,25 +179,25 @@ static size_t mesh_mesh_forget_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_forget_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_count_services_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_count_services_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -223,7 +223,7 @@ static size_t mesh_mesh_count_services_skel(const void *_body, size_t _body_len,
     struct picomesh_size_result _r = mesh_mesh_count_services(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -234,25 +234,25 @@ static size_t mesh_mesh_count_services_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_services_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_spawn_picomesh_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_spawn_picomesh_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -282,7 +282,7 @@ static size_t mesh_mesh_spawn_picomesh_skel(const void *_body, size_t _body_len,
     struct picomesh_int_result _r = mesh_mesh_spawn_picomesh(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_spawn_picomesh_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -293,25 +293,25 @@ static size_t mesh_mesh_spawn_picomesh_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_spawn_picomesh_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_kill_pid_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_kill_pid_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -341,7 +341,7 @@ static size_t mesh_mesh_kill_pid_skel(const void *_body, size_t _body_len,
     struct picomesh_int_result _r = mesh_mesh_kill_pid(&_local, _obj, _hdrs, _v1);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_kill_pid_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -352,25 +352,25 @@ static size_t mesh_mesh_kill_pid_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_kill_pid_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_count_children_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_count_children_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -396,7 +396,7 @@ static size_t mesh_mesh_count_children_skel(const void *_body, size_t _body_len,
     struct picomesh_size_result _r = mesh_mesh_count_children(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -407,25 +407,25 @@ static size_t mesh_mesh_count_children_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_count_children_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_reconcile_from_config_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_reconcile_from_config_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -451,7 +451,7 @@ static size_t mesh_mesh_reconcile_from_config_skel(const void *_body, size_t _bo
     struct picomesh_int_result _r = mesh_mesh_reconcile_from_config(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_reconcile_from_config_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -462,25 +462,25 @@ static size_t mesh_mesh_reconcile_from_config_skel(const void *_body, size_t _bo
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_reconcile_from_config_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static size_t mesh_mesh_reconcile_skel(const void *_body, size_t _body_len,
+static struct picomesh_size_result mesh_mesh_reconcile_skel(const void *_body, size_t _body_len,
                           void *_resp, size_t _resp_max)
 {
     size_t _off = 0;
@@ -506,7 +506,7 @@ static size_t mesh_mesh_reconcile_skel(const void *_body, size_t _body_len,
     struct picomesh_int_result _r = mesh_mesh_reconcile(&_local, _obj, _hdrs);
     ytelemetry_span_end(&_tsp, !PICOMESH_IS_ERR(_r), PICOMESH_IS_ERR(_r) ? _r.error.msg : NULL);
     yheaders_free(_hdrs); _hdrs = NULL;
-    if (_resp_max < 1) return 0;
+    if (_resp_max < 1) return PICOMESH_ERR(picomesh_size, "mesh_mesh_reconcile_skel: response buffer too small");
     if (PICOMESH_IS_ERR(_r)) {
         char _errbuf[8192] = {0};
         picomesh_error_snprint(_errbuf, sizeof(_errbuf), _r.error);
@@ -517,31 +517,31 @@ static size_t mesh_mesh_reconcile_skel(const void *_body, size_t _body_len,
         if (_resp_max < 1 + 4 + _ml) {
             picomesh_error_destroy(_r.error);
             ((uint8_t *)_resp)[0] = 1;
-            return _resp_max >= 1 ? 1 : 0;
+            return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
         }
         ((uint8_t *)_resp)[0] = 1;
         memcpy((uint8_t *)_resp + 1, &_ml, 4);
         memcpy((uint8_t *)_resp + 5, _msg, _ml);
         picomesh_error_destroy(_r.error);
-        return 1 + 4 + _ml;
+        return PICOMESH_OK(picomesh_size, (size_t)(1 + 4 + _ml));
     }
-    if (_resp_max < 1 + sizeof(_r.value)) return 0;
+    if (_resp_max < 1 + sizeof(_r.value)) return PICOMESH_ERR(picomesh_size, "mesh_mesh_reconcile_skel: response buffer too small");
     ((uint8_t *)_resp)[0] = 0;
     memcpy((uint8_t *)_resp + 1, &_r.value, sizeof(_r.value));
-    return 1 + sizeof(_r.value);
+    return PICOMESH_OK(picomesh_size, (size_t)(1 + sizeof(_r.value)));
 _short_body:
     yheaders_free(_hdrs);
     if (_resp_max >= 1) ((uint8_t *)_resp)[0] = 1;
-    return _resp_max >= 1 ? 1 : 0;
+    return PICOMESH_OK(picomesh_size, _resp_max >= 1 ? 1u : 0u);
 }
 
-static int mesh_mesh_register_service_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_register_service_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_register_service");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
-    uint32_t arg1 = (uint32_t)yjson_as_int(yjson_array_at(args, 1), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
+    uint32_t arg1 = (uint32_t)json_as_int(json_array_at(args, 1), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = mesh_mesh_register_service(call_ctx, obj, hdrs, arg0, arg1);
@@ -550,19 +550,18 @@ static int mesh_mesh_register_service_jinvoke(struct ctx *ctx, struct object *ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_register_service",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_register_service", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_resolve_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_resolve_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_resolve");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_uint32_result call_result = mesh_mesh_resolve(call_ctx, obj, hdrs, arg0);
@@ -571,19 +570,18 @@ static int mesh_mesh_resolve_jinvoke(struct ctx *ctx, struct object *obj, struct
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_resolve",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_resolve", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_forget_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_forget_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_forget");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = mesh_mesh_forget(call_ctx, obj, hdrs, arg0);
@@ -592,16 +590,15 @@ static int mesh_mesh_forget_jinvoke(struct ctx *ctx, struct object *obj, struct 
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_forget",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_forget", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_count_services_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_count_services_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_count_services");
     struct ctx local_ctx = {0};
@@ -612,19 +609,18 @@ static int mesh_mesh_count_services_jinvoke(struct ctx *ctx, struct object *obj,
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_count_services",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_count_services", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_spawn_picomesh_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_spawn_picomesh_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_spawn_picomesh");
-    uint32_t arg0 = (uint32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    uint32_t arg0 = (uint32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = mesh_mesh_spawn_picomesh(call_ctx, obj, hdrs, arg0);
@@ -633,19 +629,18 @@ static int mesh_mesh_spawn_picomesh_jinvoke(struct ctx *ctx, struct object *obj,
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_spawn_picomesh",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_spawn_picomesh", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_kill_pid_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_kill_pid_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_kill_pid");
-    int32_t arg0 = (int32_t)yjson_as_int(yjson_array_at(args, 0), 0);
+    int32_t arg0 = (int32_t)json_as_int(json_array_at(args, 0), 0);
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
     struct picomesh_int_result call_result = mesh_mesh_kill_pid(call_ctx, obj, hdrs, arg0);
@@ -654,16 +649,15 @@ static int mesh_mesh_kill_pid_jinvoke(struct ctx *ctx, struct object *obj, struc
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_kill_pid",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_kill_pid", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_count_children_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_count_children_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_count_children");
     struct ctx local_ctx = {0};
@@ -674,16 +668,15 @@ static int mesh_mesh_count_children_jinvoke(struct ctx *ctx, struct object *obj,
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_count_children",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_count_children", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_reconcile_from_config_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_reconcile_from_config_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_reconcile_from_config");
     struct ctx local_ctx = {0};
@@ -694,16 +687,15 @@ static int mesh_mesh_reconcile_from_config_jinvoke(struct ctx *ctx, struct objec
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_reconcile_from_config",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_reconcile_from_config", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_reconcile_jinvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          const struct yjson_value *args,
-                          struct yjson_writer *result, char *err, size_t err_cap)
+static struct picomesh_void_result mesh_mesh_reconcile_jinvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, const struct json_value *args,
+                          struct json_writer *result, char *err, size_t err_cap)
 {
     yinfo("[rpc] mesh_mesh_reconcile");
     struct ctx local_ctx = {0};
@@ -714,34 +706,33 @@ static int mesh_mesh_reconcile_jinvoke(struct ctx *ctx, struct object *obj, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(err, err_cap, "%s: %s", "mesh_mesh_reconcile",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_reconcile", call_result);
     }
-    yjson_writer_int(result, (int64_t)call_result.value);
-    return 0;
+    json_writer_int(result, (int64_t)call_result.value);
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_register_service_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_register_service_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 2u) {
         snprintf(_err, _err_cap, "mesh_mesh_register_service: expected 2 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_register_service: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "service_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "service_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "service_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "service_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     uint32_t _v1;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "port: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "port: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "port: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "port: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v1 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -752,27 +743,26 @@ static int mesh_mesh_register_service_minvoke(struct ctx *ctx, struct object *ob
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_register_service",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_register_service", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_resolve_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_resolve_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "mesh_mesh_resolve: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_resolve: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "service_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "service_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "service_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "service_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -783,27 +773,26 @@ static int mesh_mesh_resolve_minvoke(struct ctx *ctx, struct object *obj, struct
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_resolve",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_resolve", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_forget_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_forget_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "mesh_mesh_forget: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_forget: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "service_id: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "service_id: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "service_id: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "service_id: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -814,21 +803,20 @@ static int mesh_mesh_forget_minvoke(struct ctx *ctx, struct object *obj, struct 
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_forget",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_forget", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_count_services_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_count_services_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "mesh_mesh_count_services: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_count_services: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -838,27 +826,26 @@ static int mesh_mesh_count_services_minvoke(struct ctx *ctx, struct object *obj,
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_count_services",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_count_services", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_spawn_picomesh_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_spawn_picomesh_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "mesh_mesh_spawn_picomesh: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_spawn_picomesh: wrong argument count");
     }
     uint32_t _v0;
     {
         uint64_t _u;
-        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "port: expected unsigned int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "port: value %llu out of range for uint32_t", (unsigned long long)_u); return -1; }
+        if (!cmp_read_uinteger(_mr, &_u)) { snprintf(_err, _err_cap, "port: expected unsigned int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_u > UINT32_MAX) { snprintf(_err, _err_cap, "port: value %llu out of range for uint32_t", (unsigned long long)_u); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (uint32_t)_u;
     }
     struct ctx local_ctx = {0};
@@ -869,27 +856,26 @@ static int mesh_mesh_spawn_picomesh_minvoke(struct ctx *ctx, struct object *obj,
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_spawn_picomesh",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_spawn_picomesh", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_kill_pid_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_kill_pid_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 1u) {
         snprintf(_err, _err_cap, "mesh_mesh_kill_pid: expected 1 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_kill_pid: wrong argument count");
     }
     int32_t _v0;
     {
         int64_t _i;
-        if (!cmp_read_integer(_mr, &_i)) { snprintf(_err, _err_cap, "pid: expected int (%s)", cmp_strerror(_mr)); return -1; }
-        if (_i < (INT32_MIN) || _i > (INT32_MAX)) { snprintf(_err, _err_cap, "pid: value %lld out of range for int32_t", (long long)_i); return -1; }
+        if (!cmp_read_integer(_mr, &_i)) { snprintf(_err, _err_cap, "pid: expected int (%s)", cmp_strerror(_mr)); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
+        if (_i < (INT32_MIN) || _i > (INT32_MAX)) { snprintf(_err, _err_cap, "pid: value %lld out of range for int32_t", (long long)_i); return PICOMESH_ERR(picomesh_void, "minvoke: bad argument"); }
         _v0 = (int32_t)_i;
     }
     struct ctx local_ctx = {0};
@@ -900,21 +886,20 @@ static int mesh_mesh_kill_pid_minvoke(struct ctx *ctx, struct object *obj, struc
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_kill_pid",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_kill_pid", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_count_children_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_count_children_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "mesh_mesh_count_children: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_count_children: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -924,21 +909,20 @@ static int mesh_mesh_count_children_minvoke(struct ctx *ctx, struct object *obj,
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_count_children",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_count_children", call_result);
     }
     cmp_write_uinteger(_mw, (uint64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_reconcile_from_config_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_reconcile_from_config_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "mesh_mesh_reconcile_from_config: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_reconcile_from_config: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -948,21 +932,20 @@ static int mesh_mesh_reconcile_from_config_minvoke(struct ctx *ctx, struct objec
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_reconcile_from_config",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_reconcile_from_config", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
-static int mesh_mesh_reconcile_minvoke(struct ctx *ctx, struct object *obj, struct yheaders *hdrs,
-                          cmp_ctx_t *_mr, uint32_t _argc, cmp_ctx_t *_mw,
-                          char *_err, size_t _err_cap)
+static struct picomesh_void_result mesh_mesh_reconcile_minvoke(struct ctx *ctx, struct object *obj,
+                          struct yheaders *hdrs, cmp_ctx_t *_mr, uint32_t _argc,
+                          cmp_ctx_t *_mw, char *_err, size_t _err_cap)
 {
     (void)_mr;
     if (_argc != 0u) {
         snprintf(_err, _err_cap, "mesh_mesh_reconcile: expected 0 arg(s), got %u", _argc);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_reconcile: wrong argument count");
     }
     struct ctx local_ctx = {0};
     struct ctx *call_ctx = ctx ? ctx : &local_ctx;
@@ -972,11 +955,10 @@ static int mesh_mesh_reconcile_minvoke(struct ctx *ctx, struct object *obj, stru
         picomesh_error_snprint(chain, sizeof(chain), call_result.error);
         snprintf(_err, _err_cap, "%s: %s", "mesh_mesh_reconcile",
                  chain[0] ? chain : (call_result.error.msg ? call_result.error.msg : "<no message>"));
-        picomesh_error_destroy(call_result.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_void, "mesh_mesh_reconcile", call_result);
     }
     cmp_write_integer(_mw, (int64_t)call_result.value);
-    return 0;
+    return PICOMESH_OK_VOID();
 }
 
 struct object_ptr_result mesh_mesh_create(struct ctx *ctx)
@@ -1105,11 +1087,11 @@ static const struct mesh_skel_row mesh_skel_rows[] = {
     {"mesh_mesh_reconcile", mesh_mesh_reconcile_skel}
 };
 
-static rpc_skel_fn mesh_skel_lookup(method_slot slot)
+static rpc_skel_fn mesh_skel_lookup(const char *name)
 {
-    struct const_char_ptr_result nr = method_slot_name(slot);
-    if (PICOMESH_IS_ERR(nr)) { picomesh_error_destroy(nr.error); return NULL; }
-    const char *name = nr.value;
+    /* rpc_skel_for has already resolved the slot to its qname (the only
+     * Result-returning step), so this hook is a pure name→fn lookup that
+     * never has to swallow an error. */
     for (size_t i = 0; i < sizeof(mesh_skel_rows) / sizeof(mesh_skel_rows[0]); ++i)
         if (strcmp(mesh_skel_rows[i].name, name) == 0)
             return mesh_skel_rows[i].fn;
@@ -1119,18 +1101,16 @@ static rpc_skel_fn mesh_skel_lookup(method_slot slot)
 /* ---- mesh: registration entry point (called from the driver for
  *      config-ACTIVATED plugins only — registration is activation) ---- */
 
-void picomesh_plugin_mesh_register(void)
+struct picomesh_void_result picomesh_plugin_mesh_register(void)
 {
     struct picomesh_void_result _ar = class_add_accessor_lookup(mesh_accessor_lookup);
-    if (PICOMESH_IS_ERR(_ar)) {
-        picomesh_error_print(stderr, "picomesh_plugin_mesh_register", _ar.error);
-        picomesh_error_destroy(_ar.error);
-        abort();
-    }
+    PICOMESH_RETURN_IF_ERR(picomesh_void, _ar,
+                           "picomesh_plugin_mesh_register: add accessor lookup");
     rpc_add_skel_lookup(mesh_skel_lookup);
     jinvoke_add_lookup(mesh_jinvoke_lookup);
     minvoke_add_lookup(mesh_minvoke_lookup);
     jinvoke_params_add_lookup(mesh_params_lookup);
     { struct class_ptr_result reg = mesh_mesh_class_get();
-      if (PICOMESH_IS_ERR(reg)) picomesh_error_destroy(reg.error); }
+      PICOMESH_RETURN_IF_ERR(picomesh_void, reg, "mesh register: prewarm mesh_mesh_class_get"); }
+    return PICOMESH_OK_VOID();
 }

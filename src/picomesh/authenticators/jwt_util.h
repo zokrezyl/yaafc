@@ -8,7 +8,7 @@
 #ifndef PICOMESH_AUTHENTICATORS_JWT_UTIL_H
 #define PICOMESH_AUTHENTICATORS_JWT_UTIL_H
 
-#include <picomesh/yjson/yjson.h>
+#include <picomesh/json/json.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -18,19 +18,19 @@
 static inline char *authn_extract_jwt(const char *envelope)
 {
     if (!envelope) return NULL;
-    struct yjson_doc *doc = yjson_parse(envelope, strlen(envelope));
+    struct json_doc *doc = json_parse(envelope, strlen(envelope));
     if (!doc) return NULL;
-    const struct yjson_value *result = yjson_object_get(yjson_doc_root(doc), "result");
+    const struct json_value *result = json_object_get(json_doc_root(doc), "result");
     const char *jwt = NULL;
-    if (result && yjson_is_string(result)) {
-        jwt = yjson_as_string(result, NULL);
-    } else if (result && yjson_is_object(result)) {
-        jwt = yjson_as_string(yjson_object_get(result, "jwt"), NULL);
-        if (!jwt) jwt = yjson_as_string(yjson_object_get(result, "access_jwt"), NULL);
-        if (!jwt) jwt = yjson_as_string(yjson_object_get(result, "access_token"), NULL);
+    if (result && json_is_string(result)) {
+        jwt = json_as_string(result, NULL);
+    } else if (result && json_is_object(result)) {
+        jwt = json_as_string(json_object_get(result, "jwt"), NULL);
+        if (!jwt) jwt = json_as_string(json_object_get(result, "access_jwt"), NULL);
+        if (!jwt) jwt = json_as_string(json_object_get(result, "access_token"), NULL);
     }
     char *out = (jwt && *jwt) ? strdup(jwt) : NULL;
-    yjson_doc_free(doc);
+    json_doc_free(doc);
     return out;
 }
 
@@ -40,10 +40,10 @@ static inline char *authn_extract_jwt(const char *envelope)
 static inline int64_t authn_claims_exp(const char *claims_json)
 {
     if (!claims_json) return 0;
-    struct yjson_doc *doc = yjson_parse(claims_json, strlen(claims_json));
+    struct json_doc *doc = json_parse(claims_json, strlen(claims_json));
     if (!doc) return 0;
-    int64_t exp = yjson_as_int(yjson_object_get(yjson_doc_root(doc), "exp"), 0);
-    yjson_doc_free(doc);
+    int64_t exp = json_as_int(json_object_get(json_doc_root(doc), "exp"), 0);
+    json_doc_free(doc);
     return exp;
 }
 

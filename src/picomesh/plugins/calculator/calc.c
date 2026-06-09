@@ -8,9 +8,9 @@
  * `class@calculator:calc`. Zero-sized structs aren't portable C;
  * the placeholder byte stays. */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
 
 #include <stdint.h>
 

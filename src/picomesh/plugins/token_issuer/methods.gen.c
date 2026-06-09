@@ -1,11 +1,11 @@
 /* GENERATED — do not edit. */
 #include "token_issuer.internal.h"
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/ycore/ytelemetry.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/core/ytelemetry.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
 #include <picomesh/allocator/allocator.h>
 #include <stdint.h>
@@ -48,7 +48,9 @@ struct picomesh_json_result token_issuer_token_issuer_login(struct ctx * ctx, st
             if (!peer_channel_msgpack_call(_s->peer, "token_issuer.token_issuer.login", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "token_issuer_token_issuer_login: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_login: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -71,7 +73,10 @@ struct picomesh_json_result token_issuer_token_issuer_login(struct ctx * ctx, st
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_login: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_login: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -147,7 +152,9 @@ struct picomesh_json_result token_issuer_token_issuer_login(struct ctx * ctx, st
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "token_issuer_token_issuer_login: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_login: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_login: truncated string response"); goto _rpc_done; }
@@ -203,7 +210,9 @@ struct picomesh_json_result token_issuer_token_issuer_refresh(struct ctx * ctx, 
             if (!peer_channel_msgpack_call(_s->peer, "token_issuer.token_issuer.refresh", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "token_issuer_token_issuer_refresh: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_refresh: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -226,7 +235,10 @@ struct picomesh_json_result token_issuer_token_issuer_refresh(struct ctx * ctx, 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_refresh: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_refresh: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -289,7 +301,9 @@ struct picomesh_json_result token_issuer_token_issuer_refresh(struct ctx * ctx, 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "token_issuer_token_issuer_refresh: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_refresh: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_refresh: truncated string response"); goto _rpc_done; }
@@ -348,7 +362,9 @@ struct picomesh_string_result token_issuer_token_issuer_mint(struct ctx * ctx, s
             if (!peer_channel_msgpack_call(_s->peer, "token_issuer.token_issuer.mint", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_string, _merr[0] ? strdup(_merr) : "token_issuer_token_issuer_mint: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_string, "token_issuer_token_issuer_mint: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -371,7 +387,10 @@ struct picomesh_string_result token_issuer_token_issuer_mint(struct ctx * ctx, s
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_string, "token_issuer_token_issuer_mint: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_string, "token_issuer_token_issuer_mint: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -447,7 +466,9 @@ struct picomesh_string_result token_issuer_token_issuer_mint(struct ctx * ctx, s
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_string, _msg[0] ? strdup(_msg) : "token_issuer_token_issuer_mint: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_string, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_string, "token_issuer_token_issuer_mint: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_string, "token_issuer_token_issuer_mint: truncated string response"); goto _rpc_done; }
@@ -502,7 +523,9 @@ struct picomesh_size_result token_issuer_token_issuer_count_active(struct ctx * 
             if (!peer_channel_msgpack_call(_s->peer, "token_issuer.token_issuer.count_active", hdrs,
                                            _margs, _mab.offset, _mresp, 256,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_size, _merr[0] ? strdup(_merr) : "token_issuer_token_issuer_count_active: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_size, "token_issuer_token_issuer_count_active: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -515,7 +538,10 @@ struct picomesh_size_result token_issuer_token_issuer_count_active(struct ctx * 
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_size, "token_issuer_token_issuer_count_active: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_size, "token_issuer_token_issuer_count_active: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -571,7 +597,9 @@ struct picomesh_size_result token_issuer_token_issuer_count_active(struct ctx * 
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_size, _msg[0] ? strdup(_msg) : "token_issuer_token_issuer_count_active: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_size, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_size, "token_issuer_token_issuer_count_active: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn != 1 + sizeof(size_t)) { _ret = PICOMESH_ERR(picomesh_size, "token_issuer_token_issuer_count_active: truncated RPC payload"); goto _rpc_done; }
@@ -623,7 +651,9 @@ struct picomesh_json_result token_issuer_token_issuer_list(struct ctx * ctx, str
             if (!peer_channel_msgpack_call(_s->peer, "token_issuer.token_issuer.list", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "token_issuer_token_issuer_list: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -646,7 +676,10 @@ struct picomesh_json_result token_issuer_token_issuer_list(struct ctx * ctx, str
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -708,7 +741,9 @@ struct picomesh_json_result token_issuer_token_issuer_list(struct ctx * ctx, str
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "token_issuer_token_issuer_list: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list: truncated string response"); goto _rpc_done; }
@@ -763,7 +798,9 @@ struct picomesh_json_result token_issuer_token_issuer_list_all(struct ctx * ctx,
             if (!peer_channel_msgpack_call(_s->peer, "token_issuer.token_issuer.list_all", hdrs,
                                            _margs, _mab.offset, _mresp, 65539,
                                            &_mrlen, _merr, sizeof(_merr))) {
-                _mret = PICOMESH_ERR(picomesh_json, _merr[0] ? strdup(_merr) : "token_issuer_token_issuer_list_all: msgpack call failed");
+                _mret = _merr[0]
+                            ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_merr))
+                            : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list_all: msgpack call failed");
             } else {
                 struct picomesh_msgpack_buffer _mrb;
                 cmp_ctx_t _mrr;
@@ -786,7 +823,10 @@ struct picomesh_json_result token_issuer_token_issuer_list_all(struct ctx * ctx,
             free(_margs); free(_mresp);
             return _mret;
         }
-        uint32_t _rid = peer_channel_ensure_remote_id(_s->peer, _slot);
+        struct picomesh_uint32_result _rid_res = peer_channel_ensure_remote_id(_s->peer, _slot);
+        if (PICOMESH_IS_ERR(_rid_res))
+            return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list_all: ensure remote id failed", _rid_res);
+        uint32_t _rid = _rid_res.value;
         if (_rid == RPC_REMOTE_ID_UNRESOLVED)
             return PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list_all: remote id unresolved");
         /* Wire scratch comes from THIS THREAD's pool, not the stack: the arg
@@ -842,7 +882,9 @@ struct picomesh_json_result token_issuer_token_issuer_list_all(struct ctx * ctx,
             size_t _copy = _msg_len < sizeof(_msg) - 1 ? _msg_len : sizeof(_msg) - 1;
             if (_wn >= 5 + _copy) memcpy(_msg, _wbuf + 5, _copy);
             _msg[_copy] = 0;
-            _ret = PICOMESH_ERR(picomesh_json, _msg[0] ? strdup(_msg) : "token_issuer_token_issuer_list_all: remote error (no msg)");
+            _ret = _msg[0]
+                       ? PICOMESH_ERR_OWNED(picomesh_json, strdup(_msg))
+                       : PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list_all: remote error (no msg)");
             goto _rpc_done;
         }
         if (_wn < 5) { _ret = PICOMESH_ERR(picomesh_json, "token_issuer_token_issuer_list_all: truncated string response"); goto _rpc_done; }

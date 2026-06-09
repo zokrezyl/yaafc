@@ -58,7 +58,7 @@ const struct backend_ops *storage_backend_sqlite_ops(void);
 const struct backend_ops *storage_backend_mdbx_ops(void);
 
 /* Canonical `struct storage_data` lives in storage.c — it carries the
- * yclass annotation that the codegen reads to determine class data
+ * picoclass annotation that the codegen reads to determine class data
  * size. Backend files see the full definition because they are
  * #included by storage.c after the struct definition. */
 struct storage_data;

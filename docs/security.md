@@ -297,6 +297,80 @@ Session rows should support:
 The cookie value does not need to rotate on every request. Rotating every
 request can create races with parallel browser requests.
 
+## Credential state: where it lives today
+
+This is the current implementation, not the target design:
+
+- **Session state** — the `session` service stores, keyed by the opaque sid:
+  the access JWT, refresh token, and user/expiry metadata. The sid is the only
+  thing the browser holds.
+- **Refresh tokens** — stored by the `session`/`token_issuer` path, never
+  returned by a list call.
+- **Runner tokens** — `runner_agent` stores `tok:<sha256hex> -> runner_id` in
+  `sharded_storage`; the raw token is shown once at create and never persisted
+  in cleartext, only its hash.
+- **Personal access tokens** — `personal_access_tokens` holds token records in
+  memory today (not yet durable opaque-by-hash storage; see the gap note below).
+- **Access JWTs** — stateless and short-lived; minted on demand, never listed.
+
+In every case the durable record holds at most a HASH of the bearer secret (or,
+for the session JWT, an internal credential that never leaves the mesh); the raw
+bearer value is handed to the client only at issuance.
+
+## UID lifecycle (issue #29)
+
+A user's numeric UID is the shard key for their data and an authorization
+identity across services, so its allocation rules are load-bearing.
+
+- **Allocation.** UIDs are ASSIGNED, not derived from the username. The
+  `accounts` service allocates them from a single global AUTOINCREMENT sequence
+  (`uid_seq`, pinned to one shard) and returns `ACCOUNTS_UID_ALLOC_BASE + rowid`.
+  The base lifts assigned ids clear of the dense low integers. The gateway calls
+  `accounts.allocate_uid` at the very start of `/register` (and github_authn does
+  the same for a brand-new OAuth identity), BEFORE writing the credential and
+  BEFORE claiming the username.
+- **Reuse policy.** UIDs are NEVER reused. AUTOINCREMENT guarantees the sequence
+  is monotonic even across row deletion, and `allocate_uid` additionally refuses
+  any id that already has a `users` row. This is what makes a partially-failed
+  registration safe: a crash after allocation only ever strands a uid no future
+  user will be handed, so a stranded credential can never be inherited.
+- **Resolution.** Username → uid is resolved authoritatively by
+  `accounts.uid_for_username` (reads the `usernames` lookup row for a CONFIRMED
+  account; 0 if unknown). `/login`, the webapp member-grant, and github_authn all
+  resolve through it instead of recomputing a hash. Username UNIQUENESS is
+  enforced transactionally by the `usernames` table's PRIMARY KEY plus
+  INSERT-OR-IGNORE winner election, independent of the uid.
+- **Deletion / deactivation.** Removing an account frees the username claim but
+  does NOT free the uid for reuse — the `uid_seq` high-water mark only advances.
+- **Migration of legacy hash-derived users.** Older deployments stored
+  `uid = fnv1a32(username)` in `users` / `usernames` / `password_authn` /
+  `namespace_members` / `sessions` / the github bindings. `uid_for_username`
+  reads whatever uid the `usernames` row records, so those accounts keep working
+  unchanged — they simply resolve to their original hash-uid. New registrations
+  get assigned uids. The `ACCOUNTS_UID_ALLOC_BASE` offset plus the `users`-row
+  collision check in `allocate_uid` make a new assigned uid clashing with a
+  surviving legacy hash-uid astronomically unlikely and, if it ever happened,
+  safe (the clash is detected and the next id is used, never an overwrite).
+
+## Gateway route → auth mechanism map (current)
+
+| Route(s) | Auth mechanism |
+|---|---|
+| `POST /_rpc` | configured authenticator chain + policy authorizer when a `security` block is present; on an unsecured/collocated node, sid → stored access JWT forwarded downstream |
+| `GET /_describe`, `/_describe_tree` | no auth (topology discovery; metadata only) |
+| `POST /_whoami` | sid → verified JWT claims (uid/username/groups); returns metadata only, never a JWT |
+| `POST /login`, `/register` | credential exchange; mints a session, returns an opaque `picomesh-sid` cookie |
+| `POST /auth/github/callback` | OAuth relay; same session-minting outcome |
+| `POST /logout` | clears the session/cookies |
+| `POST /repos/new`, `/admin/tokens/mint_pat` | `resolve_authctx()` → verified access JWT; admin/namespace gate from verified claims |
+| `GET` HTML pages | none — the gateway is API-only and 404s every GET HTML route (the webapp owns pages) |
+
+No mutation route trusts a raw uid or the `picomesh-uname` cookie for
+authorization: every authenticated mutation derives its actor from a
+signature-and-expiry-verified JWT, and a config READ failure for the security
+block fails the gateway closed (every request 500s) rather than silently
+disabling auth.
+
 ## Credential-Exchange Endpoints
 
 Some methods consume credentials as their arguments:
@@ -546,7 +620,7 @@ Known mismatches:
   invoking — no per-frontend auth code.
 - The yhttp authenticator code knows PAT and runner internals instead of using
   generic `bearer_opaque_token` entries with configured `lookup` service paths.
-- `src/picomesh/ysecurity/secret.c` must remain low-level helper code. It now
+- `src/picomesh/security/secret.c` must remain low-level helper code. It now
   fails closed on absent/invalid JWTs; keep it that way and do not reintroduce
   any `yheaders["uid"]` fallback or other policy decision there.
 - Browser login/session composition is currently partly in gateway routes. The
@@ -554,8 +628,17 @@ Known mismatches:
   `token_issuer.login`, stores the JWT, and returns only the opaque cookie.
 - Session rows do not yet enforce the full idle timeout plus absolute lifetime
   model on every gateway mutation path.
-- Some legacy yhttp mutation routes still use `session.lookup -> uid` instead
-  of the JWT/authz pipeline.
+- The non-login gateway mutation routes now resolve identity through the SAME
+  verified exchange as `/_rpc` — `resolve_authctx()` turns the opaque session
+  token into the user's stored access JWT and verifies its signature + expiry
+  before constructing the caller auth context — so an expired or invalid session
+  JWT cannot authorize a mutation, and the admin / writable-namespace gates are
+  derived from the verified JWT claims, never the forgeable `picomesh-uname`
+  cookie. The bare `session.lookup -> uid` helper (`uid_for_token`) survives only
+  on the unsecured/collocated node path as an INFORMATIONAL trace-line uid: that
+  request goes downstream with no JWT, and backends — which derive identity
+  solely from the JWT — reject any authenticated mutation it attempts. See the
+  route→mechanism map below.
 - The policy language currently supports only a subset of yaapp account
   resolution.
 - Namespace RBAC is implemented (issue #30). The `accounts` service owns the
@@ -732,7 +815,7 @@ Known mismatches:
 
 ## Implementation Plan
 
-1. Keep `ysecurity` as a low-level library only. Remove policy decisions and
+1. Keep `security` as a low-level library only. Remove policy decisions and
    any invalid-JWT fallback behavior from it.
 2. Implement the namespace tree and namespace membership authority: user
    namespaces, group namespaces, optional nested sub-namespaces, repo ownership

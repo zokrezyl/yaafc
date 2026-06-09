@@ -17,15 +17,15 @@
  * stored. A refresh/login refreshes the groups claim, so role changes take
  * effect on the next exchange. */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yplatform/time.h>
-#include <picomesh/ycore/idkey.h>
-#include <picomesh/ysecurity/jwt.h>
-#include <picomesh/ysecurity/secret.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/platform/time.h>
+#include <picomesh/core/idkey.h>
+#include <picomesh/security/jwt.h>
+#include <picomesh/security/secret.h>
 #include <picomesh/plugin/relational_storage/relational_sql.h>
 #include <picomesh/plugin/password_authn/password_authn.h>
 #include <picomesh/plugin/accounts/accounts.h>
@@ -114,19 +114,19 @@ static struct picomesh_string_result ti_mint_access(uint32_t uid, const char *us
 static struct picomesh_json_result ti_token_pair_json(const char *access_jwt, const char *refresh_token,
                                                       uint32_t uid, const char *username, const char *groups_csv)
 {
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_json, "token_issuer: writer alloc failed");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "access_jwt");    yjson_writer_string(writer, access_jwt ? access_jwt : "");
-    yjson_writer_key(writer, "refresh_token"); yjson_writer_string(writer, refresh_token ? refresh_token : "");
-    yjson_writer_key(writer, "uid");           yjson_writer_int(writer, (int64_t)uid);
-    yjson_writer_key(writer, "username");      yjson_writer_string(writer, username ? username : "");
-    yjson_writer_key(writer, "groups");        yjson_writer_string(writer, groups_csv ? groups_csv : "");
-    yjson_writer_end_object(writer);
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "access_jwt");    json_writer_string(writer, access_jwt ? access_jwt : "");
+    json_writer_key(writer, "refresh_token"); json_writer_string(writer, refresh_token ? refresh_token : "");
+    json_writer_key(writer, "uid");           json_writer_int(writer, (int64_t)uid);
+    json_writer_key(writer, "username");      json_writer_string(writer, username ? username : "");
+    json_writer_key(writer, "groups");        json_writer_string(writer, groups_csv ? groups_csv : "");
+    json_writer_end_object(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     char *out = data ? strdup(data) : NULL;
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "token_issuer: token pair encode failed");
     return PICOMESH_OK(picomesh_json, out);
 }
@@ -139,17 +139,18 @@ static struct picomesh_string_result ti_issue_refresh(struct rel_handle *rel_han
     if (!alloc_refresh_token(token, sizeof(token)))
         return PICOMESH_ERR(picomesh_string, "token_issuer: secure random unavailable");
     rel_handle->shard = picomesh_fnv1a32(token); /* lookup cluster: shard by the token we issue */
-    struct yjson_writer *args_writer = yjson_writer_new();
-    yjson_writer_begin_array(args_writer);
-    yjson_writer_string(args_writer, token);
-    yjson_writer_int(args_writer, (int64_t)uid);
-    yjson_writer_string(args_writer, username ? username : "");
-    yjson_writer_int(args_writer, picomesh_yplatform_time_wall_ms() / 1000);
+    struct json_writer *args_writer = json_writer_new();
+    json_writer_begin_array(args_writer);
+    json_writer_string(args_writer, token);
+    json_writer_int(args_writer, (int64_t)uid);
+    json_writer_string(args_writer, username ? username : "");
+    json_writer_int(args_writer, picomesh_platform_time_wall_ms() / 1000);
     char *args = rel_args_take(args_writer);
-    int changes = rel_exec_changes(rel_handle, hdrs,
+    struct picomesh_int_result changes_res = rel_exec_changes(rel_handle, hdrs,
         "INSERT INTO refresh_tokens(token,uid,username,created_at) VALUES(?,?,?,?)", args);
     free(args);
-    if (changes < 1) return PICOMESH_ERR(picomesh_string, "token_issuer: persist refresh failed");
+    PICOMESH_RETURN_IF_ERR(picomesh_string, changes_res, "token_issuer: persist refresh failed");
+    if (changes_res.value < 1) return PICOMESH_ERR(picomesh_string, "token_issuer: persist refresh failed");
     char *out = strdup(token);
     return out ? PICOMESH_OK(picomesh_string, out) : PICOMESH_ERR(picomesh_string, "token_issuer: out of memory");
 }
@@ -178,7 +179,9 @@ struct picomesh_json_result token_issuer_token_issuer_login_impl(struct ctx *ctx
     struct picomesh_string_result groups = ti_load_groups(hdrs, uid);
     if (PICOMESH_IS_ERR(groups)) return PICOMESH_ERR(picomesh_json, "token_issuer_login: load groups failed", groups);
 
-    int64_t ttl = picomesh_security_access_ttl(engine);
+    struct picomesh_int64_result ttl_res = picomesh_security_access_ttl(engine);
+    if (PICOMESH_IS_ERR(ttl_res)) { free(groups.value); return PICOMESH_ERR(picomesh_json, "token_issuer_login: access ttl failed", ttl_res); }
+    int64_t ttl = ttl_res.value;
     struct picomesh_string_result access = ti_mint_access(uid, username, groups.value, ttl);
     if (PICOMESH_IS_ERR(access)) { free(groups.value); return PICOMESH_ERR(picomesh_json, "token_issuer_login: mint access failed", access); }
 
@@ -213,30 +216,33 @@ struct picomesh_json_result token_issuer_token_issuer_refresh_impl(struct ctx *c
     if (PICOMESH_IS_ERR(row)) { free(args); return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: read failed", row); }
     uint32_t uid = 0;
     char username[64] = {0};
-    struct yjson_doc *doc = yjson_parse(row.value ? row.value : "[]", row.value ? strlen(row.value) : 2);
+    struct json_doc *doc = json_parse(row.value ? row.value : "[]", row.value ? strlen(row.value) : 2);
     int found = 0;
     if (doc) {
-        const struct yjson_value *arr = yjson_doc_root(doc);
-        if (arr && yjson_array_size(arr) > 0) {
-            const struct yjson_value *first_row = yjson_array_at(arr, 0);
-            uid = (uint32_t)yjson_as_int(yjson_object_get(first_row, "uid"), 0);
-            const char *username_val = yjson_as_string(yjson_object_get(first_row, "username"), "");
+        const struct json_value *arr = json_doc_root(doc);
+        if (arr && json_array_size(arr) > 0) {
+            const struct json_value *first_row = json_array_at(arr, 0);
+            uid = (uint32_t)json_as_int(json_object_get(first_row, "uid"), 0);
+            const char *username_val = json_as_string(json_object_get(first_row, "username"), "");
             snprintf(username, sizeof(username), "%s", username_val ? username_val : "");
             found = 1;
         }
-        yjson_doc_free(doc);
+        json_doc_free(doc);
     }
     free(row.value);
     if (!found) { free(args); return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: unknown refresh token"); }
 
     /* Rotate: delete the presented token (gated on actually removing it). */
-    int deleted = rel_exec_changes(&rel_handle, hdrs, "DELETE FROM refresh_tokens WHERE token=?", args);
+    struct picomesh_int_result deleted_res = rel_exec_changes(&rel_handle, hdrs, "DELETE FROM refresh_tokens WHERE token=?", args);
     free(args);
-    if (deleted < 1) return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: token already rotated");
+    PICOMESH_RETURN_IF_ERR(picomesh_json, deleted_res, "token_issuer_refresh: rotate delete failed");
+    if (deleted_res.value < 1) return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: token already rotated");
 
     struct picomesh_string_result groups = ti_load_groups(hdrs, uid);
     if (PICOMESH_IS_ERR(groups)) return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: load groups failed", groups);
-    int64_t ttl = picomesh_security_access_ttl(picomesh_active_engine());
+    struct picomesh_int64_result ttl_res = picomesh_security_access_ttl(picomesh_active_engine());
+    if (PICOMESH_IS_ERR(ttl_res)) { free(groups.value); return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: access ttl failed", ttl_res); }
+    int64_t ttl = ttl_res.value;
     struct picomesh_string_result access = ti_mint_access(uid, username, groups.value, ttl);
     if (PICOMESH_IS_ERR(access)) { free(groups.value); return PICOMESH_ERR(picomesh_json, "token_issuer_refresh: mint access failed", access); }
     struct picomesh_string_result fresh = ti_issue_refresh(&rel_handle, hdrs, uid, username);
@@ -311,7 +317,11 @@ struct picomesh_string_result token_issuer_token_issuer_mint_impl(struct ctx *ct
     }
     if (ti_groups_privileged(groups_csv) && !internal)
         return PICOMESH_ERR(picomesh_string, "token_issuer_mint: refusing to mint a privilege-granting token");
-    if (ttl_seconds <= 0) ttl_seconds = picomesh_security_access_ttl(picomesh_active_engine());
+    if (ttl_seconds <= 0) {
+        struct picomesh_int64_result ttl_res = picomesh_security_access_ttl(picomesh_active_engine());
+        PICOMESH_RETURN_IF_ERR(picomesh_string, ttl_res, "token_issuer_mint: access ttl failed");
+        ttl_seconds = ttl_res.value;
+    }
     return ti_mint_access(uid, username, groups_csv ? groups_csv : "", ttl_seconds);
 }
 

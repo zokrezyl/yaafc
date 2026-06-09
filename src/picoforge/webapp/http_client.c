@@ -2,7 +2,7 @@
  *
  * One synchronous-shaped call per RPC: connect → write request → read
  * response → close. Synchronous in API only — internally yields the
- * calling coroutine via yloop_connect_tcp / yloop_read / yloop_write.
+ * calling coroutine via loop_connect_tcp / loop_read / loop_write.
  *
  * Scope: enough to call POST /_rpc on a gateway. We do NOT handle:
  *   - chunked transfer-encoding (gateway always sends Content-Length)
@@ -12,8 +12,8 @@
 
 #include "http_client.h"
 
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/core/ytrace.h>
 
 #include <picohttpparser.h>
 
@@ -88,7 +88,7 @@ int gateway_url_parse(const char *url, struct gateway_url *out)
 
 /* Read the HTTP response off `stream` until headers parse + Content-Length
  * bytes of body are in. Caller frees out_body. */
-static int read_full_response(struct yloop_stream *stream,
+static int read_full_response(struct loop_stream *stream,
                               char **out_body, size_t *out_body_len,
                               int *out_status,
                               char *out_set_cookie, size_t out_set_cookie_cap)
@@ -105,9 +105,10 @@ static int read_full_response(struct yloop_stream *stream,
     int header_end = -1;
 
     while (total < HC_RESP_BUF) {
-        size_t got = yloop_read_some(stream, buf + total, HC_RESP_BUF - total);
-        if (got == 0) { free(buf); return -1; }
-        total += got;
+        struct picomesh_size_result chunk_res = loop_read_some(stream, buf + total, HC_RESP_BUF - total);
+        if (PICOMESH_IS_ERR(chunk_res)) { picomesh_error_destroy(chunk_res.error); free(buf); return -1; }
+        if (chunk_res.value == 0) { free(buf); return -1; } /* EOF before headers complete */
+        total += chunk_res.value;
         num_headers = HC_MAX_HEADERS;
         int parse_result = phr_parse_response(buf, total, &minor, &status_code,
                                    &msg, &msg_len,
@@ -172,10 +173,11 @@ static int read_full_response(struct yloop_stream *stream,
     size_t body_have = total - (size_t)header_end;
     size_t body_need = (size_t)content_length - body_have;
     while (body_need > 0) {
-        size_t got = yloop_read_some(stream, buf + total, body_need);
-        if (got == 0) break;
-        total += got;
-        body_need -= got;
+        struct picomesh_size_result chunk_res = loop_read_some(stream, buf + total, body_need);
+        if (PICOMESH_IS_ERR(chunk_res)) { picomesh_error_destroy(chunk_res.error); break; }
+        if (chunk_res.value == 0) break; /* peer closed mid-body — caught by body_need check below */
+        total += chunk_res.value;
+        body_need -= chunk_res.value;
     }
 
     /* If the peer closed before delivering the full body, fail closed.
@@ -197,14 +199,14 @@ static int read_full_response(struct yloop_stream *stream,
     return 0;
 }
 
-int http_post(struct yloop *loop, const struct gateway_url *gw,
+struct picomesh_int_result http_post(struct loop *loop, const struct gateway_url *gw,
               const char *path, const char *content_type,
               const char *bearer,    /* opaque token; may be NULL */
               const char *sid,       /* picomesh-sid cookie value; may be NULL */
               const char *body, size_t body_len,
               struct http_response *resp)
 {
-    if (!loop || !gw || !path || !body || !resp) return -1;
+    if (!loop || !gw || !path || !body || !resp) return PICOMESH_ERR(picomesh_int, "http_post: invalid arguments");
     if (!content_type) content_type = "application/octet-stream";
     memset(resp, 0, sizeof(*resp));
     /* Reject CRLF / control chars BEFORE writing them into the request
@@ -218,16 +220,15 @@ int http_post(struct yloop *loop, const struct gateway_url *gw,
         !header_value_safe(content_type) ||
         !header_value_safe(bearer) || !header_value_safe(sid)) {
         ywarn("http_post: unsafe header value rejected");
-        return -1;
+        return PICOMESH_ERR(picomesh_int, "http_post: unsafe header value rejected");
     }
 
-    struct yloop_stream_ptr_result connect_res =
-        yloop_connect_tcp(loop, gw->host, gw->port);
+    struct loop_stream_ptr_result connect_res =
+        loop_connect_tcp(loop, gw->host, gw->port);
     if (PICOMESH_IS_ERR(connect_res)) {
-        picomesh_error_destroy(connect_res.error);
-        return -1;
+        return PICOMESH_ERR(picomesh_int, "http_post: gateway connect failed", connect_res);
     }
-    struct yloop_stream *stream = connect_res.value;
+    struct loop_stream *stream = connect_res.value;
 
     /* Build request headers. */
     char hdr[1024];
@@ -238,40 +239,48 @@ int http_post(struct yloop *loop, const struct gateway_url *gw,
         "Content-Length: %zu\r\n"
         "Connection: close\r\n",
         path, gw->host, gw->port, content_type, body_len);
-    if (header_len <= 0 || (size_t)header_len >= sizeof(hdr)) { yloop_close(stream); return -1; }
+    if (header_len <= 0 || (size_t)header_len >= sizeof(hdr)) { loop_close(stream); return PICOMESH_ERR(picomesh_int, "http_post: request header too large"); }
     if (bearer && *bearer) {
         int written = snprintf(hdr + header_len, sizeof(hdr) - header_len,
                          "Authorization: Bearer %s\r\n", bearer);
-        if (written <= 0 || header_len + written >= (int)sizeof(hdr)) { yloop_close(stream); return -1; }
+        if (written <= 0 || header_len + written >= (int)sizeof(hdr)) { loop_close(stream); return PICOMESH_ERR(picomesh_int, "http_post: request header too large"); }
         header_len += written;
     }
     if (sid && *sid) {
         int written = snprintf(hdr + header_len, sizeof(hdr) - header_len,
                          "picomesh-sid: %s\r\n", sid);
-        if (written <= 0 || header_len + written >= (int)sizeof(hdr)) { yloop_close(stream); return -1; }
+        if (written <= 0 || header_len + written >= (int)sizeof(hdr)) { loop_close(stream); return PICOMESH_ERR(picomesh_int, "http_post: request header too large"); }
         header_len += written;
     }
     int written = snprintf(hdr + header_len, sizeof(hdr) - header_len, "\r\n");
-    if (written <= 0) { yloop_close(stream); return -1; }
+    if (written <= 0) { loop_close(stream); return PICOMESH_ERR(picomesh_int, "http_post: request header format failed"); }
     header_len += written;
 
-    if (yloop_write(stream, hdr, (size_t)header_len) != (size_t)header_len) {
-        yloop_close(stream);
-        return -1;
+    struct picomesh_size_result header_write = loop_write(stream, hdr, (size_t)header_len);
+    if (PICOMESH_IS_ERR(header_write)) {
+        loop_close(stream);
+        return PICOMESH_ERR(picomesh_int, "http_post: request header write failed", header_write);
     }
-    if (yloop_write(stream, body, body_len) != body_len) {
-        yloop_close(stream);
-        return -1;
+    struct picomesh_size_result body_write = loop_write(stream, body, body_len);
+    if (PICOMESH_IS_ERR(body_write)) {
+        loop_close(stream);
+        return PICOMESH_ERR(picomesh_int, "http_post: request body write failed", body_write);
     }
 
     int read_res = read_full_response(stream, &resp->body, &resp->body_len,
                                 &resp->status,
                                 resp->set_cookie, sizeof(resp->set_cookie));
-    yloop_close(stream);
-    return read_res;
+    loop_close(stream);
+    /* A response was received iff read_full_response succeeded; the HTTP status
+     * (which may itself be an error status) lives in resp->status. A read/parse
+     * failure is a transport error and must surface as an error result rather
+     * than a sentinel value the caller cannot distinguish from a real status. */
+    if (read_res != 0)
+        return PICOMESH_ERR(picomesh_int, "http_post: reading gateway response failed");
+    return PICOMESH_OK(picomesh_int, 0);
 }
 
-int http_post_json(struct yloop *loop, const struct gateway_url *gw,
+struct picomesh_int_result http_post_json(struct loop *loop, const struct gateway_url *gw,
                    const char *path,
                    const char *bearer, const char *sid,
                    const char *body, size_t body_len,

@@ -12,10 +12,10 @@
  *   list_for_user(uid)    → count owned
  *   count_active          → total live PATs */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yjson/yjson.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/json/json.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -127,24 +127,24 @@ struct picomesh_size_result personal_access_tokens_personal_access_tokens_count_
 static struct picomesh_json_result pat_list_window(struct object *obj, int64_t offset, int64_t limit)
 {
     struct personal_access_tokens_personal_access_tokens_data *data = pat(obj);
-    struct yjson_writer *writer = yjson_writer_new();
+    struct json_writer *writer = json_writer_new();
     if (!writer) return PICOMESH_ERR(picomesh_json, "pat_list: writer alloc failed");
-    yjson_writer_begin_array(writer);
+    json_writer_begin_array(writer);
     int64_t skip = offset > 0 ? offset : 0, emitted = 0;
     for (size_t i = 0; i < PAT_MAX && (limit < 0 || emitted < limit); ++i) {
         if (!data->entries[i].used) continue;
         if (skip > 0) { --skip; continue; }
-        yjson_writer_begin_object(writer);
-        yjson_writer_key(writer, "pat_id");  yjson_writer_int(writer, (int64_t)data->entries[i].pat_id);
-        yjson_writer_key(writer, "user_id"); yjson_writer_int(writer, (int64_t)data->entries[i].user_id);
-        yjson_writer_end_object(writer);
+        json_writer_begin_object(writer);
+        json_writer_key(writer, "pat_id");  json_writer_int(writer, (int64_t)data->entries[i].pat_id);
+        json_writer_key(writer, "user_id"); json_writer_int(writer, (int64_t)data->entries[i].user_id);
+        json_writer_end_object(writer);
         ++emitted;
     }
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
     size_t len = 0;
-    const char *json_data = yjson_writer_data(writer, &len);
+    const char *json_data = json_writer_data(writer, &len);
     char *out = strdup(json_data ? json_data : "[]");
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     if (!out) return PICOMESH_ERR(picomesh_json, "pat_list: strdup failed");
     return PICOMESH_OK(picomesh_json, out);
 }

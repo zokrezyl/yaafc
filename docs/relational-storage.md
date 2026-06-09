@@ -82,7 +82,8 @@ relational_storage:
       schema: |                         # applied verbatim to every shard
         CREATE TABLE IF NOT EXISTS users(uid INTEGER PRIMARY KEY, username TEXT UNIQUE, …);
         CREATE TABLE IF NOT EXISTS repos(id INTEGER PRIMARY KEY, namespace_id INTEGER,
-          name TEXT, owner_uid INTEGER, …, UNIQUE(namespace_id, name));
+          namespace_path TEXT, name TEXT, owner_uid INTEGER, visibility TEXT,
+          …, UNIQUE(namespace_path, name));
         CREATE TABLE IF NOT EXISTS issues(…, UNIQUE(repo_id, number));
         CREATE TABLE IF NOT EXISTS pipeline_runs(…);
         -- + repo_members, namespaces, indexes
@@ -98,7 +99,17 @@ any other model — the engine doesn't care.
 - [x] accounts → relational (users / roster), in the global shard.
 - [x] session → relational (`sessions` table), in the global shard.
 - [x] token_issuer → relational (`refresh_tokens` table), in the global shard.
-- [ ] git_repo metadata → relational (repos / repo_members).
+- [x] git_repo metadata → relational (gh#18): the `repos` row (id, namespace_id,
+      namespace_path, name, owner_uid, visibility, created_at) lives in the
+      `repos` table in `rstore_uid`, sharded by repo_id. `UNIQUE(namespace_path,
+      name)` enforces repo-name uniqueness in SQL; owner/namespace listings and
+      counts are queries (`WHERE owner_uid=?` / `WHERE namespace_path=?` fanned
+      out across shards), so the hand-kept `owner:<uid>` / `ns:<path>` / `count`
+      KV indexes are gone — no index drift, and create/delete are a single
+      INSERT-OR-IGNORE / DELETE on the repo_id primary key. The bare repos on
+      disk (libgit2) remain the content source of truth. `repo_members` is
+      reserved for future repo-level membership; today authorization is
+      namespace-role-based (issue #30).
 - [x] issues → relational (`issues` table in `rstore_uid`, global shard): the
       hand-kept `open:<repo>` KV counter is now `COUNT(… status='open')` and the
       close CAS is `UPDATE … WHERE status='open'`, so the open count can't drift.

@@ -9,7 +9,7 @@
  *
  * Within each shard a per-namespace DBI keeps count(namespace) an
  * O(shards) sum of dbi_stat — no scan. DB work runs via
- * yloop_run_blocking so the serving coroutine yields and the loop stays
+ * loop_run_blocking so the serving coroutine yields and the loop stays
  * responsive; shards are threads on the pool, NOT separate processes.
  *
  * Config (service block):
@@ -18,15 +18,15 @@
  *                             path fails loudly rather than silently writing
  *                             shards to a shared fallback location) */
 
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/yspan.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/yheaders.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/yjson/yjson.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/yspan.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/yheaders.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/config/config.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/json/json.h>
 
 #include <mdbx.h>
 
@@ -76,16 +76,18 @@ struct shard_set {
     int ready;
 };
 
+PICOMESH_RESULT_DECLARE(shard_set_ptr, struct shard_set *);
+
 /* Lazy-open the N shard envs. NULL on failure. Same lazy-const-init
- * shape the storage backend / yclass accessors use; after init the env
+ * shape the storage backend / picoclass accessors use; after init the env
  * handles are immutable and libmdbx is internally multi-threaded. */
-static struct shard_set *shard_set(void)
+static struct shard_set_ptr_result shard_set(void)
 {
     static struct shard_set s = {0};
     static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
     static int tried = 0;
 
-    if (s.ready) return &s;
+    if (s.ready) return PICOMESH_OK(shard_set_ptr, &s);
     /* `tried` means a previous init attempt PERMANENTLY FAILED — not "in
      * progress". It is set only on a failure return below, never before the
      * (slow) env-open. A concurrent caller during init therefore finds
@@ -93,11 +95,11 @@ static struct shard_set *shard_set(void)
      * initializer unlocks — instead of spuriously getting NULL while the
      * envs are still opening (which surfaced as `shard open failed` under a
      * concurrent cold-start burst). */
-    if (tried) return NULL;
+    if (tried) return PICOMESH_ERR(shard_set_ptr, "sharded_storage: shard set previously failed to initialize");
 
     pthread_mutex_lock(&mu);
-    if (s.ready) { pthread_mutex_unlock(&mu); return &s; }
-    if (tried)   { pthread_mutex_unlock(&mu); return NULL; }
+    if (s.ready) { pthread_mutex_unlock(&mu); return PICOMESH_OK(shard_set_ptr, &s); }
+    if (tried)   { pthread_mutex_unlock(&mu); return PICOMESH_ERR(shard_set_ptr, "sharded_storage: shard set previously failed to initialize"); }
 
     /* The data directory is REQUIRED config — there is no hardcoded default.
      * A silent fallback would let a misconfigured node write its shards to a
@@ -105,33 +107,33 @@ static struct shard_set *shard_set(void)
      * two nodes colliding on one dir). Fail loudly instead. */
     struct picomesh_engine *e = picomesh_active_engine();
     if (!e) {
-        ywarn("sharded_storage: no active engine — cannot resolve required config 'sharded_storage.path'");
-        tried = 1; pthread_mutex_unlock(&mu); return NULL;
+        tried = 1; pthread_mutex_unlock(&mu);
+        return PICOMESH_ERR(shard_set_ptr, "sharded_storage: no active engine — cannot resolve required config 'sharded_storage.path'");
     }
-    struct yconfig_node_ptr_result p =
-        yconfig_get(picomesh_engine_config(e), "sharded_storage.path");
-    const char *base = (PICOMESH_IS_OK(p) && p.value) ? yconfig_node_as_string(p.value, NULL) : NULL;
+    /* The path has no default — a missing key is a real error. */
+    struct config_node_ptr_result path_res =
+        config_require(picomesh_engine_config(e), "sharded_storage.path");
+    if (PICOMESH_IS_ERR(path_res)) {
+        tried = 1; pthread_mutex_unlock(&mu);
+        return PICOMESH_ERR(shard_set_ptr,
+                            "sharded_storage: required config 'sharded_storage.path' is missing — refusing to fall back to a shared default",
+                            path_res);
+    }
+    const char *base = config_node_as_string(path_res.value, NULL);
     if (!base || !*base) {
-        ywarn("sharded_storage: required config 'sharded_storage.path' is missing — "
-              "refusing to fall back to a shared default");
-        tried = 1; pthread_mutex_unlock(&mu); return NULL;
+        tried = 1; pthread_mutex_unlock(&mu);
+        return PICOMESH_ERR(shard_set_ptr, "sharded_storage: required config 'sharded_storage.path' is empty");
     }
-    /* Shard count: optional tuning knob, documented default 8. Unlike the
-     * path it is stable across runs when unset (always 8), so a default here
-     * does not silently misplace or collide data. */
-    int n = 8;
-    struct yconfig_node_ptr_result r =
-        yconfig_get(picomesh_engine_config(e), "sharded_storage.shards");
-    if (PICOMESH_IS_OK(r) && r.value) {
-        int v = (int)yconfig_node_as_int(r.value, 8);
-        if (v > 0 && v <= SHARDED_MAX_SHARDS) n = v;
-    }
+    /* Shard count: optional tuning knob, documented default 8 — absence is not
+     * an error, so the default-aware getter returns the value directly. */
+    int n = (int)config_get_int(picomesh_engine_config(e), "sharded_storage.shards", 8);
+    if (n < 1 || n > SHARDED_MAX_SHARDS) n = 8;
 
     if (mkdir(base, 0700) != 0 && errno != EEXIST) {
         ywarn("sharded_storage: mkdir(%s) failed: %s", base, strerror(errno));
         tried = 1;
         pthread_mutex_unlock(&mu);
-        return NULL;
+        return PICOMESH_ERR(shard_set_ptr, "sharded_storage: mkdir of the base data directory failed");
     }
     for (int i = 0; i < n; ++i) {
         char path[512];
@@ -140,10 +142,13 @@ static struct shard_set *shard_set(void)
             ywarn("sharded_storage: mkdir(%s) failed: %s", path, strerror(errno));
             tried = 1;
             pthread_mutex_unlock(&mu);
-            return NULL;
+            return PICOMESH_ERR(shard_set_ptr, "sharded_storage: mkdir of a shard directory failed");
         }
         MDBX_env *env = NULL;
-        if (mdbx_env_create(&env) != MDBX_SUCCESS) { tried = 1; pthread_mutex_unlock(&mu); return NULL; }
+        if (mdbx_env_create(&env) != MDBX_SUCCESS) {
+            tried = 1; pthread_mutex_unlock(&mu);
+            return PICOMESH_ERR(shard_set_ptr, "sharded_storage: mdbx_env_create failed");
+        }
         mdbx_env_set_maxdbs(env, SHARDED_DBI_PER_SHARD);
         mdbx_env_set_geometry(env, 1 << 20, -1, 1 << 30, 1 << 20, -1, -1);
         /* Same durability as the storage mdbx backend (WRITEMAP +
@@ -154,7 +159,7 @@ static struct shard_set *shard_set(void)
             mdbx_env_close(env);
             tried = 1;
             pthread_mutex_unlock(&mu);
-            return NULL;
+            return PICOMESH_ERR(shard_set_ptr, "sharded_storage: mdbx_env_open of a shard failed");
         }
         s.shards[i].env = env;
         pthread_mutex_init(&s.shards[i].dbi_mu, NULL);
@@ -163,7 +168,7 @@ static struct shard_set *shard_set(void)
     s.ready = 1;
     ydebug("sharded_storage: opened %d shard envs at %s", n, base);
     pthread_mutex_unlock(&mu);
-    return &s;
+    return PICOMESH_OK(shard_set_ptr, &s);
 }
 
 static int ns_valid(const char *ns)
@@ -254,11 +259,21 @@ struct shard_work {
 
 /* Runs on a worker-pool thread — touches only `arg` + the shard env it
  * routes to. Different shards → different envs → parallel commits. */
+PICOMESH_EXTERNAL_CALLBACK
 static void shard_work_fn(void *arg)
 {
     struct shard_work *w = arg;
-    struct shard_set *s = shard_set();
-    if (!s) { w->rc = SHARD_OPEN_FAILED; return; }
+    /* Worker-pool thread start routine (fixed void signature). A shard_set
+     * init failure has no caller to propagate to — render the chain to the log
+     * and flag the op via w->rc (the calling _impl turns rc into its Result). */
+    struct shard_set_ptr_result set_res = shard_set();
+    if (PICOMESH_IS_ERR(set_res)) {
+        picomesh_error_print(stderr, "sharded_storage: shard_set", set_res.error);
+        picomesh_error_destroy(set_res.error);
+        w->rc = SHARD_OPEN_FAILED;
+        return;
+    }
+    struct shard_set *s = set_res.value;
 
     if (w->op == OP_LIST_ALL_NS) {
         /* List EVERY key in EVERY namespace, across all shards. Each shard's
@@ -270,9 +285,9 @@ static void shard_work_fn(void *arg)
         size_t plen = strlen(prefix);
         int64_t limit = w->in_limit; /* < 0 == unbounded */
         int64_t emitted = 0;
-        struct yjson_writer *jw = yjson_writer_new();
+        struct json_writer *jw = json_writer_new();
         if (!jw) { w->rc = SHARD_INTERNAL; return; }
-        yjson_writer_begin_array(jw);
+        json_writer_begin_array(jw);
         for (int i = 0; i < s->n && (limit < 0 || emitted < limit); ++i) {
             MDBX_txn *txn = NULL;
             if (mdbx_txn_begin(s->shards[i].env, NULL, MDBX_TXN_RDONLY, &txn) != MDBX_SUCCESS)
@@ -317,11 +332,11 @@ static void shard_work_fn(void *arg)
                     memcpy(kbuf, k.iov_base, klen); kbuf[klen] = 0;
                     char *vbuf = malloc(v.iov_len + 1);
                     if (vbuf) { memcpy(vbuf, v.iov_base, v.iov_len); vbuf[v.iov_len] = 0; }
-                    yjson_writer_begin_object(jw);
-                    yjson_writer_key(jw, "namespace"); yjson_writer_string(jw, namespaces[n]);
-                    yjson_writer_key(jw, "key");       yjson_writer_string(jw, kbuf);
-                    yjson_writer_key(jw, "value");     yjson_writer_string(jw, vbuf ? vbuf : "");
-                    yjson_writer_end_object(jw);
+                    json_writer_begin_object(jw);
+                    json_writer_key(jw, "namespace"); json_writer_string(jw, namespaces[n]);
+                    json_writer_key(jw, "key");       json_writer_string(jw, kbuf);
+                    json_writer_key(jw, "value");     json_writer_string(jw, vbuf ? vbuf : "");
+                    json_writer_end_object(jw);
                     free(vbuf);
                     ++emitted;
                     cr = mdbx_cursor_get(cur, &k, &v, MDBX_NEXT);
@@ -330,11 +345,11 @@ static void shard_work_fn(void *arg)
             }
             mdbx_txn_abort(txn);
         }
-        yjson_writer_end_array(jw);
+        json_writer_end_array(jw);
         size_t jlen = 0;
-        const char *jdata = yjson_writer_data(jw, &jlen);
+        const char *jdata = json_writer_data(jw, &jlen);
         w->out_str = strdup(jdata ? jdata : "[]");
-        yjson_writer_free(jw);
+        json_writer_free(jw);
         w->rc = w->out_str ? SHARD_OK : SHARD_INTERNAL;
         return;
     }
@@ -391,15 +406,15 @@ static void shard_work_fn(void *arg)
         int64_t skip = w->in_offset > 0 ? w->in_offset : 0; /* matches still to skip */
         int64_t limit = w->in_limit;                        /* < 0 == unbounded */
         int64_t emitted = 0;
-        struct yjson_writer *jw = yjson_writer_new();
+        struct json_writer *jw = json_writer_new();
         if (!jw) { w->rc = SHARD_INTERNAL; return; }
-        yjson_writer_begin_array(jw);
+        json_writer_begin_array(jw);
         for (int i = 0; i < s->n && (limit < 0 || emitted < limit); ++i) {
             MDBX_txn *txn = NULL;
             if (mdbx_txn_begin(s->shards[i].env, NULL, MDBX_TXN_RDONLY, &txn) != MDBX_SUCCESS) {
                 /* A shard we cannot read would silently truncate the list —
                  * fail rather than return a partial result as authoritative. */
-                yjson_writer_free(jw);
+                json_writer_free(jw);
                 w->rc = SHARD_INTERNAL;
                 return;
             }
@@ -410,13 +425,13 @@ static void shard_work_fn(void *arg)
                 /* NOTFOUND == no rows for this namespace on this shard (skip);
                  * any other open error is a real backend failure. */
                 mdbx_txn_abort(txn);
-                yjson_writer_free(jw);
+                json_writer_free(jw);
                 w->rc = SHARD_INTERNAL;
                 return;
             }
             if (dbi_open_rc == MDBX_SUCCESS && mdbx_cursor_open(txn, dbi, &cur) != MDBX_SUCCESS) {
                 mdbx_txn_abort(txn);
-                yjson_writer_free(jw);
+                json_writer_free(jw);
                 w->rc = SHARD_INTERNAL;
                 return;
             }
@@ -438,10 +453,10 @@ static void shard_work_fn(void *arg)
                     memcpy(kbuf, k.iov_base, klen); kbuf[klen] = 0;
                     char *vbuf = malloc(v.iov_len + 1);
                     if (vbuf) { memcpy(vbuf, v.iov_base, v.iov_len); vbuf[v.iov_len] = 0; }
-                    yjson_writer_begin_object(jw);
-                    yjson_writer_key(jw, "key");   yjson_writer_string(jw, kbuf);
-                    yjson_writer_key(jw, "value"); yjson_writer_string(jw, vbuf ? vbuf : "");
-                    yjson_writer_end_object(jw);
+                    json_writer_begin_object(jw);
+                    json_writer_key(jw, "key");   json_writer_string(jw, kbuf);
+                    json_writer_key(jw, "value"); json_writer_string(jw, vbuf ? vbuf : "");
+                    json_writer_end_object(jw);
                     free(vbuf);
                     ++emitted;
                     cr = mdbx_cursor_get(cur, &k, &v, MDBX_NEXT);
@@ -450,11 +465,11 @@ static void shard_work_fn(void *arg)
             if (cur) mdbx_cursor_close(cur);
             mdbx_txn_abort(txn);
         }
-        yjson_writer_end_array(jw);
+        json_writer_end_array(jw);
         size_t jlen = 0;
-        const char *jdata = yjson_writer_data(jw, &jlen);
+        const char *jdata = json_writer_data(jw, &jlen);
         w->out_str = strdup(jdata ? jdata : "[]");
-        yjson_writer_free(jw);
+        json_writer_free(jw);
         w->rc = w->out_str ? SHARD_OK : SHARD_INTERNAL;
         return;
     }
@@ -631,21 +646,23 @@ static void shard_work_fn(void *arg)
 
 /* Offload the op to the loop's worker pool (suspending the serving
  * coroutine); inline if not on a loop. */
-static void shard_run(struct shard_work *w)
+static struct picomesh_void_result shard_run(struct shard_work *w)
 {
     struct picomesh_engine *e = picomesh_active_engine();
-    struct yloop *l = e ? picomesh_engine_loop(e) : NULL;
-    if (!l) { shard_work_fn(w); return; }
-    struct picomesh_void_result r = yloop_run_blocking(l, shard_work_fn, w);
+    struct loop *l = e ? picomesh_engine_loop(e) : NULL;
+    if (!l) { shard_work_fn(w); return PICOMESH_OK_VOID(); }
+    struct picomesh_void_result r = loop_run_blocking(l, shard_work_fn, w);
     if (PICOMESH_IS_ERR(r)) {
         /* Offload failed — fall back to running inline so the op still
          * completes, but make the failure visible: it can signal a degraded
-         * event loop / worker pool, not just a transient hiccup. */
-        ywarn("sharded_storage: worker-pool offload failed (%s) — running inline",
-              r.error.msg ? r.error.msg : "?");
+         * event loop / worker pool, not just a transient hiccup. The op's own
+         * outcome flows via w->rc, so this recovered error is logged, not
+         * propagated. */
+        picomesh_error_print(stderr, "sharded_storage: worker-pool offload failed — running inline", r.error);
         picomesh_error_destroy(r.error);
         shard_work_fn(w);
     }
+    return PICOMESH_OK_VOID();
 }
 
 static const char *shard_rc_msg(enum shard_rc rc)
@@ -686,7 +703,7 @@ struct picomesh_int_result sharded_storage_db_set_impl(struct ctx *ctx, struct o
     const char *trace = hdrs ? yheaders_get(hdrs, "trace_id") : NULL;
     struct shard_work w = {.op = OP_SET, .ns = context, .key = key, .value = value};
     double span_start = picomesh_ytime_monotonic_sec();
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, shard_run(&w), "sharded_storage: dispatch failed");
     double span_us = (picomesh_ytime_monotonic_sec() - span_start) * 1e6;
     ydebug("span trace=%s op=shard.set.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("shard.set", span_us);
@@ -703,7 +720,7 @@ struct picomesh_string_result sharded_storage_db_get_impl(struct ctx *ctx, struc
     const char *trace = hdrs ? yheaders_get(hdrs, "trace_id") : NULL;
     struct shard_work w = {.op = OP_GET, .ns = context, .key = key};
     double span_start = picomesh_ytime_monotonic_sec();
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_string, shard_run(&w), "sharded_storage: dispatch failed");
     double span_us = (picomesh_ytime_monotonic_sec() - span_start) * 1e6;
     ydebug("span trace=%s op=shard.get.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("shard.get", span_us);
@@ -730,7 +747,7 @@ struct picomesh_int_result sharded_storage_db_exists_impl(struct ctx *ctx, struc
 {
     (void)ctx; (void)obj; (void)hdrs;
     struct shard_work w = {.op = OP_EXISTS, .ns = context, .key = key};
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, shard_run(&w), "sharded_storage: dispatch failed");
     if (w.rc != SHARD_OK) return PICOMESH_ERR(picomesh_int, shard_rc_msg(w.rc));
     return PICOMESH_OK(picomesh_int, w.out_i);
 }
@@ -742,7 +759,7 @@ struct picomesh_int_result sharded_storage_db_del_impl(struct ctx *ctx, struct o
 {
     (void)ctx; (void)obj; (void)hdrs;
     struct shard_work w = {.op = OP_DEL, .ns = context, .key = key};
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, shard_run(&w), "sharded_storage: dispatch failed");
     if (w.rc != SHARD_OK) return PICOMESH_ERR(picomesh_int, shard_rc_msg(w.rc));
     return PICOMESH_OK(picomesh_int, w.out_i);
 }
@@ -754,7 +771,7 @@ struct picomesh_size_result sharded_storage_db_count_impl(struct ctx *ctx, struc
 {
     (void)ctx; (void)obj; (void)hdrs;
     struct shard_work w = {.op = OP_COUNT, .ns = context, .key = ""};
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_size, shard_run(&w), "sharded_storage: dispatch failed");
     if (w.rc != SHARD_OK) return PICOMESH_ERR(picomesh_size, shard_rc_msg(w.rc));
     return PICOMESH_OK(picomesh_size, w.out_sz);
 }
@@ -779,7 +796,7 @@ struct picomesh_json_result sharded_storage_db_list_impl(struct ctx *ctx, struct
     if (limit <= 0) limit = SHARDED_LIST_DEFAULT_LIMIT;
     struct shard_work w = {.op = OP_LIST, .ns = context, .key = prefix ? prefix : "",
                            .in_offset = offset, .in_limit = limit};
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, shard_run(&w), "sharded_storage: dispatch failed");
     if (w.rc != SHARD_OK) return PICOMESH_ERR(picomesh_json, shard_rc_msg(w.rc));
     return PICOMESH_OK(picomesh_json, w.out_str ? w.out_str : strdup("[]"));
 }
@@ -799,7 +816,7 @@ struct picomesh_json_result sharded_storage_db_list_all_impl(struct ctx *ctx, st
     struct shard_work w = {.op = all_namespaces ? OP_LIST_ALL_NS : OP_LIST,
                            .ns = context, .key = prefix ? prefix : "",
                            .in_offset = 0, .in_limit = -1};
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_json, shard_run(&w), "sharded_storage: dispatch failed");
     if (w.rc != SHARD_OK) return PICOMESH_ERR(picomesh_json, shard_rc_msg(w.rc));
     return PICOMESH_OK(picomesh_json, w.out_str ? w.out_str : strdup("[]"));
 }
@@ -819,7 +836,7 @@ struct picomesh_int64_result sharded_storage_db_incr_impl(struct ctx *ctx, struc
     const char *trace = hdrs ? yheaders_get(hdrs, "trace_id") : NULL;
     struct shard_work w = {.op = OP_INCR, .ns = context, .key = key, .in_delta = delta};
     double span_start = picomesh_ytime_monotonic_sec();
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_int64, shard_run(&w), "sharded_storage: dispatch failed");
     double span_us = (picomesh_ytime_monotonic_sec() - span_start) * 1e6;
     ydebug("span trace=%s op=shard.incr.%s dur_us=%.0f", trace ? trace : "-", context, span_us);
     yspan_record("shard.incr", span_us);
@@ -839,7 +856,7 @@ struct picomesh_int_result sharded_storage_db_put_if_absent_impl(struct ctx *ctx
 {
     (void)ctx; (void)obj; (void)hdrs;
     struct shard_work w = {.op = OP_PUT_IF_ABSENT, .ns = context, .key = key, .value = value};
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, shard_run(&w), "sharded_storage: dispatch failed");
     if (w.rc != SHARD_OK) return PICOMESH_ERR(picomesh_int, shard_err_key(w.rc, context, key));
     return PICOMESH_OK(picomesh_int, w.out_i);
 }
@@ -858,7 +875,7 @@ struct picomesh_int_result sharded_storage_db_compare_and_set_impl(struct ctx *c
     (void)ctx; (void)obj; (void)hdrs;
     struct shard_work w = {.op = OP_CAS, .ns = context, .key = key,
                            .expected = expected, .value = replacement};
-    shard_run(&w);
+    PICOMESH_RETURN_IF_ERR(picomesh_int, shard_run(&w), "sharded_storage: dispatch failed");
     if (w.rc != SHARD_OK) return PICOMESH_ERR(picomesh_int, shard_err_key(w.rc, context, key));
     return PICOMESH_OK(picomesh_int, w.out_i);
 }

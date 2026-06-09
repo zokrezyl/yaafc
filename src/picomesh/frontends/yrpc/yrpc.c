@@ -12,12 +12,12 @@
  * stop the listener cleanly. */
 
 #include <picomesh/frontends/yrpc/yrpc.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/yco/coro.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/picoco/coro.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,8 +34,8 @@ struct yrpc_frontend {
  * up to their last write; the reader does not tear it down until every
  * handler has finished (inflight == 0), so the borrow is always valid. */
 struct yrpc_conn {
-    struct yloop *loop;
-    struct yloop_stream *stream;
+    struct loop *loop;
+    struct loop_stream *stream;
     struct picomesh_coro *reader;
     int inflight;       /* handler coros not yet finished */
     int draining;       /* reader saw EOF, waiting for handlers to drain */
@@ -51,6 +51,11 @@ struct yrpc_req {
     uint32_t body_len;
 };
 
+/* Coroutine start routine — its void signature is dictated by the coro
+ * spawn API and there is no caller to propagate a Result to, so a dispatch
+ * failure is absorbed here (logged) and turned into an empty wire reply.
+ * This is the transport boundary the dispatch chain propagates up to. */
+PICOMESH_EXTERNAL_CALLBACK
 static void yrpc_handler_entry(void *arg)
 {
     struct yrpc_req *request = arg;
@@ -58,9 +63,18 @@ static void yrpc_handler_entry(void *arg)
 
     uint8_t *resp = malloc(YRPC_FRAME_MAX);
     size_t resp_len = 0;
-    if (resp)
-        resp_len = rpc_dispatch_one(request->header, request->body, request->body_len, resp,
-                                    YRPC_FRAME_MAX);
+    if (resp) {
+        struct picomesh_size_result disp = rpc_dispatch_one(
+            request->header, request->body, request->body_len, resp, YRPC_FRAME_MAX);
+        if (PICOMESH_IS_ERR(disp)) {
+            /* Transport boundary: render the full cause chain to the log so the
+             * dispatch failure isn't reduced to its top-level message. */
+            picomesh_error_print(stderr, "yrpc: dispatch failed", disp.error);
+            picomesh_error_destroy(disp.error);
+        } else {
+            resp_len = disp.value;
+        }
+    }
 
     /* Frame the reply as req_id | resp_len | resp and write it in one
      * shot — libuv keeps a single write contiguous, so concurrent
@@ -72,9 +86,11 @@ static void yrpc_handler_entry(void *arg)
         memcpy(frame, &request->req_id, 4);
         memcpy(frame + 4, &resp_len_u32, 4);
         if (resp_len) memcpy(frame + 8, resp, resp_len);
-        size_t wrote = yloop_write(conn->stream, frame, frame_len);
-        if (wrote != frame_len)
-            yerror("yrpc: short/failed response write (%zu/%zu bytes)", wrote, frame_len);
+        struct picomesh_size_result write_res = loop_write(conn->stream, frame, frame_len);
+        if (PICOMESH_IS_ERR(write_res)) {
+            yerror("yrpc: response write failed: %s", write_res.error.msg ? write_res.error.msg : "?");
+            picomesh_error_destroy(write_res.error);
+        }
         free(frame);
     }
     free(resp);
@@ -84,19 +100,23 @@ static void yrpc_handler_entry(void *arg)
     conn->inflight--;
     int wake_reader = conn->draining && conn->reader_parked && conn->inflight == 0;
     struct picomesh_coro *reader = conn->reader;
-    struct yloop *loop = conn->loop;
+    struct loop *loop = conn->loop;
 
     /* Queue self for destruction (can't free our own stack) and, if the
      * reader is draining and we were the last handler, hand control back
      * so it can finish teardown. Touch nothing on `conn` after this. */
-    yloop_reap_coro(loop, picomesh_coro_current());
+    loop_reap_coro(loop, picomesh_coro_current());
     if (wake_reader) {
         conn->reader_parked = 0;
         picomesh_coro_resume(reader);
     }
 }
 
-static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
+/* Per-connection reader coroutine — its void signature is fixed by the loop's
+ * accept-handler API and there is no caller to propagate a Result to, so a
+ * handler-spawn failure is absorbed here (logged) and drops the connection. */
+PICOMESH_EXTERNAL_CALLBACK
+static void serve_one(struct loop *loop, struct loop_stream *stream, void *ud)
 {
     (void)ud;
     yinfo("yrpc: peer connected");
@@ -108,16 +128,24 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
 
     for (;;) {
         uint32_t header = 0, req_id = 0, body_len = 0;
-        if (yloop_read(stream, &header, 4) != 4) break;
-        if (yloop_read(stream, &req_id, 4) != 4) break;
-        if (yloop_read(stream, &body_len, 4) != 4) break;
+        struct picomesh_size_result header_read = loop_read(stream, &header, 4);
+        if (PICOMESH_IS_ERR(header_read)) { picomesh_error_destroy(header_read.error); break; }
+        if (header_read.value != 4) break; /* clean EOF / short frame */
+        struct picomesh_size_result reqid_read = loop_read(stream, &req_id, 4);
+        if (PICOMESH_IS_ERR(reqid_read)) { picomesh_error_destroy(reqid_read.error); break; }
+        if (reqid_read.value != 4) break;
+        struct picomesh_size_result bodylen_read = loop_read(stream, &body_len, 4);
+        if (PICOMESH_IS_ERR(bodylen_read)) { picomesh_error_destroy(bodylen_read.error); break; }
+        if (bodylen_read.value != 4) break;
         if (body_len > YRPC_FRAME_MAX) break;
 
         uint8_t *body = NULL;
         if (body_len) {
             body = malloc(body_len);
             if (!body) break;
-            if (yloop_read(stream, body, body_len) != body_len) { free(body); break; }
+            struct picomesh_size_result body_read = loop_read(stream, body, body_len);
+            if (PICOMESH_IS_ERR(body_read)) { picomesh_error_destroy(body_read.error); free(body); break; }
+            if (body_read.value != body_len) { free(body); break; }
         }
 
         struct yrpc_req *request = calloc(1, sizeof(*request));
@@ -133,7 +161,8 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
         if (PICOMESH_IS_ERR(handler_res)) {
             /* Root admission failure: a handler that can't be scheduled (e.g.
              * resource exhaustion) must be visible, not a silent disconnect. */
-            yerror("yrpc: failed to spawn handler coroutine — dropping connection");
+            picomesh_error_print(stderr, "yrpc: failed to spawn handler coroutine — dropping connection",
+                                 handler_res.error);
             picomesh_error_destroy(handler_res.error);
             free(body);
             free(request);
@@ -145,7 +174,7 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
 
     /* Peer hung up. In-flight handlers still reference this stream and
      * conn (on our stack), so wait for them to finish before returning —
-     * which closes the stream and lets yloop reap this serve coro. */
+     * which closes the stream and lets loop reap this serve coro. */
     conn.draining = 1;
     while (conn.inflight > 0) {
         conn.reader_parked = 1;
@@ -162,12 +191,12 @@ struct yrpc_frontend_ptr_result yrpc_start(struct picomesh_engine *e,
     const char *host = (cfg && cfg->host) ? cfg->host : "127.0.0.1";
     int port = (cfg && cfg->port > 0) ? cfg->port : 7777;
 
-    struct yloop *loop = picomesh_engine_loop(e);
+    struct loop *loop = picomesh_engine_loop(e);
     if (!loop) return PICOMESH_ERR(yrpc_frontend_ptr, "yrpc_start: engine has no loop");
 
-    struct picomesh_void_result listen_res = yloop_listen_tcp(loop, host, port, serve_one, NULL);
+    struct picomesh_void_result listen_res = loop_listen_tcp(loop, host, port, serve_one, NULL);
     if (PICOMESH_IS_ERR(listen_res)) {
-        return PICOMESH_ERR(yrpc_frontend_ptr, "yrpc_start: yloop_listen_tcp failed", listen_res);
+        return PICOMESH_ERR(yrpc_frontend_ptr, "yrpc_start: loop_listen_tcp failed", listen_res);
     }
 
     struct yrpc_frontend *frontend = calloc(1, sizeof(*frontend));
@@ -179,7 +208,7 @@ struct yrpc_frontend_ptr_result yrpc_start(struct picomesh_engine *e,
 
 void yrpc_stop(struct yrpc_frontend *frontend)
 {
-    /* The listener is owned by the yloop and will be torn down when
+    /* The listener is owned by the loop and will be torn down when
      * the loop closes. The frontend handle itself just goes away. */
     if (!frontend) return;
     free(frontend);

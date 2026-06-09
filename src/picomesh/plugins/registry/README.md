@@ -42,5 +42,5 @@ for the describe surface.
 
 Nodes do not call `register_service` from application code — the framework
 registers a node automatically on the serve path (see
-`src/picomesh/ymain/autoport.c`). Only `port: auto` discovery and the
+`src/picomesh/main/autoport.c`). Only `port: auto` discovery and the
 inspection methods are exposed to callers.

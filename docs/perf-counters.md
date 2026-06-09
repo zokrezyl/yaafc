@@ -9,7 +9,7 @@ launch wrapper. This is issue #14.
 > harness (`picoforge-perf`) and the `/_perf` op-latency aggregate. That
 > "perf" is about request latency across the mesh; *this* "perf" is the
 > kernel PMU counters for one process. The runtime component is `yperf`
-> (`ycore/yperf.{h,c}`).
+> (`core/yperf.{h,c}`).
 
 ## Why config-driven, not `perf record`
 
@@ -81,7 +81,7 @@ event loop. So:
   line per worker**, tagged `perf[<svc> wN]`. Each worker handles the
   connections the kernel pinned to it (SO_REUSEPORT), so each line is that
   worker's real share of the load.
-- Work offloaded to the libuv thread pool via `yloop_run_blocking`
+- Work offloaded to the libuv thread pool via `loop_run_blocking`
   (libgit2 / MDBX on `git_repo`, `sharded_storage`) runs on **other**
   threads and is **not** counted. The counters reflect the loop/coroutine
   thread's own CPU work. For end-to-end libgit2 profiling, use `perf record`.

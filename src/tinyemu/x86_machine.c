@@ -2179,7 +2179,7 @@ static void pc_vm_send_key_event(VirtMachine *s1, BOOL is_down, uint16_t key_cod
     if (s->keyboard_dev) {
         virtio_input_send_key_event(s->keyboard_dev, is_down, key_code);
     } else if (s->ps2_kbd) {
-        ps2_put_keycode(s->ps2_kbd, is_down, key_code);
+        ps2_put_kepicocode(s->ps2_kbd, is_down, key_code);
     }
 }
 

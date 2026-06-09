@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_PORTALLOC_H
 #define PICOMESH_PLUGIN_PORTALLOC_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_json_result;
@@ -29,6 +29,6 @@ struct picomesh_json_result portalloc_portalloc_list(struct ctx * ctx, struct ob
 struct picomesh_json_result portalloc_portalloc_list_all(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 
 /* ---- activation ---- */
-void picomesh_plugin_portalloc_register(void);
+struct picomesh_void_result picomesh_plugin_portalloc_register(void);
 
 #endif

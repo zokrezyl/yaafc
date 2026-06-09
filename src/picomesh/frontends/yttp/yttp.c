@@ -1,9 +1,9 @@
 /* yttp — JSON-RPC 2.0 frontend over TCP.
  *
  * One coroutine per accepted peer. Each coro reads Content-Length
- * frames, parses the JSON-RPC envelope via yjson, dispatches the
+ * frames, parses the JSON-RPC envelope via json, dispatches the
  * method through `jinvoke_for`, and writes back a framed JSON
- * response. The yloop integration is the same as yrpc — only the
+ * response. The loop integration is the same as yrpc — only the
  * payload shape changes.
  *
  * Method routing:
@@ -25,14 +25,14 @@
  * peer; pipelining would need streaming parse. */
 
 #include <picomesh/frontends/yttp/yttp.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yclass/jinvoke.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/picoclass/jinvoke.h>
+#include <picomesh/json/json.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
 
 #include <ctype.h>
 #include <stdio.h>
@@ -47,14 +47,16 @@ struct yttp_frontend {
 
 /* Read up to one Content-Length-framed message. Returns 0 on EOF,
  * -1 on error, length on success (body is malloc'd, caller frees). */
-static int read_frame(struct yloop_stream *stream, char **body_out)
+static int read_frame(struct loop_stream *stream, char **body_out)
 {
     char header[256];
     size_t header_len = 0;
     /* Read header byte-by-byte until \r\n\r\n. */
     while (header_len + 1 < sizeof(header)) {
         char ch;
-        if (yloop_read(stream, &ch, 1) != 1) return header_len == 0 ? 0 : -1;
+        struct picomesh_size_result read_res = loop_read(stream, &ch, 1);
+        if (PICOMESH_IS_ERR(read_res)) { picomesh_error_destroy(read_res.error); return header_len == 0 ? 0 : -1; }
+        if (read_res.value != 1) return header_len == 0 ? 0 : -1; /* clean EOF (idle) vs partial frame */
         header[header_len++] = ch;
         if (header_len >= 4 &&
             header[header_len - 4] == '\r' && header[header_len - 3] == '\n' &&
@@ -80,7 +82,9 @@ static int read_frame(struct yloop_stream *stream, char **body_out)
 
     char *body = malloc(content_len + 1);
     if (!body) return -1;
-    if (yloop_read(stream, body, content_len) != content_len) {
+    struct picomesh_size_result body_read = loop_read(stream, body, content_len);
+    if (PICOMESH_IS_ERR(body_read)) { picomesh_error_destroy(body_read.error); free(body); return -1; }
+    if (body_read.value != content_len) {
         free(body);
         return -1;
     }
@@ -89,19 +93,23 @@ static int read_frame(struct yloop_stream *stream, char **body_out)
     return (int)content_len;
 }
 
-static int write_frame(struct yloop_stream *stream, const char *body, size_t len)
+static int write_frame(struct loop_stream *stream, const char *body, size_t len)
 {
     char header[64];
     int header_len = snprintf(header, sizeof(header), "Content-Length: %zu\r\n\r\n", len);
-    if (yloop_write(stream, header, (size_t)header_len) != (size_t)header_len) return -1;
-    if (len && yloop_write(stream, body, len) != len) return -1;
+    struct picomesh_size_result header_write = loop_write(stream, header, (size_t)header_len);
+    if (PICOMESH_IS_ERR(header_write)) { picomesh_error_destroy(header_write.error); return -1; }
+    if (len) {
+        struct picomesh_size_result body_write = loop_write(stream, body, len);
+        if (PICOMESH_IS_ERR(body_write)) { picomesh_error_destroy(body_write.error); return -1; }
+    }
     return 0;
 }
 
 /* ---------- JSON-RPC response builders ------------------------- */
 
 
-static void write_error_detail(struct yjson_writer *writer, const char *message)
+static void write_error_detail(struct json_writer *writer, const char *message)
 {
     const char *msg = message ? message : "";
     size_t first_len = strcspn(msg, "\n");
@@ -109,9 +117,9 @@ static void write_error_detail(struct yjson_writer *writer, const char *message)
     size_t copy_len = first_len < sizeof(first) - 1 ? first_len : sizeof(first) - 1;
     memcpy(first, msg, copy_len);
     first[copy_len] = 0;
-    yjson_writer_key(writer, "message"); yjson_writer_string(writer, first[0] ? first : msg);
-    yjson_writer_key(writer, "detail");  yjson_writer_string(writer, msg);
-    yjson_writer_key(writer, "trace");   yjson_writer_begin_array(writer);
+    json_writer_key(writer, "message"); json_writer_string(writer, first[0] ? first : msg);
+    json_writer_key(writer, "detail");  json_writer_string(writer, msg);
+    json_writer_key(writer, "trace");   json_writer_begin_array(writer);
     const char *scan = msg;
     while (*scan) {
         const char *newline = strchr(scan, '\n');
@@ -120,88 +128,99 @@ static void write_error_detail(struct yjson_writer *writer, const char *message)
         size_t line_copy_len = line_len < sizeof(line) - 1 ? line_len : sizeof(line) - 1;
         memcpy(line, scan, line_copy_len);
         line[line_copy_len] = 0;
-        yjson_writer_string(writer, line);
+        json_writer_string(writer, line);
         if (!newline) break;
         scan = newline + 1;
     }
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
 }
 
-static void write_jsonrpc_error(struct yloop_stream *stream, const struct yjson_value *id,
+static void write_jsonrpc_error(struct loop_stream *stream, const struct json_value *id,
                                 int code, const char *message)
 {
     if (code <= -32000) yerror("yttp request failed: %s", message ? message : "");
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "jsonrpc"); yjson_writer_string(writer, "2.0");
-    yjson_writer_key(writer, "id");
-    if (yjson_is_int(id))         yjson_writer_int(writer, yjson_as_int(id, 0));
-    else if (yjson_is_string(id)) yjson_writer_string(writer, yjson_as_string(id, ""));
-    else                          yjson_writer_null(writer);
-    yjson_writer_key(writer, "error");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "code"); yjson_writer_int(writer, code);
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "jsonrpc"); json_writer_string(writer, "2.0");
+    json_writer_key(writer, "id");
+    if (json_is_int(id))         json_writer_int(writer, json_as_int(id, 0));
+    else if (json_is_string(id)) json_writer_string(writer, json_as_string(id, ""));
+    else                          json_writer_null(writer);
+    json_writer_key(writer, "error");
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "code"); json_writer_int(writer, code);
     write_error_detail(writer, message);
-    yjson_writer_end_object(writer);
-    yjson_writer_end_object(writer);
+    json_writer_end_object(writer);
+    json_writer_end_object(writer);
 
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     write_frame(stream, data, len);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
 }
 
 /* ---------- per-method handlers -------------------------------- */
 
-static void handle_create(struct yloop_stream *stream, const struct yjson_value *id,
-                          const struct yjson_value *params)
+static struct picomesh_void_result handle_create(struct loop_stream *stream, const struct json_value *id,
+                          const struct json_value *params)
 {
-    const char *class_name = yjson_as_string(yjson_object_get(params, "class"), NULL);
+    const char *class_name = json_as_string(json_object_get(params, "class"), NULL);
     if (!class_name) {
         write_jsonrpc_error(stream, id, -32602, "create: missing 'class'");
-        return;
+        return PICOMESH_OK_VOID();
     }
     struct class_ptr_result class_res = class_by_name(class_name);
     if (PICOMESH_IS_ERR(class_res)) {
         char msg[256];
         snprintf(msg, sizeof(msg), "create: unknown class '%s'", class_name);
+        picomesh_error_print(stderr, "yttp handle_create: class_by_name", class_res.error);
         picomesh_error_destroy(class_res.error);
         write_jsonrpc_error(stream, id, -32601, msg);
-        return;
+        return PICOMESH_OK_VOID();
     }
     struct object_ptr_result object_res = object_alloc(class_res.value);
     if (PICOMESH_IS_ERR(object_res)) {
+        char msg[8192];
+        picomesh_error_snprint(msg, sizeof(msg), object_res.error);
+        picomesh_error_print(stderr, "yttp handle_create: object_alloc", object_res.error);
         picomesh_error_destroy(object_res.error);
-        write_jsonrpc_error(stream, id, -32603, "create: object_alloc failed");
-        return;
+        write_jsonrpc_error(stream, id, -32603, msg);
+        return PICOMESH_OK_VOID();
     }
     uint64_t handle = rpc_register_object(object_res.value);
+    if (handle == 0) {
+        /* Object table full — free the leaked object, don't hand back handle 0. */
+        object_free(object_res.value);
+        write_jsonrpc_error(stream, id, -32603, "create: object handle table full");
+        return PICOMESH_OK_VOID();
+    }
 
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "jsonrpc"); yjson_writer_string(writer, "2.0");
-    yjson_writer_key(writer, "id");
-    if (yjson_is_int(id))         yjson_writer_int(writer, yjson_as_int(id, 0));
-    else if (yjson_is_string(id)) yjson_writer_string(writer, yjson_as_string(id, ""));
-    else                          yjson_writer_null(writer);
-    yjson_writer_key(writer, "result");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "handle"); yjson_writer_int(writer, (int64_t)handle);
-    yjson_writer_end_object(writer);
-    yjson_writer_end_object(writer);
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "jsonrpc"); json_writer_string(writer, "2.0");
+    json_writer_key(writer, "id");
+    if (json_is_int(id))         json_writer_int(writer, json_as_int(id, 0));
+    else if (json_is_string(id)) json_writer_string(writer, json_as_string(id, ""));
+    else                          json_writer_null(writer);
+    json_writer_key(writer, "result");
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "handle"); json_writer_int(writer, (int64_t)handle);
+    json_writer_end_object(writer);
+    json_writer_end_object(writer);
 
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     write_frame(stream, data, len);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
+    return PICOMESH_OK_VOID();
 }
 
-static void handle_invoke(struct yloop_stream *stream, const struct yjson_value *id,
-                          const struct yjson_value *params)
+static void handle_invoke(struct loop_stream *stream, const struct json_value *id,
+                          const struct json_value *params)
 {
-    const char *method = yjson_as_string(yjson_object_get(params, "method"), NULL);
-    int64_t handle = yjson_as_int(yjson_object_get(params, "handle"), 0);
-    const struct yjson_value *args = yjson_object_get(params, "args");
+    const char *method = json_as_string(json_object_get(params, "method"), NULL);
+    int64_t handle = json_as_int(json_object_get(params, "handle"), 0);
+    const struct json_value *args = json_object_get(params, "args");
     if (!method) {
         write_jsonrpc_error(stream, id, -32602, "invoke: missing 'method'");
         return;
@@ -223,88 +242,100 @@ static void handle_invoke(struct yloop_stream *stream, const struct yjson_value 
         return;
     }
 
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "jsonrpc"); yjson_writer_string(writer, "2.0");
-    yjson_writer_key(writer, "id");
-    if (yjson_is_int(id))         yjson_writer_int(writer, yjson_as_int(id, 0));
-    else if (yjson_is_string(id)) yjson_writer_string(writer, yjson_as_string(id, ""));
-    else                          yjson_writer_null(writer);
-    yjson_writer_key(writer, "result");
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "jsonrpc"); json_writer_string(writer, "2.0");
+    json_writer_key(writer, "id");
+    if (json_is_int(id))         json_writer_int(writer, json_as_int(id, 0));
+    else if (json_is_string(id)) json_writer_string(writer, json_as_string(id, ""));
+    else                          json_writer_null(writer);
+    json_writer_key(writer, "result");
 
     char err[8192] = {0};
     /* Local dispatch: yttp owns the object in-process — NULL ctx (call
      * the impl directly) and NULL headers (no request metadata here). */
-    int rc = invoke_fn(NULL, (struct object *)obj, NULL, args, writer, err, sizeof(err));
-    if (rc != 0) {
+    struct picomesh_void_result invoke_res =
+        invoke_fn(NULL, (struct object *)obj, NULL, args, writer, err, sizeof(err));
+    if (PICOMESH_IS_ERR(invoke_res)) {
         /* Roll back the partial response by discarding the writer
          * and emitting an error envelope instead. */
-        yjson_writer_free(writer);
+        picomesh_error_destroy(invoke_res.error);
+        json_writer_free(writer);
         write_jsonrpc_error(stream, id, -32000, err[0] ? err : "invoke: impl failed");
         return;
     }
-    yjson_writer_end_object(writer);
+    json_writer_end_object(writer);
 
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     write_frame(stream, data, len);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
 }
 
 struct describe_ctx {
-    struct yjson_writer *w;
+    struct json_writer *w;
 };
 
 static void describe_emit(const char *name, method_slot slot, void *ud)
 {
     (void)slot;
     struct describe_ctx *describe_ctx = ud;
-    yjson_writer_string(describe_ctx->w, name);
+    json_writer_string(describe_ctx->w, name);
 }
 
-static void handle_describe(struct yloop_stream *stream, const struct yjson_value *id,
-                            const struct yjson_value *params)
+static struct picomesh_void_result handle_describe(struct loop_stream *stream, const struct json_value *id,
+                            const struct json_value *params)
 {
-    const char *class_name = yjson_as_string(yjson_object_get(params, "class"), NULL);
+    const char *class_name = json_as_string(json_object_get(params, "class"), NULL);
     if (!class_name) {
         write_jsonrpc_error(stream, id, -32602, "describe: missing 'class'");
-        return;
+        return PICOMESH_OK_VOID();
     }
     struct class_ptr_result class_res = class_by_name(class_name);
     if (PICOMESH_IS_ERR(class_res)) {
+        picomesh_error_print(stderr, "yttp handle_describe: class_by_name", class_res.error);
         picomesh_error_destroy(class_res.error);
         char msg[256];
         snprintf(msg, sizeof(msg), "describe: unknown class '%s'", class_name);
         write_jsonrpc_error(stream, id, -32601, msg);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    struct yjson_writer *writer = yjson_writer_new();
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "jsonrpc"); yjson_writer_string(writer, "2.0");
-    yjson_writer_key(writer, "id");
-    if (yjson_is_int(id))         yjson_writer_int(writer, yjson_as_int(id, 0));
-    else if (yjson_is_string(id)) yjson_writer_string(writer, yjson_as_string(id, ""));
-    else                          yjson_writer_null(writer);
-    yjson_writer_key(writer, "result");
-    yjson_writer_begin_object(writer);
-    yjson_writer_key(writer, "class");   yjson_writer_string(writer, class_name);
-    yjson_writer_key(writer, "methods");
-    yjson_writer_begin_array(writer);
+    struct json_writer *writer = json_writer_new();
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "jsonrpc"); json_writer_string(writer, "2.0");
+    json_writer_key(writer, "id");
+    if (json_is_int(id))         json_writer_int(writer, json_as_int(id, 0));
+    else if (json_is_string(id)) json_writer_string(writer, json_as_string(id, ""));
+    else                          json_writer_null(writer);
+    json_writer_key(writer, "result");
+    json_writer_begin_object(writer);
+    json_writer_key(writer, "class");   json_writer_string(writer, class_name);
+    json_writer_key(writer, "methods");
+    json_writer_begin_array(writer);
     struct describe_ctx describe_ctx = {.w = writer};
-    class_for_each_slot(class_res.value, describe_emit, &describe_ctx);
-    yjson_writer_end_array(writer);
-    yjson_writer_end_object(writer);
-    yjson_writer_end_object(writer);
+    struct picomesh_void_result slots_res = class_for_each_slot(class_res.value, describe_emit, &describe_ctx);
+    if (PICOMESH_IS_ERR(slots_res)) {
+        picomesh_error_print(stderr, "yttp handle_describe: class_for_each_slot", slots_res.error);
+        picomesh_error_destroy(slots_res.error);
+    }
+    json_writer_end_array(writer);
+    json_writer_end_object(writer);
+    json_writer_end_object(writer);
 
     size_t len;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     write_frame(stream, data, len);
-    yjson_writer_free(writer);
+    json_writer_free(writer);
+    return PICOMESH_OK_VOID();
 }
 
 /* ---------- per-peer serve loop -------------------------------- */
 
-static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
+/* Per-peer reader coroutine — its void signature is fixed by the loop's
+ * accept-handler API. The per-method handlers already write their own JSON-RPC
+ * errors; a framework-level Result failure is absorbed here (chain rendered). */
+PICOMESH_EXTERNAL_CALLBACK
+static void serve_one(struct loop *loop, struct loop_stream *stream, void *ud)
 {
     (void)loop; (void)ud;
     yinfo("yttp: peer connected");
@@ -313,32 +344,40 @@ static void serve_one(struct yloop *loop, struct yloop_stream *stream, void *ud)
         int frame_len = read_frame(stream, &body);
         if (frame_len <= 0) { free(body); break; }
 
-        struct yjson_doc *doc = yjson_parse(body, (size_t)frame_len);
+        struct json_doc *doc = json_parse(body, (size_t)frame_len);
         if (!doc) {
-            ywarn("yttp: parse error: %s", yjson_last_error());
+            ywarn("yttp: parse error: %s", json_last_error());
             free(body);
             continue;
         }
-        const struct yjson_value *root = yjson_doc_root(doc);
-        const struct yjson_value *id = yjson_object_get(root, "id");
-        const char *method = yjson_as_string(yjson_object_get(root, "method"), NULL);
-        const struct yjson_value *params = yjson_object_get(root, "params");
+        const struct json_value *root = json_doc_root(doc);
+        const struct json_value *id = json_object_get(root, "id");
+        const char *method = json_as_string(json_object_get(root, "method"), NULL);
+        const struct json_value *params = json_object_get(root, "params");
 
         if (!method) {
             write_jsonrpc_error(stream, id, -32600, "missing 'method'");
         } else if (strcmp(method, "create") == 0) {
-            handle_create(stream, id, params);
+            struct picomesh_void_result handler_res = handle_create(stream, id, params);
+            if (PICOMESH_IS_ERR(handler_res)) {
+                picomesh_error_print(stderr, "yttp: handle_create", handler_res.error);
+                picomesh_error_destroy(handler_res.error);
+            }
         } else if (strcmp(method, "invoke") == 0) {
             handle_invoke(stream, id, params);
         } else if (strcmp(method, "describe") == 0) {
-            handle_describe(stream, id, params);
+            struct picomesh_void_result handler_res = handle_describe(stream, id, params);
+            if (PICOMESH_IS_ERR(handler_res)) {
+                picomesh_error_print(stderr, "yttp: handle_describe", handler_res.error);
+                picomesh_error_destroy(handler_res.error);
+            }
         } else {
             char msg[256];
             snprintf(msg, sizeof(msg), "unknown method '%s'", method);
             write_jsonrpc_error(stream, id, -32601, msg);
         }
 
-        yjson_doc_free(doc);
+        json_doc_free(doc);
         free(body);
     }
     yinfo("yttp: peer disconnected");
@@ -351,12 +390,12 @@ struct yttp_frontend_ptr_result yttp_start(struct picomesh_engine *engine,
     const char *host = (cfg && cfg->host) ? cfg->host : "127.0.0.1";
     int port = (cfg && cfg->port > 0) ? cfg->port : 8800;
 
-    struct yloop *loop = picomesh_engine_loop(engine);
+    struct loop *loop = picomesh_engine_loop(engine);
     if (!loop) return PICOMESH_ERR(yttp_frontend_ptr, "yttp_start: engine has no loop");
 
-    struct picomesh_void_result listen_res = yloop_listen_tcp(loop, host, port, serve_one, NULL);
+    struct picomesh_void_result listen_res = loop_listen_tcp(loop, host, port, serve_one, NULL);
     if (PICOMESH_IS_ERR(listen_res)) {
-        return PICOMESH_ERR(yttp_frontend_ptr, "yttp_start: yloop_listen_tcp failed", listen_res);
+        return PICOMESH_ERR(yttp_frontend_ptr, "yttp_start: loop_listen_tcp failed", listen_res);
     }
     struct yttp_frontend *frontend = calloc(1, sizeof(*frontend));
     if (!frontend) return PICOMESH_ERR(yttp_frontend_ptr, "yttp_start: calloc failed");

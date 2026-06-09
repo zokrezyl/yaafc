@@ -2,7 +2,7 @@
 #
 # Built locally via build-tools/3rdparty/simdjson/_build.sh, then
 # exposed here as the IMPORTED static target `simdjson`. The picomesh
-# C code uses simdjson via a thin C ABI shim under src/picomesh/yjson/.
+# C code uses simdjson via a thin C ABI shim under src/picomesh/json/.
 
 include_guard(GLOBAL)
 include(${PICOMESH_ROOT}/build-tools/picomesh/3rdparty-fetch.cmake)

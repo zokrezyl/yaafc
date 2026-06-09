@@ -267,7 +267,7 @@ view of it.
 ## `GET /_perf` — per-op latency aggregate (always on)
 
 `yspan` is a process-global, always-on, lock-light ring of finished spans
-(`include/picomesh/ycore/yspan.h`). It aggregates by **op name** so you see
+(`include/picomesh/core/yspan.h`). It aggregates by **op name** so you see
 where time goes without trawling logs or a collector. Query it on the
 **gateway** (it listens HTTP; backends are yrpc-only). Unauthenticated.
 

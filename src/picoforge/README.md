@@ -41,7 +41,7 @@ A node boots, allocates its own port via portalloc (if `auto`), registers
 itself, then resolves each `auto` remote through the registry. Allocation and
 registration are internal to the framework — no application code is involved.
 See [`docs/port-auto-discovery`](../../assets/picoforge/config/picoforge.yaml)
-config comments and `src/picomesh/ymain/autoport.c` for the mechanism.
+config comments and `src/picomesh/main/autoport.c` for the mechanism.
 
 ## Topology
 

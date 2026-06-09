@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_STORAGE_H
 #define PICOMESH_PLUGIN_STORAGE_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int_result;
 struct picomesh_size_result;
@@ -28,6 +28,6 @@ struct picomesh_int_result storage_del(struct ctx * ctx, struct object * obj, st
 struct picomesh_size_result storage_count(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * context);
 
 /* ---- activation ---- */
-void picomesh_plugin_storage_register(void);
+struct picomesh_void_result picomesh_plugin_storage_register(void);
 
 #endif

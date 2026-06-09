@@ -18,10 +18,10 @@
  * that otherwise leaves va_list incomplete). */
 #include <stdarg.h>
 
-#include <picomesh/ycore/ytrace.h>
-#include <picomesh/ycore/idkey.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/yloop/yloop.h>
+#include <picomesh/core/ytrace.h>
+#include <picomesh/core/idkey.h>
+#include <picomesh/json/json.h>
+#include <picomesh/loop/loop.h>
 
 #include <picohttpparser.h>
 
@@ -54,8 +54,12 @@ struct service_set {
 
 #define WEBAPP_SERVICES_TTL_SEC 30
 
+/* OK carries the parsed RPC response doc (NULL when the response had no body /
+ * no result); ERR carries the transport/parse failure's cause chain. */
+PICOMESH_RESULT_DECLARE(json_doc_ptr, struct json_doc *);
+
 struct serve_ud {
-    struct yloop *loop;
+    struct loop *loop;
     const struct webapp_config *cfg;
     struct gateway_url gw;
     struct service_set services;
@@ -104,13 +108,14 @@ static const char *http_reason(int status)
     case 403: return "Forbidden";
     case 404: return "Not Found";
     case 405: return "Method Not Allowed";
+    case 431: return "Request Header Fields Too Large";
     case 500: return "Internal Server Error";
     case 502: return "Bad Gateway";
     default:  return "OK";
     }
 }
 
-static void send_response(struct yloop_stream *s, int status,
+static void send_response(struct loop_stream *s, int status,
                           const char *content_type,
                           const char *body, size_t body_len,
                           const char *extra_headers, int keep_alive)
@@ -129,11 +134,11 @@ static void send_response(struct yloop_stream *s, int status,
         keep_alive ? "keep-alive" : "close",
         extra_headers ? extra_headers : "");
     if (n <= 0) return;
-    yloop_write(s, header, (size_t)n);
-    if (body_len && body) yloop_write(s, body, body_len);
+    loop_write(s, header, (size_t)n);
+    if (body_len && body) loop_write(s, body, body_len);
 }
 
-static void send_redirect(struct yloop_stream *s, const char *location,
+static void send_redirect(struct loop_stream *s, const char *location,
                           const char *extra_headers, int keep_alive)
 {
     char hdrs[8192];
@@ -146,7 +151,7 @@ static void send_redirect(struct yloop_stream *s, const char *location,
     send_response(s, 303, "text/plain", "", 0, hdrs, keep_alive);
 }
 
-static void send_text(struct yloop_stream *s, int status,
+static void send_text(struct loop_stream *s, int status,
                       const char *body, int keep_alive)
 {
     send_response(s, status, "text/plain; charset=utf-8",
@@ -240,7 +245,7 @@ static const char *mime_for(const char *path)
     return "application/octet-stream";
 }
 
-static int serve_static(struct yloop_stream *s, const char *root,
+static int serve_static(struct loop_stream *s, const char *root,
                         const char *url_path, int keep_alive)
 {
     if (!root || !*root) return 0;
@@ -305,7 +310,7 @@ static const char LOGIN_HTML[] =
     "</main>"
     "</body></html>";
 
-static void route_login_get(struct yloop_stream *s, const struct serve_ud *sud, int keep_alive)
+static void route_login_get(struct loop_stream *s, const struct serve_ud *sud, int keep_alive)
 {
     if (!sud || !sud->cfg || !sud->cfg->github_client_id || !*sud->cfg->github_client_id) {
         send_response(s, 200, "text/html; charset=utf-8", LOGIN_HTML, sizeof(LOGIN_HTML) - 1, NULL, keep_alive);
@@ -368,7 +373,7 @@ static size_t html_escape(char *dst, size_t cap, const char *src)
  * interpolation — gateway errors routinely echo user-supplied content
  * (e.g. "no such user 'alice'") and reflecting that unescaped would be
  * stored/reflected XSS. */
-static void route_login_get_with_error(struct yloop_stream *s,
+static void route_login_get_with_error(struct loop_stream *s,
                                        const char *err, int keep_alive)
 {
     char escaped[1024];
@@ -449,13 +454,14 @@ static char *form_get(const char *body, size_t blen, const char *key)
 }
 
 /* Read `n` bytes off the stream into `dst` (allocated by caller). */
-static int read_body(struct yloop_stream *s, char *dst, size_t n)
+static int read_body(struct loop_stream *s, char *dst, size_t n)
 {
     size_t got = 0;
     while (got < n) {
-        size_t k = yloop_read_some(s, dst + got, n - got);
-        if (k == 0) return -1;
-        got += k;
+        struct picomesh_size_result chunk_res = loop_read_some(s, dst + got, n - got);
+        if (PICOMESH_IS_ERR(chunk_res)) { picomesh_error_destroy(chunk_res.error); return -1; }
+        if (chunk_res.value == 0) return -1; /* EOF before the full body arrived */
+        got += chunk_res.value;
     }
     return 0;
 }
@@ -568,7 +574,7 @@ static void build_auth_cookies(char *out, size_t cap,
         relayed_sid, uname_v);
 }
 
-static void route_login_post(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_login_post(struct loop *loop, struct loop_stream *s,
                              const struct serve_ud *sud,
                              const char *body, size_t body_len, int keep_alive)
 {
@@ -579,19 +585,21 @@ static void route_login_post(struct yloop *loop, struct yloop_stream *s,
     if (!have_both) {
         free(username);
         route_login_get_with_error(s, "missing username or password", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     /* Forward the browser's form payload verbatim to the gateway. */
     struct http_response resp;
-    int post_res = http_post(loop, &sud->gw, "/login",
+    struct picomesh_int_result post = http_post(loop, &sud->gw, "/login",
                        "application/x-www-form-urlencoded",
                        NULL, NULL, body, body_len, &resp);
-    if (post_res != 0) {
+    if (PICOMESH_IS_ERR(post)) {
+        picomesh_error_print(stderr, "route_login_post: /login", post.error);
+        picomesh_error_destroy(post.error);
         http_response_free(&resp);
         free(username);
         route_login_get_with_error(s, "gateway unreachable", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     if (resp.status == 303 && resp.set_cookie[0]) {
@@ -600,17 +608,18 @@ static void route_login_post(struct yloop *loop, struct yloop_stream *s,
         http_response_free(&resp);
         free(username);
         send_redirect(s, "/-/repos", hdrs, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     http_response_free(&resp);
     free(username);
     route_login_get_with_error(s, "invalid username or password", keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 
 static char *query_get(const char *path, const char *key);
-static void resolve_claims(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_void_result resolve_claims(struct loop *loop, const struct serve_ud *sud,
                            const char *sid, struct claims *out);
 
 static void public_base_url(const struct serve_ud *sud, const struct phr_header *hdrs, size_t n,
@@ -664,7 +673,7 @@ static int oauth_state(char *out, size_t cap)
     return 1;
 }
 
-static void route_github_start(struct yloop_stream *s, const struct serve_ud *sud,
+static void route_github_start(struct loop_stream *s, const struct serve_ud *sud,
                                const struct phr_header *hdrs, size_t n, int keep_alive)
 {
     const char *client = sud && sud->cfg ? sud->cfg->github_client_id : NULL;
@@ -699,7 +708,7 @@ static int sid_from_set_cookie(const char *set_cookie, char *out, size_t cap)
     return 1;
 }
 
-static void route_github_callback(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_github_callback(struct loop *loop, struct loop_stream *s,
                                   const struct serve_ud *sud,
                                   const struct phr_header *hdrs, size_t hn,
                                   const char *full_path, int keep_alive)
@@ -710,12 +719,12 @@ static void route_github_callback(struct yloop *loop, struct yloop_stream *s,
     if (!state || !state_cookie || strcmp(state, state_cookie) != 0) {
         free(code); free(state); free(state_cookie);
         route_login_get_with_error(s, "GitHub OAuth state did not match", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     char enc_state[160];
     urlenc(enc_state, sizeof(enc_state), state);
     free(state); free(state_cookie);
-    if (!code || !*code) { free(code); route_login_get_with_error(s, "GitHub did not return an OAuth code", keep_alive); return; }
+    if (!code || !*code) { free(code); route_login_get_with_error(s, "GitHub did not return an OAuth code", keep_alive); return PICOMESH_OK_VOID(); }
     char redirect[1024], enc_code[1024], enc_redirect[1400];
     github_redirect_uri(sud, hdrs, hn, redirect, sizeof(redirect));
     urlenc(enc_code, sizeof(enc_code), code);
@@ -724,7 +733,7 @@ static void route_github_callback(struct yloop *loop, struct yloop_stream *s,
     char body[2600];
     int bn = snprintf(body, sizeof(body), "code=%s&redirect_uri=%s&state=%s",
                       enc_code, enc_redirect, enc_state);
-    if (bn <= 0 || (size_t)bn >= sizeof(body)) { route_login_get_with_error(s, "GitHub callback is too large", keep_alive); return; }
+    if (bn <= 0 || (size_t)bn >= sizeof(body)) { route_login_get_with_error(s, "GitHub callback is too large", keep_alive); return PICOMESH_OK_VOID(); }
 
     /* The gateway's /auth/github/callback ONLY accepts this custom Content-Type.
      * A browser cross-site form POST is limited to the three "simple" content
@@ -735,9 +744,15 @@ static void route_github_callback(struct yloop *loop, struct yloop_stream *s,
      * sent straight to the gateway to bypass this state check. Keep the literal
      * in sync with the gateway (frontend.c route_github_callback_post). */
     struct http_response resp;
-    int post_res = http_post(loop, &sud->gw, "/auth/github/callback",
+    struct picomesh_int_result post = http_post(loop, &sud->gw, "/auth/github/callback",
                        "application/x-picoforge-oauth-relay", NULL, NULL, body, (size_t)bn, &resp);
-    if (post_res != 0) { http_response_free(&resp); route_login_get_with_error(s, "gateway unreachable", keep_alive); return; }
+    if (PICOMESH_IS_ERR(post)) {
+        picomesh_error_print(stderr, "route_github_callback: /auth/github/callback", post.error);
+        picomesh_error_destroy(post.error);
+        http_response_free(&resp);
+        route_login_get_with_error(s, "gateway unreachable", keep_alive);
+        return PICOMESH_OK_VOID();
+    }
     if (resp.status == 303 && resp.set_cookie[0]) {
         char sid[80] = {0};
         sid_from_set_cookie(resp.set_cookie, sid, sizeof(sid));
@@ -748,10 +763,11 @@ static void route_github_callback(struct yloop *loop, struct yloop_stream *s,
         strncat(hdrs_out, "Set-Cookie: picoforge-oauth-state=; Path=/-/auth/github; HttpOnly; SameSite=Lax; Max-Age=0\r\n", sizeof(hdrs_out) - strlen(hdrs_out) - 1);
         http_response_free(&resp);
         send_redirect(s, "/-/repos", hdrs_out, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     http_response_free(&resp);
     route_login_get_with_error(s, "GitHub sign-in failed", keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* ---- /register: same relay shape as /login ------------------------- *
@@ -775,7 +791,7 @@ static const char REGISTER_HTML[] =
     "</main>"
     "</body></html>";
 
-static void route_register_get(struct yloop_stream *s, int keep_alive)
+static void route_register_get(struct loop_stream *s, int keep_alive)
 {
     send_response(s, 200, "text/html; charset=utf-8",
                   REGISTER_HTML, sizeof(REGISTER_HTML) - 1, NULL, keep_alive);
@@ -783,7 +799,7 @@ static void route_register_get(struct yloop_stream *s, int keep_alive)
 
 /* Register page with an error banner spliced in before the form. `err`
  * is HTML-escaped (gateway errors echo the submitted username). */
-static void route_register_get_with_error(struct yloop_stream *s,
+static void route_register_get_with_error(struct loop_stream *s,
                                           const char *err, int keep_alive)
 {
     char escaped[1024];
@@ -808,7 +824,7 @@ static void route_register_get_with_error(struct yloop_stream *s,
     send_response(s, 200, "text/html; charset=utf-8", body, (size_t)n, NULL, keep_alive);
 }
 
-static void route_register_post(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_register_post(struct loop *loop, struct loop_stream *s,
                                 const struct serve_ud *sud,
                                 const char *body, size_t body_len, int keep_alive)
 {
@@ -819,18 +835,20 @@ static void route_register_post(struct yloop *loop, struct yloop_stream *s,
     if (!have_both) {
         free(username);
         route_register_get_with_error(s, "username and password are required", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     struct http_response resp;
-    int post_res = http_post(loop, &sud->gw, "/register",
+    struct picomesh_int_result post = http_post(loop, &sud->gw, "/register",
                        "application/x-www-form-urlencoded",
                        NULL, NULL, body, body_len, &resp);
-    if (post_res != 0) {
+    if (PICOMESH_IS_ERR(post)) {
+        picomesh_error_print(stderr, "route_register_post: /register", post.error);
+        picomesh_error_destroy(post.error);
         http_response_free(&resp);
         free(username);
         route_register_get_with_error(s, "gateway unreachable", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     if (resp.status == 303 && resp.set_cookie[0]) {
@@ -839,13 +857,14 @@ static void route_register_post(struct yloop *loop, struct yloop_stream *s,
         http_response_free(&resp);
         free(username);
         send_redirect(s, "/-/repos", hdrs, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     http_response_free(&resp);
     free(username);
     route_register_get_with_error(s,
         "could not create account (the username may already be taken)", keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 static int starts_with(const char *p, size_t pl, const char *pref)
@@ -862,13 +881,12 @@ static int path_equals(const char *p, size_t pl, const char *want)
 
 /* Forward decls — the /_rpc helpers live further down, but the page
  * renderers below want them. */
-static long rpc_result_int(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_int64_result rpc_result_int(struct loop *loop, const struct serve_ud *sud,
                            const char *sid, const char *rpc_path,
                            const char *args_json, long fallback);
-static char *rpc_result_str(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_string_result rpc_result_str(struct loop *loop, const struct serve_ud *sud,
                             const char *sid, const char *rpc_path,
                             const char *args_json, int *was_error);
-static uint32_t hash_username(const char *s);
 static int service_active(const struct serve_ud *sud, const char *name);
 struct repo_route;
 static const struct repo_route *repo_route_for(const char *verb);
@@ -971,7 +989,7 @@ static void render_shell_open(struct buf *b, const char *title, const char *unam
     buf_puts(b, "<main class=\"content\">");
 }
 
-static void render_shell_close(struct yloop_stream *s, struct buf *b, int keep_alive)
+static void render_shell_close(struct loop_stream *s, struct buf *b, int keep_alive)
 {
     buf_puts(b, "</main></div>"
                 "<footer class=\"app-footer\"><span>picoforge \xc2\xb7 served by "
@@ -1004,7 +1022,7 @@ static void render_page_header(struct buf *b, const char *title,
 /* Render a styled 403 page inside the app shell and send it with a real
  * 403 status (render_shell_close hardcodes 200, so we assemble + send it
  * here). `uname` is the trustworthy display name (may be ""). */
-static void send_forbidden(struct yloop_stream *s, const char *uname, int keep_alive)
+static void send_forbidden(struct loop_stream *s, const char *uname, int keep_alive)
 {
     struct buf b; buf_init(&b);
     render_shell_open(&b, "Forbidden", uname, NULL, /*is_admin=*/0);
@@ -1025,7 +1043,7 @@ static void send_forbidden(struct yloop_stream *s, const char *uname, int keep_a
  * may proceed; otherwise it has already written the response (redirect to
  * /login for an anonymous caller, 403 for a signed-in non-admin) and the
  * caller must return without rendering admin content. */
-static int require_admin(struct yloop_stream *s, const struct claims *claims, int keep_alive)
+static int require_admin(struct loop_stream *s, const struct claims *claims, int keep_alive)
 {
     if (!claims->uid) { send_redirect(s, "/-/login", NULL, keep_alive); return 0; }
     if (!claims->is_admin) {
@@ -1086,22 +1104,29 @@ static void render_project_tabs(struct buf *b, const char *acct, const char *rep
 
 /* Fetch the tab count badges for a repo: open issues + active runs
  * (pending+running). Either is set to -1 when its service is inactive. */
-static void repo_tab_counts(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_void_result repo_tab_counts(struct loop *loop, const struct serve_ud *sud,
                             const char *sid, uint32_t rid,
                             long *issues_out, long *runs_out)
 {
     char args[48];
     snprintf(args, sizeof(args), "[%u]", rid);
-    *issues_out = service_active(sud, "issues")
-        ? rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", args, -1)
-        : -1;
+    if (service_active(sud, "issues")) {
+        struct picomesh_int64_result issues_r = rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", args, -1);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, issues_r, "repo_tab_counts: open-issue count");
+        *issues_out = issues_r.value;
+    } else {
+        *issues_out = -1;
+    }
     if (service_active(sud, "git_pipeline")) {
-        long pending = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
-        long running = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
-        *runs_out = pending + running;
+        struct picomesh_int64_result pending = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, pending, "repo_tab_counts: pending count");
+        struct picomesh_int64_result running = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
+        PICOMESH_RETURN_IF_ERR(picomesh_void, running, "repo_tab_counts: running count");
+        *runs_out = pending.value + running.value;
     } else {
         *runs_out = -1;
     }
+    return PICOMESH_OK_VOID();
 }
 
 /* A bordered content panel with an optional header (title + muted meta)
@@ -1121,13 +1146,13 @@ static void panel_close(struct buf *b) { buf_puts(b, "</div></section>"); }
 
 /* Forward declarations — these helpers are defined further down but are used by
  * the RBAC-based /repos discovery below. */
-static struct yjson_doc *whoami_doc(struct yloop *loop, const struct serve_ud *sud, const char *sid);
+static struct json_doc_ptr_result whoami_doc(struct loop *loop, const struct serve_ud *sud, const char *sid);
 static int role_at_least(const char *role, const char *floor);
 static int json_escape(char *dst, size_t cap, const char *src);
-static struct yjson_doc *rpc_result_doc(struct yloop *loop, const struct serve_ud *sud,
+static struct json_doc_ptr_result rpc_result_doc(struct loop *loop, const struct serve_ud *sud,
                                         const char *sid, const char *rpc_path,
                                         const char *args_json,
-                                        const struct yjson_value **result_out);
+                                        const struct json_value **result_out);
 
 /* True iff `full` already appears as a "\n<full>\n" token in the newline-wrapped
  * `seen` buffer — the dedup test for the /repos discovery merge. */
@@ -1149,11 +1174,13 @@ static int repo_seen(const char *seen, const char *full)
  * but has since lost access to. Returns a heap, newline-separated,
  * NUL-terminated list (NULL/empty when the caller can read nothing); caller
  * frees. Shared by /repos, /search and /dashboard/issues so all three agree. */
-static char *collect_accessible_repos(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_string_result collect_accessible_repos(struct loop *loop, const struct serve_ud *sud,
                                       const char *sid)
 {
-    struct yjson_doc *who = whoami_doc(loop, sud, sid);
-    const struct yjson_value *nss = who ? yjson_object_get(yjson_doc_root(who), "namespaces") : NULL;
+    struct json_doc_ptr_result who_r = whoami_doc(loop, sud, sid);
+    if (PICOMESH_IS_ERR(who_r)) { picomesh_error_print(stderr, "webapp: collect_accessible_repos whoami", who_r.error); picomesh_error_destroy(who_r.error); }
+    struct json_doc *who = PICOMESH_IS_OK(who_r) ? who_r.value : NULL;
+    const struct json_value *nss = who ? json_object_get(json_doc_root(who), "namespaces") : NULL;
 
     /* Two dedup sets of "\n<token>\n": namespaces already expanded (a nested
      * membership is covered by an ancestor's subtree) and repos already added. */
@@ -1161,21 +1188,23 @@ static char *collect_accessible_repos(struct yloop *loop, const struct serve_ud 
     struct buf seen;    buf_init(&seen);    buf_puts(&seen, "\n");
     struct buf out;     buf_init(&out);
 
-    size_t ns_count = nss ? yjson_array_size(nss) : 0;
+    size_t ns_count = nss ? json_array_size(nss) : 0;
     for (size_t i = 0; i < ns_count; ++i) {
-        const struct yjson_value *ns_entry = yjson_array_at(nss, i);
-        const char *root = yjson_as_string(yjson_object_get(ns_entry, "path"), NULL);
-        const char *role = yjson_as_string(yjson_object_get(ns_entry, "role"), NULL);
+        const struct json_value *ns_entry = json_array_at(nss, i);
+        const char *root = json_as_string(json_object_get(ns_entry, "path"), NULL);
+        const char *role = json_as_string(json_object_get(ns_entry, "role"), NULL);
         if (!root || !*root || !role || !role_at_least(role, "reporter")) continue;
 
         char esc[256], sargs[300];
         if (!json_escape(esc, sizeof(esc), root)) continue;
         snprintf(sargs, sizeof(sargs), "[\"%s\"]", esc);
-        const struct yjson_value *paths = NULL;
-        struct yjson_doc *sub = rpc_result_doc(loop, sud, sid, "accounts.accounts.ns_subtree", sargs, &paths);
-        size_t path_count = (sub && paths && yjson_is_array(paths)) ? yjson_array_size(paths) : 0;
+        const struct json_value *paths = NULL;
+        struct json_doc_ptr_result sub_r = rpc_result_doc(loop, sud, sid, "accounts.accounts.ns_subtree", sargs, &paths);
+        if (PICOMESH_IS_ERR(sub_r)) { picomesh_error_print(stderr, "webapp: ns_subtree", sub_r.error); picomesh_error_destroy(sub_r.error); }
+        struct json_doc *sub = PICOMESH_IS_OK(sub_r) ? sub_r.value : NULL;
+        size_t path_count = (sub && paths && json_is_array(paths)) ? json_array_size(paths) : 0;
         for (size_t j = 0; j < path_count; ++j) {
-            const char *nspath = yjson_as_string(yjson_object_get(yjson_array_at(paths, j), "path"), NULL);
+            const char *nspath = json_as_string(json_object_get(json_array_at(paths, j), "path"), NULL);
             if (!nspath || !*nspath) continue;
             if (repo_seen(ns_seen.data, nspath)) continue;  /* already listed via another membership */
             buf_puts(&ns_seen, "\n"); buf_puts(&ns_seen, nspath); buf_puts(&ns_seen, "\n");
@@ -1183,7 +1212,9 @@ static char *collect_accessible_repos(struct yloop *loop, const struct serve_ud 
             char nesc[256], nargs[300];
             if (!json_escape(nesc, sizeof(nesc), nspath)) continue;
             snprintf(nargs, sizeof(nargs), "[\"%s\"]", nesc);
-            char *names = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_namespace", nargs, NULL);
+            struct picomesh_string_result names_r = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_namespace", nargs, NULL);
+            if (PICOMESH_IS_ERR(names_r)) { picomesh_error_print(stderr, "webapp: list_for_namespace", names_r.error); picomesh_error_destroy(names_r.error); }
+            char *names = PICOMESH_IS_OK(names_r) ? names_r.value : NULL;
             if (names && *names) {
                 char *save = NULL;
                 for (char *line = strtok_r(names, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
@@ -1197,29 +1228,31 @@ static char *collect_accessible_repos(struct yloop *loop, const struct serve_ud 
             }
             free(names);
         }
-        if (sub) yjson_doc_free(sub);
+        if (sub) json_doc_free(sub);
     }
     buf_free(&ns_seen);
     buf_free(&seen);
-    if (who) yjson_doc_free(who);
-    return out.data; /* ownership transferred to caller (NULL when empty) */
+    if (who) json_doc_free(who);
+    return PICOMESH_OK(picomesh_string, out.data); /* ownership transferred to caller (NULL when empty) */
 }
 
 /* GET /-/repos — the signed-in user's accessible repositories: every repo in
  * every namespace the caller holds a role on (RBAC discovery via
  * collect_accessible_repos). All data comes from the gateway over /_rpc; the
  * webapp holds no state. `sid` NULL/empty → bounce to /login. */
-static void route_repos_get(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_repos_get(struct loop *loop, struct loop_stream *s,
                             const struct serve_ud *sud, const char *sid,
                             const char *uname, uint32_t owner_uid, int is_admin,
                             int keep_alive)
 {
     if (!sid || !*sid || !owner_uid) {
         send_redirect(s, "/-/login", NULL, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
-    long total = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_total", "[]", -1);
+    struct picomesh_int64_result total_r = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_total", "[]", -1);
+    if (PICOMESH_IS_ERR(total_r)) { picomesh_error_print(stderr, "webapp: count_total", total_r.error); picomesh_error_destroy(total_r.error); }
+    long total = PICOMESH_IS_OK(total_r) ? total_r.value : -1;
 
     /* Projects discovery is ROLE-based, not creator-index-based (issue #30): the
      * page lists every repo in every namespace the caller can READ, INCLUDING
@@ -1227,7 +1260,9 @@ static void route_repos_get(struct yloop *loop, struct yloop_stream *s,
      * but has since lost access to. collect_accessible_repos walks /_whoami →
      * accounts.ns_subtree → git_repo.list_for_namespace; the creator index
      * (list_for_owner) is intentionally NOT consulted. */
-    char *repos = collect_accessible_repos(loop, sud, sid);
+    struct picomesh_string_result repos_r = collect_accessible_repos(loop, sud, sid);
+    if (PICOMESH_IS_ERR(repos_r)) { picomesh_error_print(stderr, "webapp: collect repos", repos_r.error); picomesh_error_destroy(repos_r.error); }
+    char *repos = PICOMESH_IS_OK(repos_r) ? repos_r.value : NULL;
 
     struct buf b; buf_init(&b);
     render_shell_open(&b, "Repositories", uname, "projects", is_admin);
@@ -1259,6 +1294,7 @@ static void route_repos_get(struct yloop *loop, struct yloop_stream *s,
     panel_close(&b);
     free(repos);
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* ---- repo file browser + Monaco editor ----------------------------- *
@@ -1289,17 +1325,6 @@ static uint32_t repo_hash_full(const char *full_path)
 {
     uint32_t h = 2166136261u;
     for (const char *p = full_path; p && *p; ++p) { h ^= (unsigned char)*p; h *= 16777619u; }
-    return h ? h : 1;
-}
-
-/* FNV-1a 32 of a username → uid. MUST match the gateway's hash_username()
- * so an account-landing page resolves to the same owner uid the gateway
- * and git_repo backend key on (see memory repo-id-shared-hash). Routes through
- * the single shared primitive (picomesh_fnv1a32) so the hash cannot drift from
- * the gateway's; the uid==0 (anonymous) reservation is the only local policy. */
-static uint32_t hash_username(const char *s)
-{
-    uint32_t h = picomesh_fnv1a32(s);
     return h ? h : 1;
 }
 
@@ -1359,7 +1384,7 @@ static int json_escape(char *dst, size_t cap, const char *src)
 /* POST the gateway's /_rpc with {path,args:<args_json>} and return the
  * `result` STRING (malloc'd; caller frees) or NULL. `*was_error` (opt)
  * is set when the gateway answered with an error object. */
-static char *rpc_result_str(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_string_result rpc_result_str(struct loop *loop, const struct serve_ud *sud,
                             const char *sid, const char *rpc_path,
                             const char *args_json, int *was_error)
 {
@@ -1367,65 +1392,65 @@ static char *rpc_result_str(struct yloop *loop, const struct serve_ud *sud,
     /* Body sized to hold args_json (which may carry an escaped file). */
     size_t need = strlen(rpc_path) + strlen(args_json) + 32;
     char *body = malloc(need);
-    if (!body) { if (was_error) *was_error = 1; return NULL; }
+    if (!body) { if (was_error) *was_error = 1; return PICOMESH_OK(picomesh_string, NULL); }
     int n = snprintf(body, need, "{\"path\":\"%s\",\"args\":%s}", rpc_path, args_json);
-    if (n <= 0 || (size_t)n >= need) { free(body); if (was_error) *was_error = 1; return NULL; }
+    if (n <= 0 || (size_t)n >= need) { free(body); if (was_error) *was_error = 1; return PICOMESH_OK(picomesh_string, NULL); }
 
     struct http_response resp;
-    int post_res = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
+    struct picomesh_int_result post = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
     free(body);
-    if (post_res != 0) { http_response_free(&resp); if (was_error) *was_error = 1; return NULL; }
+    if (PICOMESH_IS_ERR(post)) { http_response_free(&resp); if (was_error) *was_error = 1; return PICOMESH_ERR(picomesh_string, "rpc_result_str: gateway POST failed", post); }
 
     char *out = NULL;
     if (resp.body) {
-        struct yjson_doc *doc = yjson_parse(resp.body, resp.body_len);
+        struct json_doc *doc = json_parse(resp.body, resp.body_len);
         if (doc) {
-            const struct yjson_value *root = yjson_doc_root(doc);
-            const struct yjson_value *result = yjson_object_get(root, "result");
-            const struct yjson_value *err = yjson_object_get(root, "error");
+            const struct json_value *root = json_doc_root(doc);
+            const struct json_value *result = json_object_get(root, "result");
+            const struct json_value *err = json_object_get(root, "error");
             if (result) {
-                const char *str_val = yjson_as_string(result, NULL);
+                const char *str_val = json_as_string(result, NULL);
                 if (str_val) out = strdup(str_val);
             } else if (err && was_error) {
                 *was_error = 1;
             }
-            yjson_doc_free(doc);
+            json_doc_free(doc);
         }
     }
     http_response_free(&resp);
-    return out;
+    return PICOMESH_OK(picomesh_string, out);
 }
 
 /* Perform an RPC and return the parsed response document so the caller can
  * walk a structured `result` (e.g. a JSON array). `*result_out` points at
  * the `result` value inside the returned doc (any JSON type, NULL if
- * absent). The caller owns the doc and must yjson_doc_free it; values
+ * absent). The caller owns the doc and must json_doc_free it; values
  * borrowed from it are valid until then. NULL on transport/parse error. */
-static struct yjson_doc *rpc_result_doc(struct yloop *loop, const struct serve_ud *sud,
+static struct json_doc_ptr_result rpc_result_doc(struct loop *loop, const struct serve_ud *sud,
                                         const char *sid, const char *rpc_path,
                                         const char *args_json,
-                                        const struct yjson_value **result_out)
+                                        const struct json_value **result_out)
 {
     if (result_out) *result_out = NULL;
     size_t need = strlen(rpc_path) + strlen(args_json) + 32;
     char *body = malloc(need);
-    if (!body) return NULL;
+    if (!body) return PICOMESH_OK(json_doc_ptr, NULL);
     int n = snprintf(body, need, "{\"path\":\"%s\",\"args\":%s}", rpc_path, args_json);
-    if (n <= 0 || (size_t)n >= need) { free(body); return NULL; }
+    if (n <= 0 || (size_t)n >= need) { free(body); return PICOMESH_OK(json_doc_ptr, NULL); }
 
     struct http_response resp;
-    int post_res = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
+    struct picomesh_int_result post = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
     free(body);
-    if (post_res != 0) { http_response_free(&resp); return NULL; }
+    if (PICOMESH_IS_ERR(post)) { http_response_free(&resp); return PICOMESH_ERR(json_doc_ptr, "rpc_result_doc: gateway POST failed", post); }
 
-    struct yjson_doc *doc = NULL;
+    struct json_doc *doc = NULL;
     if (resp.body) {
-        doc = yjson_parse(resp.body, resp.body_len);
+        doc = json_parse(resp.body, resp.body_len);
         if (doc && result_out)
-            *result_out = yjson_object_get(yjson_doc_root(doc), "result");
+            *result_out = json_object_get(json_doc_root(doc), "result");
     }
     http_response_free(&resp);
-    return doc;
+    return PICOMESH_OK(json_doc_ptr, doc);
 }
 
 /* Split "<account>/<repo>[/<verb>]" out of a path (query stripped). On
@@ -1496,7 +1521,7 @@ static int parse_repo_path(const char *path, size_t path_len,
 
 /* GET /<account>/<repo>[?dir=<subdir>] — file browser. Lists the tree via
  * git_repo.git_repo.read_tree; dirs link deeper, files link to /edit. */
-static void route_repo_browse(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_repo_browse(struct loop *loop, struct loop_stream *s,
                               const struct serve_ud *sud, const char *sid,
                               const char *uname, const char *acct, const char *repo,
                               const char *full_path, int is_admin, int keep_alive)
@@ -1506,14 +1531,17 @@ static void route_repo_browse(struct yloop *loop, struct yloop_stream *s,
     const char *dirv = dir ? dir : "";
 
     char dir_esc[1024];
-    if (!json_escape(dir_esc, sizeof(dir_esc), dirv)) { free(dir); send_text(s, 400, "bad dir\n", keep_alive); return; }
+    if (!json_escape(dir_esc, sizeof(dir_esc), dirv)) { free(dir); send_text(s, 400, "bad dir\n", keep_alive); return PICOMESH_OK_VOID(); }
     char args[1200];
     snprintf(args, sizeof(args), "[%u,\"\",\"%s\"]", rid, dir_esc);
     int err = 0;
-    char *tree = rpc_result_str(loop, sud, sid, "git_repo.git_repo.read_tree", args, &err);
+    struct picomesh_string_result tree_r = rpc_result_str(loop, sud, sid, "git_repo.git_repo.read_tree", args, &err);
+    if (PICOMESH_IS_ERR(tree_r)) { picomesh_error_print(stderr, "webapp: read_tree", tree_r.error); picomesh_error_destroy(tree_r.error); }
+    char *tree = PICOMESH_IS_OK(tree_r) ? tree_r.value : NULL;
 
     long issue_count = -1, run_count = -1;
-    repo_tab_counts(loop, sud, sid, rid, &issue_count, &run_count);
+    struct picomesh_void_result counts_r = repo_tab_counts(loop, sud, sid, rid, &issue_count, &run_count);
+    if (PICOMESH_IS_ERR(counts_r)) { picomesh_error_print(stderr, "webapp: repo_tab_counts", counts_r.error); picomesh_error_destroy(counts_r.error); }
 
     struct buf b; buf_init(&b);
     char title[160];
@@ -1587,12 +1615,13 @@ static void route_repo_browse(struct yloop *loop, struct yloop_stream *s,
     buf_puts(&b, "</section>");
     free(tree); free(dir);
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* Emit the Monaco editor page. `path` may be empty for a brand-new file
  * where the user types the name; `content` is the current text (empty for
  * new). `is_new` controls the heading + whether the path field is editable. */
-static void render_editor_page(struct yloop_stream *s, const char *uname,
+static void render_editor_page(struct loop_stream *s, const char *uname,
                                const char *acct,
                                const char *repo, const char *path,
                                const char *content, int is_new, int is_admin,
@@ -1665,13 +1694,13 @@ static void render_editor_page(struct yloop_stream *s, const char *uname,
 /* GET /<account>/<repo>/edit?path=<p> — open a file in Monaco (read_file;
  * a missing file opens blank as new at that path). GET /<account>/<repo>/new
  * — blank editor (optionally seeded with ?dir= as a path prefix). */
-static void route_repo_edit_get(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_repo_edit_get(struct loop *loop, struct loop_stream *s,
                                 const struct serve_ud *sud, const char *sid,
                                 const char *uname, const char *acct, const char *repo,
                                 const char *verb, const char *full_path,
                                 int is_admin, int keep_alive)
 {
-    if (!sid || !*sid) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    if (!sid || !*sid) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
     uint32_t rid = repo_hash(acct, repo);
 
     if (strcmp(verb, "new") == 0) {
@@ -1680,34 +1709,37 @@ static void route_repo_edit_get(struct yloop *loop, struct yloop_stream *s,
         if (dir && *dir) snprintf(seed, sizeof(seed), "%s/", dir);
         render_editor_page(s, uname, acct, repo, seed, "", /*is_new=*/1, is_admin, keep_alive);
         free(dir);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     char *path = query_get(full_path, "path");
     if (!path || !*path) {
         free(path);
         render_editor_page(s, uname, acct, repo, "", "", /*is_new=*/1, is_admin, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     char path_esc[1024];
-    if (!json_escape(path_esc, sizeof(path_esc), path)) { free(path); send_text(s, 400, "bad path\n", keep_alive); return; }
+    if (!json_escape(path_esc, sizeof(path_esc), path)) { free(path); send_text(s, 400, "bad path\n", keep_alive); return PICOMESH_OK_VOID(); }
     char args[1200];
     snprintf(args, sizeof(args), "[%u,\"\",\"%s\"]", rid, path_esc);
     int err = 0;
-    char *content = rpc_result_str(loop, sud, sid, "git_repo.git_repo.read_file", args, &err);
+    struct picomesh_string_result content_r = rpc_result_str(loop, sud, sid, "git_repo.git_repo.read_file", args, &err);
+    if (PICOMESH_IS_ERR(content_r)) { picomesh_error_print(stderr, "webapp: read_file", content_r.error); picomesh_error_destroy(content_r.error); }
+    char *content = PICOMESH_IS_OK(content_r) ? content_r.value : NULL;
     render_editor_page(s, uname, acct, repo, path, content ? content : "",
                        /*is_new=*/(content == NULL), is_admin, keep_alive);
     free(content); free(path);
+    return PICOMESH_OK_VOID();
 }
 
 /* POST /<account>/<repo>/edit — save a file (put_file) then redirect to
  * the browser. Body is form-encoded: path, content, message. */
-static void route_repo_edit_post(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_repo_edit_post(struct loop *loop, struct loop_stream *s,
                                  const struct serve_ud *sud, const char *sid,
                                  const char *acct, const char *repo,
                                  const char *body, size_t body_len, int keep_alive)
 {
-    if (!sid || !*sid) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    if (!sid || !*sid) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
     uint32_t rid = repo_hash(acct, repo);
 
     char *path = form_get(body, body_len, "path");
@@ -1716,7 +1748,7 @@ static void route_repo_edit_post(struct yloop *loop, struct yloop_stream *s,
     if (!path || !*path) {
         free(path); free(content); free(message);
         send_text(s, 400, "path required\n", keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
 
     /* put_file args: [rid, path, content, message, "", ""] (author left
@@ -1731,14 +1763,16 @@ static void route_repo_edit_post(struct yloop *loop, struct yloop_stream *s,
     if (ok) {
         snprintf(args, (size_t)CAP + 4096, "[%u,\"%s\",\"%s\",\"%s\",\"\",\"\"]", rid, pe, ce, me);
         int err = 0;
-        char *oid = rpc_result_str(loop, sud, sid, "git_repo.git_repo.put_file", args, &err);
+        struct picomesh_string_result oid_r = rpc_result_str(loop, sud, sid, "git_repo.git_repo.put_file", args, &err);
+        if (PICOMESH_IS_ERR(oid_r)) { picomesh_error_print(stderr, "webapp: put_file", oid_r.error); picomesh_error_destroy(oid_r.error); }
+        char *oid = PICOMESH_IS_OK(oid_r) ? oid_r.value : NULL;
         free(oid);
         if (err || !oid) ok = 0;
     }
     free(pe); free(ce); free(me); free(args);
 
     if (!ok) { free(path); free(content); free(message);
-               send_text(s, 500, "save failed (forbidden or backend error)\n", keep_alive); return; }
+               send_text(s, 500, "save failed (forbidden or backend error)\n", keep_alive); return PICOMESH_OK_VOID(); }
 
     char dir[1024];
     snprintf(dir, sizeof(dir), "%s", path);
@@ -1748,6 +1782,7 @@ static void route_repo_edit_post(struct yloop *loop, struct yloop_stream *s,
     else       snprintf(where, sizeof(where), "/%s/%s/-/tree", acct, repo);
     free(path); free(content); free(message);
     send_redirect(s, where, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* ===================================================================== *
@@ -1764,57 +1799,33 @@ static void route_repo_edit_post(struct yloop *loop, struct yloop_stream *s,
 /* POST /_rpc {path,args} and return the integer `result`, or `fallback`
  * on transport error / missing result. Mirrors rpc_result_str for the
  * many backend methods that return a count / id rather than a string. */
-static long rpc_result_int(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_int64_result rpc_result_int(struct loop *loop, const struct serve_ud *sud,
                            const char *sid, const char *rpc_path,
                            const char *args_json, long fallback)
 {
     size_t need = strlen(rpc_path) + strlen(args_json) + 32;
     char *body = malloc(need);
-    if (!body) return fallback;
+    if (!body) return PICOMESH_OK(picomesh_int64, fallback);
     int n = snprintf(body, need, "{\"path\":\"%s\",\"args\":%s}", rpc_path, args_json);
-    if (n <= 0 || (size_t)n >= need) { free(body); return fallback; }
+    if (n <= 0 || (size_t)n >= need) { free(body); return PICOMESH_OK(picomesh_int64, fallback); }
 
     struct http_response resp;
-    int post_res = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
+    struct picomesh_int_result post = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
     free(body);
-    if (post_res != 0) { http_response_free(&resp); return fallback; }
+    if (PICOMESH_IS_ERR(post)) { http_response_free(&resp); return PICOMESH_ERR(picomesh_int64, "rpc_result_int: gateway POST failed", post); }
 
     long out = fallback;
     if (resp.body) {
-        struct yjson_doc *doc = yjson_parse(resp.body, resp.body_len);
+        struct json_doc *doc = json_parse(resp.body, resp.body_len);
         if (doc) {
-            const struct yjson_value *root = yjson_doc_root(doc);
-            const struct yjson_value *result = yjson_object_get(root, "result");
-            if (result) out = (long)yjson_as_int(result, fallback);
-            yjson_doc_free(doc);
+            const struct json_value *root = json_doc_root(doc);
+            const struct json_value *result = json_object_get(root, "result");
+            if (result) out = (long)json_as_int(result, fallback);
+            json_doc_free(doc);
         }
     }
     http_response_free(&resp);
-    return out;
-}
-
-/* Resolve the opaque session token (hex-string cookie value) back to a uid
- * via the gateway's /_whoami. 0 when unknown / not signed in. /_whoami is the
- * gateway's external→internal identity route; we do NOT call session.lookup
- * over /_rpc — that is an authenticator-internal credential exchange the
- * gateway blocks from public RPC (issue #19). */
-static uint32_t resolve_uid(struct yloop *loop, const struct serve_ud *sud,
-                            const char *sid)
-{
-    if (!sid || !*sid) return 0;
-    struct http_response resp;
-    int post_res = http_post(loop, &sud->gw, "/_whoami", "application/json", NULL, sid, "", 0, &resp);
-    if (post_res != 0) { http_response_free(&resp); return 0; }
-    uint32_t uid = 0;
-    if (resp.body) {
-        struct yjson_doc *doc = yjson_parse(resp.body, resp.body_len);
-        if (doc) {
-            uid = (uint32_t)yjson_as_int(yjson_object_get(yjson_doc_root(doc), "uid"), 0);
-            yjson_doc_free(doc);
-        }
-    }
-    http_response_free(&resp);
-    return uid;
+    return PICOMESH_OK(picomesh_int64, out);
 }
 
 /* Resolve the caller's authenticated claims (uid, username, admin bit) via
@@ -1823,82 +1834,83 @@ static uint32_t resolve_uid(struct yloop *loop, const struct serve_ud *sud,
  * transport/parse failure the claims stay zeroed (anonymous), so pages and
  * the admin gate fail closed. This is the ONLY identity source the webapp
  * trusts — the picomesh-uname cookie is never an authority. */
-static void resolve_claims(struct yloop *loop, const struct serve_ud *sud,
+static struct picomesh_void_result resolve_claims(struct loop *loop, const struct serve_ud *sud,
                            const char *sid, struct claims *out)
 {
     memset(out, 0, sizeof(*out));
-    if (!sid || !*sid) return;
+    if (!sid || !*sid) return PICOMESH_OK_VOID();
     struct http_response resp;
-    int post_res = http_post(loop, &sud->gw, "/_whoami",
+    struct picomesh_int_result post = http_post(loop, &sud->gw, "/_whoami",
                        "application/json", NULL, sid, "", 0, &resp);
-    if (post_res != 0) { http_response_free(&resp); return; }
+    if (PICOMESH_IS_ERR(post)) { http_response_free(&resp); return PICOMESH_ERR(picomesh_void, "resolve_claims: /_whoami POST failed", post); }
     if (resp.body) {
-        struct yjson_doc *doc = yjson_parse(resp.body, resp.body_len);
+        struct json_doc *doc = json_parse(resp.body, resp.body_len);
         if (doc) {
-            const struct yjson_value *root = yjson_doc_root(doc);
-            out->uid = (uint32_t)yjson_as_int(yjson_object_get(root, "uid"), 0);
-            const char *username = yjson_as_string(yjson_object_get(root, "username"), NULL);
+            const struct json_value *root = json_doc_root(doc);
+            out->uid = (uint32_t)json_as_int(json_object_get(root, "uid"), 0);
+            const char *username = json_as_string(json_object_get(root, "username"), NULL);
             if (username) snprintf(out->username, sizeof(out->username), "%s", username);
-            out->is_admin = yjson_as_bool(yjson_object_get(root, "is_admin"), 0);
-            yjson_doc_free(doc);
+            out->is_admin = json_as_bool(json_object_get(root, "is_admin"), 0);
+            json_doc_free(doc);
         }
     }
     http_response_free(&resp);
+    return PICOMESH_OK_VOID();
 }
 
 /* Fetch the caller's full /_whoami document (uid/username/is_admin + the
  * `namespaces` array of {path,role}). The caller owns and frees the doc; NULL
  * on failure. Used by the repo-create namespace picker and the groups area. */
-static struct yjson_doc *whoami_doc(struct yloop *loop, const struct serve_ud *sud, const char *sid)
+static struct json_doc_ptr_result whoami_doc(struct loop *loop, const struct serve_ud *sud, const char *sid)
 {
-    if (!sid || !*sid) return NULL;
+    if (!sid || !*sid) return PICOMESH_OK(json_doc_ptr, NULL);
     struct http_response resp;
-    int post_res = http_post(loop, &sud->gw, "/_whoami", "application/json", NULL, sid, "", 0, &resp);
-    if (post_res != 0) { http_response_free(&resp); return NULL; }
-    struct yjson_doc *doc = resp.body ? yjson_parse(resp.body, resp.body_len) : NULL;
+    struct picomesh_int_result post = http_post(loop, &sud->gw, "/_whoami", "application/json", NULL, sid, "", 0, &resp);
+    if (PICOMESH_IS_ERR(post)) { http_response_free(&resp); return PICOMESH_ERR(json_doc_ptr, "whoami_doc: /_whoami POST failed", post); }
+    struct json_doc *doc = resp.body ? json_parse(resp.body, resp.body_len) : NULL;
     http_response_free(&resp);
-    return doc;
+    return PICOMESH_OK(json_doc_ptr, doc);
 }
 
 /* Invoke an /_rpc mutation. Returns 1 on a `result`, 0 on an `error` (or
  * transport failure), copying the gateway error message into `errbuf` so the
  * caller can SHOW a failed grant/revoke/create rather than silently redirecting
  * as if it succeeded. */
-static int rpc_invoke(struct yloop *loop, const struct serve_ud *sud, const char *sid,
+static struct picomesh_int_result rpc_invoke(struct loop *loop, const struct serve_ud *sud, const char *sid,
                       const char *rpc_path, const char *args_json, char *errbuf, size_t errcap)
 {
     if (errbuf && errcap) snprintf(errbuf, errcap, "the action could not be completed");
     size_t need = strlen(rpc_path) + strlen(args_json) + 32;
     char *body = malloc(need);
-    if (!body) return 0;
+    if (!body) return PICOMESH_ERR(picomesh_int, "rpc_invoke: out of memory");
     int n = snprintf(body, need, "{\"path\":\"%s\",\"args\":%s}", rpc_path, args_json);
-    if (n <= 0 || (size_t)n >= need) { free(body); return 0; }
+    if (n <= 0 || (size_t)n >= need) { free(body); return PICOMESH_ERR(picomesh_int, "rpc_invoke: request body format failed"); }
     struct http_response resp;
-    int post_res = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
+    struct picomesh_int_result post = http_post_json(loop, &sud->gw, "/_rpc", NULL, sid, body, (size_t)n, &resp);
     free(body);
-    if (post_res != 0) { http_response_free(&resp); return 0; }
+    if (PICOMESH_IS_ERR(post)) { http_response_free(&resp); return PICOMESH_ERR(picomesh_int, "rpc_invoke: gateway POST failed", post); }
     int ok = 0;
     if (resp.body) {
-        struct yjson_doc *doc = yjson_parse(resp.body, resp.body_len);
+        struct json_doc *doc = json_parse(resp.body, resp.body_len);
         if (doc) {
-            const struct yjson_value *root = yjson_doc_root(doc);
-            if (yjson_object_get(root, "result")) {
+            const struct json_value *root = json_doc_root(doc);
+            if (json_object_get(root, "result")) {
                 ok = 1;
             } else {
-                const struct yjson_value *err = yjson_object_get(root, "error");
-                const char *msg = err ? yjson_as_string(yjson_object_get(err, "message"), NULL) : NULL;
+                const struct json_value *err = json_object_get(root, "error");
+                const char *msg = err ? json_as_string(json_object_get(err, "message"), NULL) : NULL;
                 if (msg && errbuf && errcap) snprintf(errbuf, errcap, "%s", msg);
             }
-            yjson_doc_free(doc);
+            json_doc_free(doc);
         }
     }
     http_response_free(&resp);
-    return ok;
+    return PICOMESH_OK(picomesh_int, ok);
 }
 
 /* Render a small "action failed" page with the gateway's error and a link back,
  * so a failed RBAC mutation is visible instead of a silent redirect. */
-static void render_action_error(struct yloop_stream *s, const char *uname, int is_admin,
+static void render_action_error(struct loop_stream *s, const char *uname, int is_admin,
                                 const char *msg, const char *back_url, int keep_alive)
 {
     struct buf b; buf_init(&b);
@@ -1931,32 +1943,38 @@ static int role_at_least(const char *role, const char *floor)
  * of {service, source} objects). Cached after the first successful fetch.
  * /_describe answers GET or POST; we POST an empty body. On failure the
  * set stays empty and pages fail closed (404) — the safe default. */
-static void services_ensure(struct yloop *loop, struct serve_ud *sud)
+static struct picomesh_void_result services_ensure(struct loop *loop, struct serve_ud *sud)
 {
     time_t now = time(NULL);
     if (sud->services.loaded &&
         (now - sud->services.loaded_at) < WEBAPP_SERVICES_TTL_SEC)
-        return;
+        return PICOMESH_OK_VOID();
     struct http_response resp;
-    int post_res = http_post(loop, &sud->gw, "/_describe",
+    struct picomesh_int_result post = http_post(loop, &sud->gw, "/_describe",
                        "application/json", NULL, NULL, "", 0, &resp);
     /* Transport failure → keep the previous set (fail to the last known
-     * topology rather than dropping every page). */
-    if (post_res != 0) { http_response_free(&resp); return; }
+     * topology rather than dropping every page). This is an explicit decision
+     * that the error is recoverable; log it, then continue with the cache. */
+    if (PICOMESH_IS_ERR(post)) {
+        picomesh_error_print(stderr, "services_ensure: /_describe", post.error);
+        picomesh_error_destroy(post.error);
+        http_response_free(&resp);
+        return PICOMESH_OK_VOID();
+    }
     if (resp.body) {
-        struct yjson_doc *doc = yjson_parse(resp.body, resp.body_len);
+        struct json_doc *doc = json_parse(resp.body, resp.body_len);
         if (doc) {
-            const struct yjson_value *root = yjson_doc_root(doc);
-            const struct yjson_value *svcs = yjson_object_get(root, "services");
-            size_t cnt = svcs ? yjson_array_size(svcs) : 0;
+            const struct json_value *root = json_doc_root(doc);
+            const struct json_value *svcs = json_object_get(root, "services");
+            size_t cnt = svcs ? json_array_size(svcs) : 0;
             /* Rebuild from scratch — a refresh can add OR drop services. */
             sud->services.n = 0;
             for (size_t i = 0; i < cnt &&
                  sud->services.n < sizeof(sud->services.names) / sizeof(sud->services.names[0]);
                  ++i) {
-                const struct yjson_value *svc_entry = yjson_array_at(svcs, i);
-                const char *svc_name = yjson_as_string(yjson_object_get(svc_entry, "service"), NULL);
-                const char *svc_source = yjson_as_string(yjson_object_get(svc_entry, "source"), NULL);
+                const struct json_value *svc_entry = json_array_at(svcs, i);
+                const char *svc_name = json_as_string(json_object_get(svc_entry, "service"), NULL);
+                const char *svc_source = json_as_string(json_object_get(svc_entry, "source"), NULL);
                 if (svc_name && *svc_name) {
                     size_t slot = sud->services.n++;
                     snprintf(sud->services.names[slot], 64, "%s", svc_name);
@@ -1965,10 +1983,11 @@ static void services_ensure(struct yloop *loop, struct serve_ud *sud)
             }
             sud->services.loaded = 1;
             sud->services.loaded_at = now;
-            yjson_doc_free(doc);
+            json_doc_free(doc);
         }
     }
     http_response_free(&resp);
+    return PICOMESH_OK_VOID();
 }
 
 /* Force the next services_ensure to re-fetch (e.g. when the admin opens the
@@ -1994,14 +2013,14 @@ static void page_open(struct buf *b, const char *title, const char *uname,
 {
     render_shell_open(b, title, uname, active_nav, is_admin);
 }
-static void page_close_and_send(struct yloop_stream *s, struct buf *b, int keep_alive)
+static void page_close_and_send(struct loop_stream *s, struct buf *b, int keep_alive)
 {
     render_shell_close(s, b, keep_alive);
 }
 
 /* GET /<account> — account landing: the namespace's repositories listed by
  * name (git_repo.git_repo.list_for_namespace) + the count. */
-static void page_account_landing(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_account_landing(struct loop *loop, struct loop_stream *s,
                                  const struct serve_ud *sud, const char *sid,
                                  const char *uname, const char *acct, int is_admin,
                                  int keep_alive)
@@ -2012,8 +2031,12 @@ static void page_account_landing(struct yloop *loop, struct yloop_stream *s,
     char acct_esc[160], args[200];
     if (!json_escape(acct_esc, sizeof(acct_esc), acct)) acct_esc[0] = 0;
     snprintf(args, sizeof(args), "[\"%s\"]", acct_esc);
-    long repos = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_for_namespace", args, -1);
-    char *names = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_namespace", args, NULL);
+    struct picomesh_int64_result repos_r = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_for_namespace", args, -1);
+    if (PICOMESH_IS_ERR(repos_r)) { picomesh_error_print(stderr, "webapp: count_for_namespace", repos_r.error); picomesh_error_destroy(repos_r.error); }
+    long repos = PICOMESH_IS_OK(repos_r) ? repos_r.value : -1;
+    struct picomesh_string_result names_r = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_namespace", args, NULL);
+    if (PICOMESH_IS_ERR(names_r)) { picomesh_error_print(stderr, "webapp: list_for_namespace", names_r.error); picomesh_error_destroy(names_r.error); }
+    char *names = PICOMESH_IS_OK(names_r) ? names_r.value : NULL;
 
     struct buf b; buf_init(&b);
     char title[160];
@@ -2042,11 +2065,12 @@ static void page_account_landing(struct yloop *loop, struct yloop_stream *s,
     panel_close(&b);
     free(names);
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /<account>/<repo>/issues[?status=open|closed] — open-issue count for
  * the repo, plus the new/close action forms. Data: issues.issues.count_open_in_repo. */
-static void page_repo_issues(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_repo_issues(struct loop *loop, struct loop_stream *s,
                              const struct serve_ud *sud, const char *sid,
                              const char *uname, const char *acct, const char *repo,
                              const char *full_path, int is_admin, int keep_alive)
@@ -2055,12 +2079,18 @@ static void page_repo_issues(struct yloop *loop, struct yloop_stream *s,
     uint32_t rid = repo_hash(acct, repo);
     char args[48];
     snprintf(args, sizeof(args), "[%u]", rid);
-    long open_n = rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", args, -1);
+    struct picomesh_int64_result open_n_rr = rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", args, -1);
+    if (PICOMESH_IS_ERR(open_n_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", open_n_rr.error); picomesh_error_destroy(open_n_rr.error); }
+    long open_n = PICOMESH_IS_OK(open_n_rr) ? open_n_rr.value : (-1);
 
     long run_count = -1;
     if (service_active(sud, "git_pipeline")) {
-        long pending = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
-        long running = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
+        struct picomesh_int64_result pending_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
+        if (PICOMESH_IS_ERR(pending_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", pending_rr.error); picomesh_error_destroy(pending_rr.error); }
+        long pending = PICOMESH_IS_OK(pending_rr) ? pending_rr.value : (0);
+        struct picomesh_int64_result running_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
+        if (PICOMESH_IS_ERR(running_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", running_rr.error); picomesh_error_destroy(running_rr.error); }
+        long running = PICOMESH_IS_OK(running_rr) ? running_rr.value : (0);
         run_count = pending + running;
     }
 
@@ -2104,25 +2134,34 @@ static void page_repo_issues(struct yloop *loop, struct yloop_stream *s,
                  "<button type=\"submit\">Close</button></form></div>");
     buf_puts(&b, "</section>");
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /<account>/<repo>/runs — pipeline run counts + enqueue/lease forms.
  * Data: git_pipeline.git_pipeline.count_pending/running/done (global counts today). */
-static void page_repo_runs(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_repo_runs(struct loop *loop, struct loop_stream *s,
                            const struct serve_ud *sud, const char *sid,
                            const char *uname, const char *acct, const char *repo,
                            const char *full_path, int is_admin, int keep_alive)
 {
     (void)full_path;
-    long pending = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
-    long running = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
-    long done = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_done",    "[]", 0);
+    struct picomesh_int64_result pending_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
+    if (PICOMESH_IS_ERR(pending_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", pending_rr.error); picomesh_error_destroy(pending_rr.error); }
+    long pending = PICOMESH_IS_OK(pending_rr) ? pending_rr.value : (0);
+    struct picomesh_int64_result running_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
+    if (PICOMESH_IS_ERR(running_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", running_rr.error); picomesh_error_destroy(running_rr.error); }
+    long running = PICOMESH_IS_OK(running_rr) ? running_rr.value : (0);
+    struct picomesh_int64_result done_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_done",    "[]", 0);
+    if (PICOMESH_IS_ERR(done_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", done_rr.error); picomesh_error_destroy(done_rr.error); }
+    long done = PICOMESH_IS_OK(done_rr) ? done_rr.value : (0);
 
     uint32_t rid = repo_hash(acct, repo);
     long issue_count = -1;
     if (service_active(sud, "issues")) {
         char issue_args[48]; snprintf(issue_args, sizeof(issue_args), "[%u]", rid);
-        issue_count = rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", issue_args, -1);
+        struct picomesh_int64_result issue_rr = rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", issue_args, -1);
+        if (PICOMESH_IS_ERR(issue_rr)) { picomesh_error_print(stderr, "webapp: count_open_in_repo", issue_rr.error); picomesh_error_destroy(issue_rr.error); }
+        else issue_count = issue_rr.value;
     }
 
     struct buf b; buf_init(&b);
@@ -2158,6 +2197,7 @@ static void page_repo_runs(struct yloop *loop, struct yloop_stream *s,
                  "<button type=\"submit\">Lease</button></form></div>");
     buf_puts(&b, "</section>");
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* Render a single stat tile into an open .stats-grid. `value` < 0 → em-dash. */
@@ -2172,21 +2212,39 @@ static void stat_tile(struct buf *b, long value, const char *label)
 
 /* GET /admin — admin area landing: a deployment overview (counts across
  * every aspect) + quick links into the admin pages. */
-static void page_admin_overview(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_admin_overview(struct loop *loop, struct loop_stream *s,
                                 const struct serve_ud *sud, const char *sid,
                                 const char *uname, int keep_alive)
 {
-    long users = service_active(sud, "accounts")
-        ? rpc_result_int(loop, sud, sid, "accounts.accounts.count", "[]", -1) : -1;
-    long repos = service_active(sud, "git_repo")
-        ? rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_total", "[]", -1) : -1;
-    long token_count  = service_active(sud, "personal_access_tokens")
-        ? rpc_result_int(loop, sud, sid, "personal_access_tokens.personal_access_tokens.count_active", "[]", -1) : -1;
+    long users = -1;
+    if (service_active(sud, "accounts")) {
+        struct picomesh_int64_result users_rr = rpc_result_int(loop, sud, sid, "accounts.accounts.count", "[]", -1);
+        if (PICOMESH_IS_ERR(users_rr)) { picomesh_error_print(stderr, "webapp: accounts.count", users_rr.error); picomesh_error_destroy(users_rr.error); }
+        else users = users_rr.value;
+    }
+    long repos = -1;
+    if (service_active(sud, "git_repo")) {
+        struct picomesh_int64_result repos_rr = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_total", "[]", -1);
+        if (PICOMESH_IS_ERR(repos_rr)) { picomesh_error_print(stderr, "webapp: count_total", repos_rr.error); picomesh_error_destroy(repos_rr.error); }
+        else repos = repos_rr.value;
+    }
+    long token_count = -1;
+    if (service_active(sud, "personal_access_tokens")) {
+        struct picomesh_int64_result tok_rr = rpc_result_int(loop, sud, sid, "personal_access_tokens.personal_access_tokens.count_active", "[]", -1);
+        if (PICOMESH_IS_ERR(tok_rr)) { picomesh_error_print(stderr, "webapp: pat.count_active", tok_rr.error); picomesh_error_destroy(tok_rr.error); }
+        else token_count = tok_rr.value;
+    }
     long runs = -1;
     if (service_active(sud, "git_pipeline")) {
-        long pending = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
-        long running = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
-        long done = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_done",    "[]", 0);
+        struct picomesh_int64_result pending_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
+        if (PICOMESH_IS_ERR(pending_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", pending_rr.error); picomesh_error_destroy(pending_rr.error); }
+        long pending = PICOMESH_IS_OK(pending_rr) ? pending_rr.value : (0);
+        struct picomesh_int64_result running_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
+        if (PICOMESH_IS_ERR(running_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", running_rr.error); picomesh_error_destroy(running_rr.error); }
+        long running = PICOMESH_IS_OK(running_rr) ? running_rr.value : (0);
+        struct picomesh_int64_result done_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_done",    "[]", 0);
+        if (PICOMESH_IS_ERR(done_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", done_rr.error); picomesh_error_destroy(done_rr.error); }
+        long done = PICOMESH_IS_OK(done_rr) ? done_rr.value : (0);
         runs = pending + running + done;
     }
 
@@ -2214,18 +2272,22 @@ static void page_admin_overview(struct yloop *loop, struct yloop_stream *s,
                  "</tbody></table>");
     panel_close(&b);
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /admin/users — accounts administration. Data: accounts.accounts.count. */
-static void page_admin_users(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_admin_users(struct loop *loop, struct loop_stream *s,
                              const struct serve_ud *sud, const char *sid,
                              const char *uname, int keep_alive)
 {
-    long users = rpc_result_int(loop, sud, sid, "accounts.accounts.count", "[]", -1);
+    struct picomesh_int64_result users_rr = rpc_result_int(loop, sud, sid, "accounts.accounts.count", "[]", -1);
+    if (PICOMESH_IS_ERR(users_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", users_rr.error); picomesh_error_destroy(users_rr.error); }
+    long users = PICOMESH_IS_OK(users_rr) ? users_rr.value : (-1);
     /* The real user roster: a JSON array of {"uid":<n>,"name":"<s>"}. */
-    const struct yjson_value *roster = NULL;
-    struct yjson_doc *roster_doc =
-        rpc_result_doc(loop, sud, sid, "accounts.accounts.list", "[]", &roster);
+    const struct json_value *roster = NULL;
+    struct json_doc_ptr_result roster_doc_rr = rpc_result_doc(loop, sud, sid, "accounts.accounts.list", "[]", &roster);
+    if (PICOMESH_IS_ERR(roster_doc_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_doc", roster_doc_rr.error); picomesh_error_destroy(roster_doc_rr.error); }
+    struct json_doc *roster_doc = PICOMESH_IS_OK(roster_doc_rr) ? roster_doc_rr.value : NULL;
 
     struct buf b; buf_init(&b);
     page_open(&b, "Users", uname, "admin-users", /*is_admin=*/1);
@@ -2241,17 +2303,17 @@ static void page_admin_users(struct yloop *loop, struct yloop_stream *s,
         int any = 0;
         buf_puts(&b, "<table class=\"file-table\"><thead><tr><th>uid</th>"
                      "<th>username</th></tr></thead><tbody>");
-        size_t roster_n = roster ? yjson_array_size(roster) : 0;
+        size_t roster_n = roster ? json_array_size(roster) : 0;
         for (size_t i = 0; i < roster_n; ++i) {
-            const struct yjson_value *roster_entry = yjson_array_at(roster, i);
+            const struct json_value *roster_entry = json_array_at(roster, i);
             /* accounts.accounts.list rows are {"uid":N,"username":"…"} (the
              * relational `SELECT uid,username FROM users` column names). The
              * key is "username", not "name" — reading "name" left every row
              * blank, so the roster never showed the registered users. */
-            const char *name = yjson_as_string(yjson_object_get(roster_entry, "username"), "");
+            const char *name = json_as_string(json_object_get(roster_entry, "username"), "");
             char uid_buf[24];
             snprintf(uid_buf, sizeof(uid_buf), "%lld",
-                     (long long)yjson_as_int(yjson_object_get(roster_entry, "uid"), 0));
+                     (long long)json_as_int(json_object_get(roster_entry, "uid"), 0));
             any = 1;
             buf_puts(&b, "<tr><td class=\"muted\">");
             buf_esc(&b, uid_buf);
@@ -2268,17 +2330,20 @@ static void page_admin_users(struct yloop *loop, struct yloop_stream *s,
                  "user creation with credentials and role assignment is not implemented "
                  "yet.</p>");
     panel_close(&b);
-    yjson_doc_free(roster_doc);
+    json_doc_free(roster_doc);
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /admin/repos — repositories administration. Data:
  * git_repo.git_repo.count_total (no global list API yet). */
-static void page_admin_repos(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_admin_repos(struct loop *loop, struct loop_stream *s,
                              const struct serve_ud *sud, const char *sid,
                              const char *uname, int keep_alive)
 {
-    long total = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_total", "[]", -1);
+    struct picomesh_int64_result total_rr = rpc_result_int(loop, sud, sid, "git_repo.git_repo.count_total", "[]", -1);
+    if (PICOMESH_IS_ERR(total_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", total_rr.error); picomesh_error_destroy(total_rr.error); }
+    long total = PICOMESH_IS_OK(total_rr) ? total_rr.value : (-1);
 
     struct buf b; buf_init(&b);
     page_open(&b, "Repositories", uname, "admin-repos", /*is_admin=*/1);
@@ -2293,18 +2358,22 @@ static void page_admin_repos(struct yloop *loop, struct yloop_stream *s,
                  "page (e.g. <code>/&lt;account&gt;</code>).</p>");
     panel_close(&b);
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /admin/tokens — personal access token administration. Data:
  * personal_access_tokens.personal_access_tokens.count_active. */
-static void page_admin_tokens(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_admin_tokens(struct loop *loop, struct loop_stream *s,
                               const struct serve_ud *sud, const char *sid,
                               const char *uname, int keep_alive)
 {
     int active = service_active(sud, "personal_access_tokens");
-    long token_count = active
-        ? rpc_result_int(loop, sud, sid, "personal_access_tokens.personal_access_tokens.count_active", "[]", -1)
-        : -1;
+    long token_count = -1;
+    if (active) {
+        struct picomesh_int64_result tok_rr = rpc_result_int(loop, sud, sid, "personal_access_tokens.personal_access_tokens.count_active", "[]", -1);
+        if (PICOMESH_IS_ERR(tok_rr)) { picomesh_error_print(stderr, "webapp: pat.count_active", tok_rr.error); picomesh_error_destroy(tok_rr.error); }
+        else token_count = tok_rr.value;
+    }
 
     struct buf b; buf_init(&b);
     page_open(&b, "Tokens", uname, "admin-tokens", /*is_admin=*/1);
@@ -2319,6 +2388,7 @@ static void page_admin_tokens(struct yloop *loop, struct yloop_stream *s,
                  "<button type=\"submit\" class=\"primary\">Mint</button></form>");
     panel_close(&b);
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* ---- admin: RBAC namespace management (issue #30) ---------------------- *
@@ -2330,13 +2400,15 @@ static void page_admin_tokens(struct yloop *loop, struct yloop_stream *s,
  * ns_add_member / ns_remove_member) — the webapp holds no plugins.            */
 
 /* GET /admin/namespaces — the namespace tree + a create-group form. */
-static void page_admin_namespaces(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_admin_namespaces(struct loop *loop, struct loop_stream *s,
                                   const struct serve_ud *sud, const char *sid,
                                   const char *uname, int keep_alive)
 {
-    const struct yjson_value *list = NULL;
-    struct yjson_doc *doc = rpc_result_doc(loop, sud, sid, "accounts.accounts.ns_list", "[]", &list);
-    size_t n = list ? yjson_array_size(list) : 0;
+    const struct json_value *list = NULL;
+    struct json_doc_ptr_result doc_rr = rpc_result_doc(loop, sud, sid, "accounts.accounts.ns_list", "[]", &list);
+    if (PICOMESH_IS_ERR(doc_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_doc", doc_rr.error); picomesh_error_destroy(doc_rr.error); }
+    struct json_doc *doc = PICOMESH_IS_OK(doc_rr) ? doc_rr.value : NULL;
+    size_t n = list ? json_array_size(list) : 0;
 
     struct buf b; buf_init(&b);
     page_open(&b, "Namespaces", uname, "admin-namespaces", /*is_admin=*/1);
@@ -2353,10 +2425,10 @@ static void page_admin_namespaces(struct yloop *loop, struct yloop_stream *s,
         buf_puts(&b, "<table class=\"file-table\"><thead><tr><th>Path</th><th>Kind</th>"
                      "<th>Owner uid</th><th></th></tr></thead><tbody>");
         for (size_t i = 0; i < n; ++i) {
-            const struct yjson_value *ns_entry = yjson_array_at(list, i);
-            const char *ns_path = yjson_as_string(yjson_object_get(ns_entry, "path"), "");
-            const char *kind = yjson_as_string(yjson_object_get(ns_entry, "kind"), "");
-            long owner = (long)yjson_as_int(yjson_object_get(ns_entry, "owner_uid"), 0);
+            const struct json_value *ns_entry = json_array_at(list, i);
+            const char *ns_path = json_as_string(json_object_get(ns_entry, "path"), "");
+            const char *kind = json_as_string(json_object_get(ns_entry, "kind"), "");
+            long owner = (long)json_as_int(json_object_get(ns_entry, "owner_uid"), 0);
             buf_puts(&b, "<tr><td><a class=\"file-name\" href=\"/-/admin/namespaces/");
             buf_esc(&b, ns_path);
             buf_puts(&b, "\">");
@@ -2384,8 +2456,9 @@ static void page_admin_namespaces(struct yloop *loop, struct yloop_stream *s,
                  "parent path (e.g. parent <code>acme</code> &rarr; <code>acme/platform</code>). "
                  "You become its owner. Personal namespaces are created automatically at sign-up.</p>");
     panel_close(&b);
-    yjson_doc_free(doc);
+    json_doc_free(doc);
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /admin/namespaces/<path> — a namespace's members + grant/revoke forms. */
@@ -2393,17 +2466,19 @@ static void page_admin_namespaces(struct yloop *loop, struct yloop_stream *s,
  * into `b`. The forms post to <base>/{remove_member,add_member,create}, so the
  * same UI backs the site-admin (/admin/namespaces) and group-owner (/groups)
  * surfaces. */
-static void render_namespace_members(struct buf *b, struct yloop *loop,
+static struct picomesh_void_result render_namespace_members(struct buf *b, struct loop *loop,
                                      const struct serve_ud *sud, const char *sid,
                                      const char *nspath, const char *base)
 {
     char esc[256], args[300];
     if (!json_escape(esc, sizeof(esc), nspath)) esc[0] = 0;
     snprintf(args, sizeof(args), "[\"%s\"]", esc);
-    const struct yjson_value *members = NULL;
+    const struct json_value *members = NULL;
     /* ns_members carries the username (joined server-side), so the page needs no
      * site-admin roster fetch — it works for ordinary namespace maintainers. */
-    struct yjson_doc *mdoc = rpc_result_doc(loop, sud, sid, "accounts.accounts.ns_members", args, &members);
+    struct json_doc_ptr_result mdoc_rr = rpc_result_doc(loop, sud, sid, "accounts.accounts.ns_members", args, &members);
+    if (PICOMESH_IS_ERR(mdoc_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_doc", mdoc_rr.error); picomesh_error_destroy(mdoc_rr.error); }
+    struct json_doc *mdoc = PICOMESH_IS_OK(mdoc_rr) ? mdoc_rr.value : NULL;
 
     panel_open(b, "Members", NULL);
     if (!mdoc || !members) {
@@ -2411,12 +2486,12 @@ static void render_namespace_members(struct buf *b, struct yloop *loop,
     } else {
         buf_puts(b, "<table class=\"file-table\"><thead><tr><th>User</th><th>uid</th>"
                     "<th>Role</th><th></th></tr></thead><tbody>");
-        size_t member_count = yjson_array_size(members);
+        size_t member_count = json_array_size(members);
         for (size_t i = 0; i < member_count; ++i) {
-            const struct yjson_value *member_entry = yjson_array_at(members, i);
-            long member_uid = (long)yjson_as_int(yjson_object_get(member_entry, "uid"), 0);
-            const char *role = yjson_as_string(yjson_object_get(member_entry, "role"), "");
-            const char *username = yjson_as_string(yjson_object_get(member_entry, "username"), NULL);
+            const struct json_value *member_entry = json_array_at(members, i);
+            long member_uid = (long)json_as_int(json_object_get(member_entry, "uid"), 0);
+            const char *role = json_as_string(json_object_get(member_entry, "role"), "");
+            const char *username = json_as_string(json_object_get(member_entry, "username"), NULL);
             buf_puts(b, "<tr><td>");
             buf_esc(b, username ? username : "(unknown)");
             buf_puts(b, "</td><td class=\"muted\">");
@@ -2462,11 +2537,12 @@ static void render_namespace_members(struct buf *b, struct yloop *loop,
                 "<button type=\"submit\" class=\"primary\">Create subgroup</button></form>");
     panel_close(b);
 
-    yjson_doc_free(mdoc);
+    json_doc_free(mdoc);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /admin/namespaces/<path> — a namespace's members + grant/revoke forms. */
-static void page_admin_namespace(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_admin_namespace(struct loop *loop, struct loop_stream *s,
                                  const struct serve_ud *sud, const char *sid,
                                  const char *uname, const char *nspath, int keep_alive)
 {
@@ -2478,23 +2554,24 @@ static void page_admin_namespace(struct yloop *loop, struct yloop_stream *s,
     buf_puts(&b, "<p class=\"muted small\"><a href=\"/-/admin/namespaces\">\xe2\x86\x90 All namespaces</a></p>");
     render_namespace_members(&b, loop, sud, sid, nspath, "/-/admin/namespaces");
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* The caller's effective role on `nspath` per their /_whoami namespaces
  * (inherited from ancestors), or NULL if none. */
-static const char *whoami_role_on(const struct yjson_value *nss, const char *nspath)
+static const char *whoami_role_on(const struct json_value *nss, const char *nspath)
 {
     const char *best = NULL;
-    size_t n = nss ? yjson_array_size(nss) : 0;
+    size_t n = nss ? json_array_size(nss) : 0;
     /* Walk the path and its ancestors; the highest membership wins. */
     char prefix[256];
     for (size_t plen = strlen(nspath); plen > 0; ) {
         if (plen < sizeof(prefix)) {
             memcpy(prefix, nspath, plen); prefix[plen] = 0;
             for (size_t i = 0; i < n; ++i) {
-                const struct yjson_value *ns_entry = yjson_array_at(nss, i);
-                const char *ns_path = yjson_as_string(yjson_object_get(ns_entry, "path"), NULL);
-                const char *role = yjson_as_string(yjson_object_get(ns_entry, "role"), NULL);
+                const struct json_value *ns_entry = json_array_at(nss, i);
+                const char *ns_path = json_as_string(json_object_get(ns_entry, "path"), NULL);
+                const char *role = json_as_string(json_object_get(ns_entry, "role"), NULL);
                 if (ns_path && role && strcmp(ns_path, prefix) == 0 &&
                     (!best || role_at_least(role, best)))
                     best = role;
@@ -2510,13 +2587,15 @@ static const char *whoami_role_on(const struct yjson_value *nss, const char *nsp
 
 /* GET /groups — the namespaces this user can MANAGE (maintainer+), with links
  * into per-group member management. Non-admin surface for the GitLab-like model. */
-static void page_groups(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_groups(struct loop *loop, struct loop_stream *s,
                         const struct serve_ud *sud, const char *sid,
                         const char *uname, int is_admin, int keep_alive)
 {
-    if (!uname || !*uname) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
-    struct yjson_doc *who = whoami_doc(loop, sud, sid);
-    const struct yjson_value *nss = who ? yjson_object_get(yjson_doc_root(who), "namespaces") : NULL;
+    if (!uname || !*uname) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
+    struct json_doc_ptr_result who_rr = whoami_doc(loop, sud, sid);
+    if (PICOMESH_IS_ERR(who_rr)) { picomesh_error_print(stderr, "webapp: whoami_doc", who_rr.error); picomesh_error_destroy(who_rr.error); }
+    struct json_doc *who = PICOMESH_IS_OK(who_rr) ? who_rr.value : NULL;
+    const struct json_value *nss = who ? json_object_get(json_doc_root(who), "namespaces") : NULL;
 
     struct buf b; buf_init(&b);
     page_open(&b, "Groups", uname, "groups", is_admin);
@@ -2526,11 +2605,11 @@ static void page_groups(struct yloop *loop, struct yloop_stream *s,
     buf_puts(&b, "<table class=\"file-table\"><thead><tr><th>Namespace</th><th>Your role</th>"
                  "<th></th></tr></thead><tbody>");
     int any = 0;
-    size_t n = nss ? yjson_array_size(nss) : 0;
+    size_t n = nss ? json_array_size(nss) : 0;
     for (size_t i = 0; i < n; ++i) {
-        const struct yjson_value *ns_entry = yjson_array_at(nss, i);
-        const char *ns_path = yjson_as_string(yjson_object_get(ns_entry, "path"), NULL);
-        const char *role = yjson_as_string(yjson_object_get(ns_entry, "role"), NULL);
+        const struct json_value *ns_entry = json_array_at(nss, i);
+        const char *ns_path = json_as_string(json_object_get(ns_entry, "path"), NULL);
+        const char *role = json_as_string(json_object_get(ns_entry, "role"), NULL);
         if (!ns_path || !*ns_path || !role) continue;
         /* List EVERY membership, whatever the role — a member must be able to see
          * a namespace they were added to even before it has any repos. Only a
@@ -2587,27 +2666,30 @@ static void page_groups(struct yloop *loop, struct yloop_stream *s,
                  "placeholder=\"acme/platform\" pattern=\"[A-Za-z0-9._/-]{1,128}\" required></label>"
                  "<button type=\"submit\" class=\"primary\">Manage</button></form>");
     panel_close(&b);
-    yjson_doc_free(who);
+    json_doc_free(who);
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /groups/<path> — member management for a namespace the user maintains. */
-static void page_group_detail(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_group_detail(struct loop *loop, struct loop_stream *s,
                               const struct serve_ud *sud, const char *sid,
                               const char *uname, const char *nspath, int is_admin, int keep_alive)
 {
-    if (!uname || !*uname) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    if (!uname || !*uname) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
     /* Gate the page on the caller being maintainer+ on this namespace (the
      * backend enforces it too on every mutation). */
-    struct yjson_doc *who = whoami_doc(loop, sud, sid);
-    const struct yjson_value *nss = who ? yjson_object_get(yjson_doc_root(who), "namespaces") : NULL;
+    struct json_doc_ptr_result who_rr = whoami_doc(loop, sud, sid);
+    if (PICOMESH_IS_ERR(who_rr)) { picomesh_error_print(stderr, "webapp: whoami_doc", who_rr.error); picomesh_error_destroy(who_rr.error); }
+    struct json_doc *who = PICOMESH_IS_OK(who_rr) ? who_rr.value : NULL;
+    const struct json_value *nss = who ? json_object_get(json_doc_root(who), "namespaces") : NULL;
     const char *role = whoami_role_on(nss, nspath);
     if (!is_admin && !(role && role_at_least(role, "maintainer"))) {
-        yjson_doc_free(who);
+        json_doc_free(who);
         send_forbidden(s, uname, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
-    yjson_doc_free(who);
+    json_doc_free(who);
 
     struct buf b; buf_init(&b);
     char title[160]; snprintf(title, sizeof(title), "Group \xc2\xb7 %s", nspath);
@@ -2620,7 +2702,9 @@ static void page_group_detail(struct yloop *loop, struct yloop_stream *s,
     char esc[256], args[300];
     if (!json_escape(esc, sizeof(esc), nspath)) esc[0] = 0;
     snprintf(args, sizeof(args), "[\"%s\"]", esc);
-    char *names = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_namespace", args, NULL);
+    struct picomesh_string_result names_rr = rpc_result_str(loop, sud, sid, "git_repo.git_repo.list_for_namespace", args, NULL);
+    if (PICOMESH_IS_ERR(names_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_str", names_rr.error); picomesh_error_destroy(names_rr.error); }
+    char *names = PICOMESH_IS_OK(names_rr) ? names_rr.value : NULL;
     panel_open(&b, "Repositories", NULL);
     int any_repo = 0;
     if (names && *names) {
@@ -2643,13 +2727,14 @@ static void page_group_detail(struct yloop *loop, struct yloop_stream *s,
 
     render_namespace_members(&b, loop, sud, sid, nspath, "/-/groups");
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* POST <base>/create — create a group namespace. `base` is "/-/admin/namespaces"
  * or "/-/groups", so the same handler serves the site-admin and the group-owner
  * surfaces; the backend enforces the real authority (root creation = site
  * admin; subgroup = maintainer on parent). Failures are shown, not swallowed. */
-static void webapp_ns_create(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result webapp_ns_create(struct loop *loop, struct loop_stream *s,
                              const struct serve_ud *sud, const char *sid, const char *base,
                              const char *body, size_t body_len, int keep_alive)
 {
@@ -2661,19 +2746,22 @@ static void webapp_ns_create(struct yloop *loop, struct yloop_stream *s,
         if (json_escape(eslug, sizeof(eslug), slug) &&
             json_escape(eparent, sizeof(eparent), parent ? parent : "")) {
             snprintf(args, sizeof(args), "[0,\"group\",\"%s\",\"%s\"]", eslug, eparent);
-            if (!rpc_invoke(loop, sud, sid, "accounts.accounts.ns_create", args, err, sizeof(err))) {
+            struct picomesh_int_result rpc_inv_1 = rpc_invoke(loop, sud, sid, "accounts.accounts.ns_create", args, err, sizeof(err));
+            if (PICOMESH_IS_ERR(rpc_inv_1)) { picomesh_error_print(stderr, "webapp: rpc_invoke", rpc_inv_1.error); picomesh_error_destroy(rpc_inv_1.error); }
+            if (PICOMESH_IS_ERR(rpc_inv_1) || !rpc_inv_1.value) {
                 free(slug); free(parent);
                 render_action_error(s, claims.username, claims.is_admin, err, base, keep_alive);
-                return;
+                return PICOMESH_OK_VOID();
             }
         }
     }
     free(slug); free(parent);
     send_redirect(s, base, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* POST <base>/add_member — grant `uid` a `role` on `path`. */
-static void webapp_ns_add_member(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result webapp_ns_add_member(struct loop *loop, struct loop_stream *s,
                                  const struct serve_ud *sud, const char *sid, const char *base,
                                  const char *body, size_t body_len, int keep_alive)
 {
@@ -2684,25 +2772,48 @@ static void webapp_ns_add_member(struct yloop *loop, struct yloop_stream *s,
     char redirect[320]; snprintf(redirect, sizeof(redirect), "%s", base);
     if (path && *path) snprintf(redirect, sizeof(redirect), "%s/%s", base, path);
     if (path && *path && username && *username && role && *role) {
-        /* uid is the deterministic hash of the username (same mapping the
-         * gateway uses); the backend rejects an unregistered name. */
-        uint32_t target = hash_username(username);
+        /* Resolve the typed username to its ASSIGNED uid via the gateway
+         * (issue #29 — no longer hash(username)). The backend rejects an
+         * unregistered name; surface "no such user" rather than passing a uid
+         * that has no account. */
+        char euname[96];
+        uint32_t target = 0;
+        if (json_escape(euname, sizeof(euname), username)) {
+            char uargs[112];
+            snprintf(uargs, sizeof(uargs), "[\"%s\"]", euname);
+            struct picomesh_int64_result uid_res =
+                rpc_result_int(loop, sud, sid, "accounts.accounts.uid_for_username", uargs, 0);
+            if (PICOMESH_IS_ERR(uid_res)) {
+                picomesh_error_print(stderr, "webapp: uid_for_username", uid_res.error);
+                picomesh_error_destroy(uid_res.error);
+            } else if (uid_res.value > 0) {
+                target = (uint32_t)uid_res.value;
+            }
+        }
+        if (!target) {
+            free(path); free(username); free(role);
+            render_action_error(s, claims.username, claims.is_admin, "no such user", redirect, keep_alive);
+            return PICOMESH_OK_VOID();
+        }
         char epath[256], erole[32], args[360], err[256];
         if (json_escape(epath, sizeof(epath), path) && json_escape(erole, sizeof(erole), role)) {
             snprintf(args, sizeof(args), "[\"%s\",%u,\"%s\"]", epath, target, erole);
-            if (!rpc_invoke(loop, sud, sid, "accounts.accounts.ns_add_member", args, err, sizeof(err))) {
+            struct picomesh_int_result rpc_inv_2 = rpc_invoke(loop, sud, sid, "accounts.accounts.ns_add_member", args, err, sizeof(err));
+            if (PICOMESH_IS_ERR(rpc_inv_2)) { picomesh_error_print(stderr, "webapp: rpc_invoke", rpc_inv_2.error); picomesh_error_destroy(rpc_inv_2.error); }
+            if (PICOMESH_IS_ERR(rpc_inv_2) || !rpc_inv_2.value) {
                 free(path); free(username); free(role);
                 render_action_error(s, claims.username, claims.is_admin, err, redirect, keep_alive);
-                return;
+                return PICOMESH_OK_VOID();
             }
         }
     }
     free(path); free(username); free(role);
     send_redirect(s, redirect, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* POST <base>/remove_member — revoke `uid`'s membership on `path`. */
-static void webapp_ns_remove_member(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result webapp_ns_remove_member(struct loop *loop, struct loop_stream *s,
                                     const struct serve_ud *sud, const char *sid, const char *base,
                                     const char *body, size_t body_len, int keep_alive)
 {
@@ -2715,22 +2826,25 @@ static void webapp_ns_remove_member(struct yloop *loop, struct yloop_stream *s,
         char epath[256], args[320], err[256];
         if (json_escape(epath, sizeof(epath), path)) {
             snprintf(args, sizeof(args), "[\"%s\",%ld]", epath, strtol(uid, NULL, 10));
-            if (!rpc_invoke(loop, sud, sid, "accounts.accounts.ns_remove_member", args, err, sizeof(err))) {
+            struct picomesh_int_result rpc_inv_3 = rpc_invoke(loop, sud, sid, "accounts.accounts.ns_remove_member", args, err, sizeof(err));
+            if (PICOMESH_IS_ERR(rpc_inv_3)) { picomesh_error_print(stderr, "webapp: rpc_invoke", rpc_inv_3.error); picomesh_error_destroy(rpc_inv_3.error); }
+            if (PICOMESH_IS_ERR(rpc_inv_3) || !rpc_inv_3.value) {
                 free(path); free(uid);
                 render_action_error(s, claims.username, claims.is_admin, err, redirect, keep_alive);
-                return;
+                return PICOMESH_OK_VOID();
             }
         }
     }
     free(path); free(uid);
     send_redirect(s, redirect, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /<account>/<repo>/settings — repository settings overview. Read-only
  * project metadata (owner, default branch, visibility) + how to reach the
  * repo. No mutation surface yet; the tab exists so the project shell is
  * complete (Code / Issues / Pipelines / Settings). */
-static void page_repo_settings(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_repo_settings(struct loop *loop, struct loop_stream *s,
                                const struct serve_ud *sud, const char *sid,
                                const char *uname, const char *acct, const char *repo,
                                int is_admin, int keep_alive)
@@ -2765,6 +2879,7 @@ static void page_repo_settings(struct yloop *loop, struct yloop_stream *s,
     panel_close(&b);
 
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /-/search?q=<term> — filter the signed-in user's accessible repositories
@@ -2773,14 +2888,14 @@ static void page_repo_settings(struct yloop *loop, struct yloop_stream *s,
  * group/subgroup repos visible through inherited membership are searchable, then
  * matches in-process; no backend search method is assumed. Not signed in →
  * bounce to /login. */
-static void page_search(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_search(struct loop *loop, struct loop_stream *s,
                         const struct serve_ud *sud, const char *sid,
                         const char *uname, const char *full_path, int is_admin,
                         int keep_alive)
 {
     if (!sid || !*sid || !uname || !*uname) {
         send_redirect(s, "/-/login", NULL, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     char *query = query_get(full_path, "q");
     char query_lower[128];
@@ -2791,7 +2906,9 @@ static void page_search(struct yloop *loop, struct yloop_stream *s,
     }
     query_lower[query_len] = 0;
 
-    char *names = collect_accessible_repos(loop, sud, sid);
+    struct picomesh_string_result names_rr = collect_accessible_repos(loop, sud, sid);
+    if (PICOMESH_IS_ERR(names_rr)) { picomesh_error_print(stderr, "webapp: collect_accessible_repos", names_rr.error); picomesh_error_destroy(names_rr.error); }
+    char *names = PICOMESH_IS_OK(names_rr) ? names_rr.value : NULL;
 
     struct buf b; buf_init(&b);
     page_open(&b, "Search", uname, "projects", is_admin);
@@ -2829,21 +2946,24 @@ static void page_search(struct yloop *loop, struct yloop_stream *s,
     panel_close(&b);
     free(names); free(query);
     page_close_and_send(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /repos/new — the create-repository form (the POST action is
  * webapp_repos_new on the same path). Needs a signed-in user. */
-static void page_repos_new_form(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_repos_new_form(struct loop *loop, struct loop_stream *s,
                                 const struct serve_ud *sud, const char *sid,
                                 const char *uname, int is_admin, int keep_alive)
 {
-    if (!uname || !*uname) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    if (!uname || !*uname) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
 
     /* The namespaces this user may create a repo in: any where they hold
      * developer+ (their personal namespace, plus groups they can push to).
      * Sourced from /_whoami (issue #30). */
-    struct yjson_doc *who = whoami_doc(loop, sud, sid);
-    const struct yjson_value *nss = who ? yjson_object_get(yjson_doc_root(who), "namespaces") : NULL;
+    struct json_doc_ptr_result who_rr = whoami_doc(loop, sud, sid);
+    if (PICOMESH_IS_ERR(who_rr)) { picomesh_error_print(stderr, "webapp: whoami_doc", who_rr.error); picomesh_error_destroy(who_rr.error); }
+    struct json_doc *who = PICOMESH_IS_OK(who_rr) ? who_rr.value : NULL;
+    const struct json_value *nss = who ? json_object_get(json_doc_root(who), "namespaces") : NULL;
 
     struct buf b; buf_init(&b);
     render_shell_open(&b, "New repository", uname, "projects", is_admin);
@@ -2860,11 +2980,11 @@ static void page_repos_new_form(struct yloop *loop, struct yloop_stream *s,
     buf_esc(&b, uname);
     buf_puts(&b, "\" pattern=\"[A-Za-z0-9._/-]{1,128}\" required></label>"
                  "<datalist id=\"ns-options\">");
-    size_t ns_count = nss ? yjson_array_size(nss) : 0;
+    size_t ns_count = nss ? json_array_size(nss) : 0;
     for (size_t i = 0; i < ns_count; ++i) {
-        const struct yjson_value *ns_entry = yjson_array_at(nss, i);
-        const char *ns_path = yjson_as_string(yjson_object_get(ns_entry, "path"), NULL);
-        const char *role = yjson_as_string(yjson_object_get(ns_entry, "role"), NULL);
+        const struct json_value *ns_entry = json_array_at(nss, i);
+        const char *ns_path = json_as_string(json_object_get(ns_entry, "path"), NULL);
+        const char *role = json_as_string(json_object_get(ns_entry, "role"), NULL);
         if (!ns_path || !*ns_path || !role || strcmp(ns_path, "site") == 0) continue;
         if (!role_at_least(role, "developer")) continue;
         buf_puts(&b, "<option value=\"");
@@ -2878,14 +2998,15 @@ static void page_repos_new_form(struct yloop *loop, struct yloop_stream *s,
                  "<p class=\"muted small\">Pick a group you can push to (developer+), or type "
                  "a subgroup path you have inherited access to, e.g. <code>acme/platform</code>.</p>");
     panel_close(&b);
-    yjson_doc_free(who);
+    json_doc_free(who);
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /admin/services — the live service roster discovered from the
  * gateway's /_describe. Force a fresh fetch here so the admin sees the
  * current topology, not whatever was cached within the TTL window. */
-static void page_admin_services(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_admin_services(struct loop *loop, struct loop_stream *s,
                                 struct serve_ud *sud,
                                 const char *uname, int keep_alive)
 {
@@ -2920,16 +3041,23 @@ static void page_admin_services(struct yloop *loop, struct yloop_stream *s,
     buf_puts(&b, "</tbody></table>");
     panel_close(&b);
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /dashboard/runs — global pipeline activity across the mesh. */
-static void page_dashboard_runs(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_dashboard_runs(struct loop *loop, struct loop_stream *s,
                                 const struct serve_ud *sud, const char *sid,
                                 const char *uname, int is_admin, int keep_alive)
 {
-    long pending = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
-    long running = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
-    long done = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_done",    "[]", 0);
+    struct picomesh_int64_result pending_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_pending", "[]", 0);
+    if (PICOMESH_IS_ERR(pending_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", pending_rr.error); picomesh_error_destroy(pending_rr.error); }
+    long pending = PICOMESH_IS_OK(pending_rr) ? pending_rr.value : (0);
+    struct picomesh_int64_result running_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_running", "[]", 0);
+    if (PICOMESH_IS_ERR(running_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", running_rr.error); picomesh_error_destroy(running_rr.error); }
+    long running = PICOMESH_IS_OK(running_rr) ? running_rr.value : (0);
+    struct picomesh_int64_result done_rr = rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.count_done",    "[]", 0);
+    if (PICOMESH_IS_ERR(done_rr)) { picomesh_error_print(stderr, "webapp: rpc_result_int", done_rr.error); picomesh_error_destroy(done_rr.error); }
+    long done = PICOMESH_IS_OK(done_rr) ? done_rr.value : (0);
     struct buf b; buf_init(&b);
     render_shell_open(&b, "Pipelines", uname, "runs", is_admin);
     render_page_header(&b, "Pipelines", "Pipeline activity across the mesh.", NULL);
@@ -2943,17 +3071,20 @@ static void page_dashboard_runs(struct yloop *loop, struct yloop_stream *s,
         "</tbody></table>", pending, running, done);
     panel_close(&b);
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* GET /-/dashboard/issues — open issues summed across every repo the user can
  * access (no global list API yet; aggregate per-repo counts). Uses the SAME RBAC
  * discovery as /-/repos (collect_accessible_repos) so group-managed and
  * inherited-subgroup repos are included, not just the creator index. */
-static void page_dashboard_issues(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result page_dashboard_issues(struct loop *loop, struct loop_stream *s,
                                   const struct serve_ud *sud, const char *sid,
                                   const char *uname, int is_admin, int keep_alive)
 {
-    char *names = collect_accessible_repos(loop, sud, sid);
+    struct picomesh_string_result names_rr = collect_accessible_repos(loop, sud, sid);
+    if (PICOMESH_IS_ERR(names_rr)) { picomesh_error_print(stderr, "webapp: collect_accessible_repos", names_rr.error); picomesh_error_destroy(names_rr.error); }
+    char *names = PICOMESH_IS_OK(names_rr) ? names_rr.value : NULL;
 
     struct buf b; buf_init(&b);
     render_shell_open(&b, "Issues", uname, "issues", is_admin);
@@ -2972,7 +3103,9 @@ static void page_dashboard_issues(struct yloop *loop, struct yloop_stream *s,
             long open_n = -1;
             if (service_active(sud, "issues")) {
                 char issue_args[48]; snprintf(issue_args, sizeof(issue_args), "[%u]", rid);
-                open_n = rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", issue_args, -1);
+                struct picomesh_int64_result open_rr = rpc_result_int(loop, sud, sid, "issues.issues.count_open_in_repo", issue_args, -1);
+                if (PICOMESH_IS_ERR(open_rr)) { picomesh_error_print(stderr, "webapp: count_open_in_repo", open_rr.error); picomesh_error_destroy(open_rr.error); }
+                else open_n = open_rr.value;
             }
             buf_puts(&b, "<tr><td><a class=\"file-name\" href=\"/");
             buf_esc(&b, line); buf_puts(&b, "/-/issues\">");
@@ -2988,6 +3121,7 @@ static void page_dashboard_issues(struct yloop *loop, struct yloop_stream *s,
     panel_close(&b);
     free(names);
     render_shell_close(s, &b, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 
@@ -2996,70 +3130,133 @@ static void page_dashboard_issues(struct yloop *loop, struct yloop_stream *s,
  * resolves the sid → uid for auth context; methods that need the actor's
  * uid as an explicit arg (issues.open) get it from session.lookup. */
 
-static void post_issue_new(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result post_issue_new(struct loop *loop, struct loop_stream *s,
                            const struct serve_ud *sud, const char *sid,
                            const char *acct, const char *repo, int keep_alive)
 {
     /* No valid session → no mutation. Never attribute an issue to a
      * fallback uid; an unresolved actor is an auth failure. */
-    uint32_t uid = resolve_uid(loop, sud, sid);
-    if (!uid) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    struct claims claims;
+    struct picomesh_void_result claims_res = resolve_claims(loop, sud, sid, &claims);
+    if (PICOMESH_IS_ERR(claims_res)) { picomesh_error_print(stderr, "webapp: resolve_claims", claims_res.error); picomesh_error_destroy(claims_res.error); }
+    if (!claims.uid) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
     uint32_t rid = repo_hash(acct, repo);
     char args[64];
-    snprintf(args, sizeof(args), "[%u,%u]", rid, uid);
-    rpc_result_int(loop, sud, sid, "issues.issues.open", args, -1);
+    snprintf(args, sizeof(args), "[%u,%u]", rid, claims.uid);
     char where[300];
     snprintf(where, sizeof(where), "/%s/%s/-/issues", acct, repo);
+    /* A rejected or undelivered mutation must be shown, never redirected as
+     * success — the user has to know the issue was not opened. */
+    char errbuf[256];
+    struct picomesh_int_result open_res = rpc_invoke(loop, sud, sid, "issues.issues.open", args, errbuf, sizeof(errbuf));
+    if (PICOMESH_IS_ERR(open_res)) {
+        yerror("webapp: issues.open transport failure");
+        render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+        picomesh_error_destroy(open_res.error);
+        return PICOMESH_OK_VOID();
+    }
+    if (open_res.value == 0) {
+        render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+        return PICOMESH_OK_VOID();
+    }
     send_redirect(s, where, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
-static void post_issue_close(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result post_issue_close(struct loop *loop, struct loop_stream *s,
                              const struct serve_ud *sud, const char *sid,
                              const char *acct, const char *repo,
                              const char *body, size_t body_len, int keep_alive)
 {
-    if (!resolve_uid(loop, sud, sid)) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    struct claims claims;
+    struct picomesh_void_result claims_res = resolve_claims(loop, sud, sid, &claims);
+    if (PICOMESH_IS_ERR(claims_res)) { picomesh_error_print(stderr, "webapp: resolve_claims", claims_res.error); picomesh_error_destroy(claims_res.error); }
+    if (!claims.uid) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
+    char where[300];
+    snprintf(where, sizeof(where), "/%s/%s/-/issues", acct, repo);
     char *issue_id_str = form_get(body, body_len, "issue_id");
     if (issue_id_str && *issue_id_str) {
         char args[48];
         snprintf(args, sizeof(args), "[%lu]", strtoul(issue_id_str, NULL, 10));
-        rpc_result_int(loop, sud, sid, "issues.issues.close", args, -1);
+        char errbuf[256];
+        struct picomesh_int_result close_res = rpc_invoke(loop, sud, sid, "issues.issues.close", args, errbuf, sizeof(errbuf));
+        free(issue_id_str);
+        if (PICOMESH_IS_ERR(close_res)) {
+            yerror("webapp: issues.close transport failure");
+            render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+            picomesh_error_destroy(close_res.error);
+            return PICOMESH_OK_VOID();
+        }
+        if (close_res.value == 0) {
+            render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+            return PICOMESH_OK_VOID();
+        }
+    } else {
+        free(issue_id_str);
     }
-    free(issue_id_str);
-    char where[300];
-    snprintf(where, sizeof(where), "/%s/%s/-/issues", acct, repo);
     send_redirect(s, where, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
-static void post_run_new(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result post_run_new(struct loop *loop, struct loop_stream *s,
                          const struct serve_ud *sud, const char *sid,
                          const char *acct, const char *repo, int keep_alive)
 {
-    if (!resolve_uid(loop, sud, sid)) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    struct claims claims;
+    struct picomesh_void_result claims_res = resolve_claims(loop, sud, sid, &claims);
+    if (PICOMESH_IS_ERR(claims_res)) { picomesh_error_print(stderr, "webapp: resolve_claims", claims_res.error); picomesh_error_destroy(claims_res.error); }
+    if (!claims.uid) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
     char args[48];
     snprintf(args, sizeof(args), "[%u]", repo_hash(acct, repo));
-    rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.enqueue", args, -1);
     char where[300];
     snprintf(where, sizeof(where), "/%s/%s/-/runs", acct, repo);
+    char errbuf[256];
+    struct picomesh_int_result enqueue_res = rpc_invoke(loop, sud, sid, "git_pipeline.git_pipeline.enqueue", args, errbuf, sizeof(errbuf));
+    if (PICOMESH_IS_ERR(enqueue_res)) {
+        yerror("webapp: git_pipeline.enqueue transport failure");
+        render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+        picomesh_error_destroy(enqueue_res.error);
+        return PICOMESH_OK_VOID();
+    }
+    if (enqueue_res.value == 0) {
+        render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+        return PICOMESH_OK_VOID();
+    }
     send_redirect(s, where, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
-static void post_run_lease(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result post_run_lease(struct loop *loop, struct loop_stream *s,
                            const struct serve_ud *sud, const char *sid,
                            const char *acct, const char *repo,
                            const char *body, size_t body_len, int keep_alive)
 {
-    if (!resolve_uid(loop, sud, sid)) { send_redirect(s, "/-/login", NULL, keep_alive); return; }
+    struct claims claims;
+    struct picomesh_void_result claims_res = resolve_claims(loop, sud, sid, &claims);
+    if (PICOMESH_IS_ERR(claims_res)) { picomesh_error_print(stderr, "webapp: resolve_claims", claims_res.error); picomesh_error_destroy(claims_res.error); }
+    if (!claims.uid) { send_redirect(s, "/-/login", NULL, keep_alive); return PICOMESH_OK_VOID(); }
     char *runner_str = form_get(body, body_len, "runner");
     unsigned long runner = runner_str && *runner_str ? strtoul(runner_str, NULL, 10) : 1;
     if (!runner) runner = 1;
     free(runner_str);
     char args[48];
     snprintf(args, sizeof(args), "[%lu]", runner);
-    rpc_result_int(loop, sud, sid, "git_pipeline.git_pipeline.lease", args, -1);
     char where[300];
     snprintf(where, sizeof(where), "/%s/%s/-/runs", acct, repo);
+    char errbuf[256];
+    struct picomesh_int_result lease_res = rpc_invoke(loop, sud, sid, "git_pipeline.git_pipeline.lease", args, errbuf, sizeof(errbuf));
+    if (PICOMESH_IS_ERR(lease_res)) {
+        yerror("webapp: git_pipeline.lease transport failure");
+        render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+        picomesh_error_destroy(lease_res.error);
+        return PICOMESH_OK_VOID();
+    }
+    if (lease_res.value == 0) {
+        render_action_error(s, claims.username, claims.is_admin, errbuf, where, keep_alive);
+        return PICOMESH_OK_VOID();
+    }
     send_redirect(s, where, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* Forward a form POST verbatim to the gateway at `gw_path` carrying the
@@ -3067,25 +3264,32 @@ static void post_run_lease(struct yloop *loop, struct yloop_stream *s,
  * POSTs (admin register / mint_pat) the sidecar only relays — the gateway
  * resolves the sid → uid and enforces the site-owner gate. Best-effort:
  * always redirects back, even on a gateway error. */
-static void relay_post(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result relay_post(struct loop *loop, struct loop_stream *s,
                        const struct serve_ud *sud, const char *sid,
                        const char *gw_path, const char *body, size_t body_len,
                        const char *redirect_to, int keep_alive)
 {
     struct http_response resp;
-    (void)http_post(loop, &sud->gw, gw_path,
+    struct picomesh_int_result post = http_post(loop, &sud->gw, gw_path,
                     "application/x-www-form-urlencoded", NULL, sid,
                     body, body_len, &resp);
+    /* Best-effort relay: a transport failure is logged but still redirects
+     * back. Discard the error here so its cause chain is not leaked. */
+    if (PICOMESH_IS_ERR(post)) {
+        picomesh_error_print(stderr, "relay_post: gateway POST", post.error);
+        picomesh_error_destroy(post.error);
+    }
     http_response_free(&resp);
     send_redirect(s, redirect_to, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* POST /repos/new — create a repository for the signed-in user. We call
- * git_repo.git_repo.make over the gateway /_rpc directly (owner uid =
- * hash_username(uname), matching how the backend keys repos), rather than
- * relaying the gateway's HTML action — that action needs the uname cookie,
+ * git_repo.git_repo.make over the gateway /_rpc directly with the owner uid
+ * taken from the verified session identity (claims.uid via /_whoami), rather
+ * than relaying the gateway's HTML action — that action needs the uname cookie,
  * which a header-only relay doesn't carry. Then bounce to /repos. */
-static void webapp_repos_new(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result webapp_repos_new(struct loop *loop, struct loop_stream *s,
                              const struct serve_ud *sud, const char *sid,
                              const char *body, size_t body_len, int keep_alive)
 {
@@ -3095,7 +3299,7 @@ static void webapp_repos_new(struct yloop *loop, struct yloop_stream *s,
     resolve_claims(loop, sud, sid, &claims);
     if (!claims.uid || !claims.username[0]) {
         send_redirect(s, "/-/login", NULL, keep_alive);
-        return;
+        return PICOMESH_OK_VOID();
     }
     char *name = form_get(body, body_len, "name");
     char *namespace = form_get(body, body_len, "namespace");
@@ -3108,16 +3312,19 @@ static void webapp_repos_new(struct yloop *loop, struct yloop_stream *s,
         if (json_escape(name_esc, sizeof(name_esc), name) &&
             json_escape(owner_esc, sizeof(owner_esc), owner_name)) {
             snprintf(args, sizeof(args), "[%u,\"%s\",\"%s\"]", claims.uid, owner_esc, name_esc);
-            if (!rpc_invoke(loop, sud, sid, "git_repo.git_repo.make", args, err, sizeof(err))) {
+            struct picomesh_int_result rpc_inv_4 = rpc_invoke(loop, sud, sid, "git_repo.git_repo.make", args, err, sizeof(err));
+            if (PICOMESH_IS_ERR(rpc_inv_4)) { picomesh_error_print(stderr, "webapp: rpc_invoke", rpc_inv_4.error); picomesh_error_destroy(rpc_inv_4.error); }
+            if (PICOMESH_IS_ERR(rpc_inv_4) || !rpc_inv_4.value) {
                 free(name); free(namespace);
                 render_action_error(s, claims.username, claims.is_admin, err, "/-/repos/new", keep_alive);
-                return;
+                return PICOMESH_OK_VOID();
             }
             snprintf(redirect, sizeof(redirect), "/%s/%s/-/tree", owner_name, name);
         }
     }
     free(name); free(namespace);
     send_redirect(s, redirect, NULL, keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* POST /logout — invalidate the server-side session at the gateway
@@ -3125,17 +3332,24 @@ static void webapp_repos_new(struct yloop *loop, struct yloop_stream *s,
  * emit the clearing Set-Cookie headers ourselves (the gateway sets two and
  * our client only captures the first), so the browser reliably forgets the
  * opaque sid + uname. */
-static void route_logout(struct yloop *loop, struct yloop_stream *s,
+static struct picomesh_void_result route_logout(struct loop *loop, struct loop_stream *s,
                          const struct serve_ud *sud, const char *sid, int keep_alive)
 {
     struct http_response resp;
-    (void)http_post(loop, &sud->gw, "/logout",
+    struct picomesh_int_result post = http_post(loop, &sud->gw, "/logout",
                     "application/x-www-form-urlencoded", NULL, sid, "", 0, &resp);
+    /* Best-effort: clear the browser cookies regardless. Discard any transport
+     * error here so its cause chain is not leaked. */
+    if (PICOMESH_IS_ERR(post)) {
+        picomesh_error_print(stderr, "route_logout: /logout", post.error);
+        picomesh_error_destroy(post.error);
+    }
     http_response_free(&resp);
     send_redirect(s, "/-/login",
         "Set-Cookie: picomesh-sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0\r\n"
         "Set-Cookie: picomesh-uname=; Path=/; SameSite=Lax; Max-Age=0\r\n",
         keep_alive);
+    return PICOMESH_OK_VOID();
 }
 
 /* Split "<acct>/<repo>[/<section>[/<action>]]" (query stripped) into its
@@ -3199,15 +3413,23 @@ static const struct repo_route *repo_route_for(const char *verb)
 
 /* ---- per-peer serve coro -------------------------------------------- */
 
-static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
+/* Per-connection serve coroutine — its void signature is fixed by the loop's
+ * accept-handler API (loop_listen_tcp). Every route/page handler renders its
+ * own response and absorbs+logs RPC failures internally (returning OK), so
+ * their results are intentionally not propagated past this boundary. */
+PICOMESH_EXTERNAL_CALLBACK
+static void serve_one(struct loop *l, struct loop_stream *s, void *ud)
 {
     (void)l;
     struct serve_ud *sud = ud;
     const struct webapp_config *cfg = sud->cfg;
 
-    /* Read request bytes until picohttpparser is satisfied. */
+    /* Read request bytes until picohttpparser is satisfied. This is a
+     * per-connection coroutine root: internal failures (OOM) are logged with
+     * yerror; client-caused failures (malformed / oversized request) get a
+     * 4xx response instead of a silent close. */
     char *buf = malloc(WEBAPP_REQ_BUF);
-    if (!buf) { yloop_close(s); return; }
+    if (!buf) { yerror("[webapp] serve_one: out of memory allocating %d-byte request buffer", WEBAPP_REQ_BUF); loop_close(s); return; }
     size_t total = 0, last = 0;
     const char *method = NULL, *path = NULL;
     size_t method_len = 0, path_len = 0;
@@ -3215,17 +3437,37 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
     struct phr_header headers[WEBAPP_MAX_HEADERS];
     size_t num_headers;
 
+    int parsed = 0;
     while (total < WEBAPP_REQ_BUF) {
-        size_t got = yloop_read_some(s, buf + total, WEBAPP_REQ_BUF - total);
-        if (got == 0) { free(buf); yloop_close(s); return; }
-        total += got;
+        struct picomesh_size_result chunk_res = loop_read_some(s, buf + total, WEBAPP_REQ_BUF - total);
+        if (PICOMESH_IS_ERR(chunk_res)) {
+            ywarn("[webapp] serve_one: request read error: %s", chunk_res.error.msg ? chunk_res.error.msg : "?");
+            picomesh_error_destroy(chunk_res.error);
+            free(buf); loop_close(s); return;
+        }
+        if (chunk_res.value == 0) { free(buf); loop_close(s); return; } /* clean client close / EOF — normal */
+        total += chunk_res.value;
         num_headers = WEBAPP_MAX_HEADERS;
         int parse_result = phr_parse_request(buf, total, &method, &method_len,
                                   &path, &path_len, &minor_version,
                                   headers, &num_headers, last);
-        if (parse_result > 0) break;
-        if (parse_result == -1) { free(buf); yloop_close(s); return; }
+        if (parse_result > 0) { parsed = 1; break; }
+        if (parse_result == -1) {
+            ywarn("[webapp] serve_one: malformed request, rejecting with 400");
+            send_text(s, 400, "bad request\n", 0);
+            free(buf);
+            loop_close(s);
+            return;
+        }
         last = total;
+    }
+    if (!parsed) {
+        /* Filled the buffer without a complete request line + headers. */
+        ywarn("[webapp] serve_one: request headers exceed %d bytes, rejecting with 431", WEBAPP_REQ_BUF);
+        send_text(s, 431, "request header fields too large\n", 0);
+        free(buf);
+        loop_close(s);
+        return;
     }
 
     char ka_hdr[32] = {0};
@@ -3541,17 +3783,17 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
     }
 
     free(buf);
-    yloop_close(s);
+    loop_close(s);
 }
 
 /* ---- public entry --------------------------------------------------- */
 
-struct picomesh_void_result webapp_start(struct yloop *loop,
+struct picomesh_void_result webapp_start(struct loop *loop,
                                          const char *host, int port,
                                          const struct webapp_config *cfg)
 {
     /* `ud` outlives the listener: leaked intentionally — process-lifetime,
-     * tiny, freed on exit by the OS. The config strings come from yargv
+     * tiny, freed on exit by the OS. The config strings come from argv
      * which holds them for the chain's lifetime (== whole process). */
     struct serve_ud *ud = calloc(1, sizeof(*ud));
     if (!ud) return PICOMESH_ERR(picomesh_void, "webapp_start: calloc failed");
@@ -3564,7 +3806,7 @@ struct picomesh_void_result webapp_start(struct yloop *loop,
     }
 
     struct picomesh_void_result listen_res =
-        yloop_listen_tcp(loop, host, port, serve_one, ud);
-    PICOMESH_RETURN_IF_ERR(picomesh_void, listen_res, "webapp_start: yloop_listen_tcp");
+        loop_listen_tcp(loop, host, port, serve_one, ud);
+    PICOMESH_RETURN_IF_ERR(picomesh_void, listen_res, "webapp_start: loop_listen_tcp");
     return PICOMESH_OK_VOID();
 }

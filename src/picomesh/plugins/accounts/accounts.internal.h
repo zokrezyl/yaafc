@@ -8,6 +8,8 @@
 
 typedef struct picomesh_int_result (*accounts_accounts_claim_username_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, const char *);
 typedef struct picomesh_int_result (*accounts_accounts_release_username_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, const char *);
+typedef struct picomesh_int64_result (*accounts_accounts_allocate_uid_fn)(struct ctx *, struct object *, struct yheaders *);
+typedef struct picomesh_int64_result (*accounts_accounts_uid_for_username_fn)(struct ctx *, struct object *, struct yheaders *, const char *);
 typedef struct picomesh_int_result (*accounts_accounts_register_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, const char *);
 typedef struct picomesh_int_result (*accounts_accounts_exists_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t);
 typedef struct picomesh_int_result (*accounts_accounts_set_balance_fn)(struct ctx *, struct object *, struct yheaders *, uint32_t, int64_t);

@@ -4,8 +4,8 @@
 #ifndef PICOMESH_PLUGIN_ACCOUNTS_H
 #define PICOMESH_PLUGIN_ACCOUNTS_H
 
-#include <picomesh/yclass/class.h>
-#include <picomesh/yclass/rpc.h>
+#include <picomesh/picoclass/class.h>
+#include <picomesh/picoclass/rpc.h>
 
 struct picomesh_int64_result;
 struct picomesh_int_result;
@@ -25,6 +25,8 @@ struct object_ptr_result accounts_accounts_create(struct ctx *ctx);
 /* ---- methods ---- */
 struct picomesh_int_result accounts_accounts_claim_username(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid, const char * username);
 struct picomesh_int_result accounts_accounts_release_username(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid, const char * username);
+struct picomesh_int64_result accounts_accounts_allocate_uid(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
+struct picomesh_int64_result accounts_accounts_uid_for_username(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, const char * username);
 struct picomesh_int_result accounts_accounts_register(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid, const char * username);
 struct picomesh_int_result accounts_accounts_exists(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid);
 struct picomesh_int_result accounts_accounts_set_balance(struct ctx * ctx, struct object * obj, struct yheaders * hdrs, uint32_t uid, int64_t n);
@@ -44,6 +46,6 @@ struct picomesh_json_result accounts_accounts_list(struct ctx * ctx, struct obje
 struct picomesh_json_result accounts_accounts_list_all(struct ctx * ctx, struct object * obj, struct yheaders * hdrs);
 
 /* ---- activation ---- */
-void picomesh_plugin_accounts_register(void);
+struct picomesh_void_result picomesh_plugin_accounts_register(void);
 
 #endif

@@ -436,7 +436,7 @@ out=$(http_post "$CTRL" /invoke "{\"method\":\"mesh_mesh_count_children\",\"hand
 expect_contains "parent.count_children == $SPAWNED" "$out" "\"result\":$SPAWNED"
 
 echo
-# The webapp uses SO_REUSEPORT (shared yloop listener), so if a stale
+# The webapp uses SO_REUSEPORT (shared loop listener), so if a stale
 # picoforge-webapp from a prior run already holds :$SIDE, a fresh one would
 # silently CO-BIND it — the kernel load-balances requests across both and half
 # hit the stale binary (e.g. pre-rename RPC paths → "service unreachable").

@@ -8,15 +8,15 @@
 
 #include <picomesh/frontends/msgpack/msgpack.h>
 
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yengine/resolve.h>
-#include <picomesh/yloop/yloop.h>
-#include <picomesh/yclass/minvoke.h>
-#include <picomesh/yclass/jinvoke.h>
-#include <picomesh/yclass/yheaders.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/engine/resolve.h>
+#include <picomesh/loop/loop.h>
+#include <picomesh/picoclass/minvoke.h>
+#include <picomesh/picoclass/jinvoke.h>
+#include <picomesh/picoclass/yheaders.h>
 #include <picomesh/msgpack/msgpack.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -141,20 +141,21 @@ static size_t pack_success(uint8_t *resp, size_t resp_cap, const uint8_t *value,
 /* op == "invoke". Resolve+gate the path, run the minvoke, build the response
  * envelope into `resp`. `args_present`/`args_offset` locate the args array in
  * the original frame. The caller has already rejected any non-empty kwargs. */
-static size_t handle_invoke(struct picomesh_engine *engine, const char *path, const uint8_t *frame,
+static struct picomesh_size_result handle_invoke(struct picomesh_engine *engine, const char *path, const uint8_t *frame,
                             size_t frame_len, int args_present, size_t args_offset,
                             struct yheaders *hdrs, uint8_t *value_buf, uint8_t *resp,
                             size_t resp_cap)
 {
     if (!path || !*path)
-        return pack_error(resp, resp_cap, "bad_path", "missing 'path'");
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_path", "missing 'path'"));
 
     struct picomesh_service_call_result call_res = picomesh_resolve_service_call(engine, path);
     if (PICOMESH_IS_ERR(call_res)) {
         const char *msg = call_res.error.msg ? call_res.error.msg : "resolve failed";
         size_t response_len = pack_error(resp, resp_cap, resolve_code(msg), msg);
+        picomesh_error_print(stderr, "msgpack handle_invoke: resolve_service_call", call_res.error);
         picomesh_error_destroy(call_res.error);
-        return response_len;
+        return PICOMESH_OK(picomesh_size, response_len);
     }
     struct picomesh_service_call call = call_res.value;
 
@@ -163,7 +164,7 @@ static size_t handle_invoke(struct picomesh_engine *engine, const char *path, co
         char msg[256];
         snprintf(msg, sizeof(msg), "no method '%s'", call.method_qname);
         picomesh_service_call_release(&call);
-        return pack_error(resp, resp_cap, "no_such_method", msg);
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "no_such_method", msg));
     }
 
     /* Re-open a reader on the original frame at the args array and read its
@@ -176,7 +177,7 @@ static size_t handle_invoke(struct picomesh_engine *engine, const char *path, co
         args_reader_buf.offset = args_offset;
         if (!cmp_read_array(&args_reader, &argc)) {
             picomesh_service_call_release(&call);
-            return pack_error(resp, resp_cap, "bad_envelope", "'args' is not an array");
+            return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "'args' is not an array"));
         }
     } else {
         picomesh_msgpack_reader_init(&args_reader, &args_reader_buf, frame, frame_len);
@@ -187,42 +188,44 @@ static size_t handle_invoke(struct picomesh_engine *engine, const char *path, co
     picomesh_msgpack_writer_init(&value_writer, &value_buf_state, value_buf, MSGPACK_FRAME_MAX);
 
     char err[8192] = {0};
-    int call_rc = method_fn(&call.ctx, call.obj, hdrs, &args_reader, argc, &value_writer, err,
-                            sizeof(err));
+    struct picomesh_void_result invoke_res =
+        method_fn(&call.ctx, call.obj, hdrs, &args_reader, argc, &value_writer, err, sizeof(err));
     picomesh_service_call_release(&call);
 
-    if (call_rc != 0) {
-        yerror("msgpack request failed path=%s: %s", path ? path : "", err[0] ? err : "call failed");
-        return pack_error(resp, resp_cap, "call_error", err[0] ? err : "call failed");
+    if (PICOMESH_IS_ERR(invoke_res)) {
+        picomesh_error_print(stderr, "msgpack handle_invoke: method dispatch", invoke_res.error);
+        picomesh_error_destroy(invoke_res.error);
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "call_error", err[0] ? err : "call failed"));
     }
     size_t response_len = pack_success(resp, resp_cap, value_buf, value_buf_state.offset);
     if (response_len == 0)
-        return pack_error(resp, resp_cap, "response_too_large", "result exceeds frame cap");
-    return response_len;
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "response_too_large", "result exceeds frame cap"));
+    return PICOMESH_OK(picomesh_size, response_len);
 }
 
 /* op == "describe". Minimal v1: reflect a method's positional parameter
  * signature (names + C types) for `path`. Resolves through the SAME
  * active-service gate as invoke — a describe for an inactive service is
  * rejected (service_not_active) before any metadata is read. */
-static size_t handle_describe(struct picomesh_engine *engine, const char *path, uint8_t *resp,
+static struct picomesh_size_result handle_describe(struct picomesh_engine *engine, const char *path, uint8_t *resp,
                               size_t resp_cap)
 {
     if (!path || !*path)
-        return pack_error(resp, resp_cap, "bad_path", "describe: missing 'path'");
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_path", "describe: missing 'path'"));
 
     struct picomesh_service_call_result call_res = picomesh_resolve_service_call(engine, path);
     if (PICOMESH_IS_ERR(call_res)) {
         const char *msg = call_res.error.msg ? call_res.error.msg : "resolve failed";
         size_t response_len = pack_error(resp, resp_cap, resolve_code(msg), msg);
+        picomesh_error_print(stderr, "msgpack handle_describe: resolve_service_call", call_res.error);
         picomesh_error_destroy(call_res.error);
-        return response_len;
+        return PICOMESH_OK(picomesh_size, response_len);
     }
     struct picomesh_service_call call = call_res.value;
     const struct jinvoke_params *params = call.params;
     if (!params) {
         picomesh_service_call_release(&call);
-        return pack_error(resp, resp_cap, "no_such_method", "describe: unknown method");
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "no_such_method", "describe: unknown method"));
     }
 
     uint8_t value[8192];
@@ -244,15 +247,15 @@ static size_t handle_describe(struct picomesh_engine *engine, const char *path, 
     picomesh_service_call_release(&call);
     size_t response_len = pack_success(resp, resp_cap, value, value_buf_state.offset);
     if (response_len == 0)
-        return pack_error(resp, resp_cap, "response_too_large", "describe result too large");
-    return response_len;
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "response_too_large", "describe result too large"));
+    return PICOMESH_OK(picomesh_size, response_len);
 }
 
 /* Decode one request frame and build its response envelope into `resp`.
  * `value_buf` is MSGPACK_FRAME_MAX scratch for the result value. Returns the
  * response length (always > 0 for a well-formed connection — even errors are
  * a response). */
-static size_t dispatch_frame(struct picomesh_engine *engine, const uint8_t *frame, size_t frame_len,
+static struct picomesh_size_result dispatch_frame(struct picomesh_engine *engine, const uint8_t *frame, size_t frame_len,
                              uint8_t *value_buf, uint8_t *resp, size_t resp_cap)
 {
     cmp_ctx_t reader;
@@ -261,7 +264,7 @@ static size_t dispatch_frame(struct picomesh_engine *engine, const uint8_t *fram
 
     uint32_t top = 0;
     if (!cmp_read_map(&reader, &top))
-        return pack_error(resp, resp_cap, "bad_envelope", "envelope is not a msgpack map");
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "envelope is not a msgpack map"));
 
     char op[32] = "invoke";
     char path[256] = {0};
@@ -274,51 +277,51 @@ static size_t dispatch_frame(struct picomesh_engine *engine, const uint8_t *fram
         uint32_t klen = (uint32_t)sizeof(key);
         if (!cmp_read_str(&reader, key, &klen)) {
             yheaders_free(hdrs);
-            return pack_error(resp, resp_cap, "bad_envelope", "bad envelope key");
+            return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "bad envelope key"));
         }
         if (strcmp(key, "op") == 0) {
             uint32_t read_len = (uint32_t)sizeof(op);
             if (!cmp_read_str(&reader, op, &read_len)) {
                 yheaders_free(hdrs);
-                return pack_error(resp, resp_cap, "bad_envelope", "bad 'op'");
+                return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "bad 'op'"));
             }
         } else if (strcmp(key, "path") == 0) {
             uint32_t read_len = (uint32_t)sizeof(path);
             if (!cmp_read_str(&reader, path, &read_len)) {
                 yheaders_free(hdrs);
-                return pack_error(resp, resp_cap, "bad_envelope", "bad 'path'");
+                return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "bad 'path'"));
             }
         } else if (strcmp(key, "args") == 0) {
             args_present = 1;
             args_offset = reader_buf.offset;
             if (!cmp_skip_object_no_limit(&reader)) {
                 yheaders_free(hdrs);
-                return pack_error(resp, resp_cap, "bad_envelope", "bad 'args'");
+                return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "bad 'args'"));
             }
         } else if (strcmp(key, "kwargs") == 0) {
             uint32_t kwargs_count = 0;
             if (!cmp_read_map(&reader, &kwargs_count)) {
                 yheaders_free(hdrs);
-                return pack_error(resp, resp_cap, "bad_envelope", "'kwargs' is not a map");
+                return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "'kwargs' is not a map"));
             }
             kwargs_nonempty = kwargs_count > 0;
             for (uint32_t j = 0; j < kwargs_count * 2u; ++j) {
                 if (!cmp_skip_object_no_limit(&reader)) {
                     yheaders_free(hdrs);
-                    return pack_error(resp, resp_cap, "bad_envelope", "bad 'kwargs'");
+                    return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "bad 'kwargs'"));
                 }
             }
         } else if (strcmp(key, "headers") == 0) {
             uint32_t headers_count = 0;
             if (!cmp_read_map(&reader, &headers_count)) {
                 yheaders_free(hdrs);
-                return pack_error(resp, resp_cap, "bad_envelope", "'headers' is not a map");
+                return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "'headers' is not a map"));
             }
             decode_headers(&reader, headers_count, hdrs);
         } else {
             if (!cmp_skip_object_no_limit(&reader)) {
                 yheaders_free(hdrs);
-                return pack_error(resp, resp_cap, "bad_envelope", "bad envelope value");
+                return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "bad_envelope", "bad envelope value"));
             }
         }
     }
@@ -327,21 +330,26 @@ static size_t dispatch_frame(struct picomesh_engine *engine, const uint8_t *fram
      * (invoke AND describe) before dispatch, never silently ignored. */
     if (kwargs_nonempty) {
         yheaders_free(hdrs);
-        return pack_error(resp, resp_cap, "kwargs_unsupported",
-                          "msgpack v1 binds positional args only; kwargs must be empty");
+        return PICOMESH_OK(picomesh_size, pack_error(resp, resp_cap, "kwargs_unsupported",
+                          "msgpack v1 binds positional args only; kwargs must be empty"));
     }
 
-    size_t response_len;
+    struct picomesh_size_result handler_res;
     if (strcmp(op, "describe") == 0)
-        response_len = handle_describe(engine, path, resp, resp_cap);
+        handler_res = handle_describe(engine, path, resp, resp_cap);
     else
-        response_len = handle_invoke(engine, path, frame, frame_len, args_present, args_offset, hdrs,
+        handler_res = handle_invoke(engine, path, frame, frame_len, args_present, args_offset, hdrs,
                                      value_buf, resp, resp_cap);
     yheaders_free(hdrs);
-    return response_len;
+    return handler_res;
 }
 
-static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
+/* Per-peer reader coroutine — its void signature is fixed by the loop's
+ * accept-handler API. Dispatch packs business/resolve errors into the wire
+ * response; a framework-level dispatch failure is absorbed here (chain
+ * rendered) and drops the connection. */
+PICOMESH_EXTERNAL_CALLBACK
+static void serve_one(struct loop *l, struct loop_stream *s, void *ud)
 {
     (void)l;
     struct msgpack_frontend *frontend = ud;
@@ -362,7 +370,9 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
 
     for (;;) {
         uint8_t lenbuf[4];
-        if (yloop_read(s, lenbuf, 4) != 4)
+        struct picomesh_size_result lenprefix_read = loop_read(s, lenbuf, 4);
+        if (PICOMESH_IS_ERR(lenprefix_read)) { picomesh_error_destroy(lenprefix_read.error); break; }
+        if (lenprefix_read.value != 4)
             break; /* peer hung up */
         uint32_t frame_len = read_be32(lenbuf);
         if (frame_len == 0 || frame_len > MSGPACK_FRAME_MAX) {
@@ -370,15 +380,24 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
                                    "frame length zero or over the 1 MiB cap");
             uint8_t outlen[4];
             write_be32(outlen, (uint32_t)en);
-            yloop_write(s, outlen, 4);
+            loop_write(s, outlen, 4);
             if (en)
-                yloop_write(s, resp, en);
+                loop_write(s, resp, en);
             break; /* framing is unrecoverable — close */
         }
-        if (yloop_read(s, frame, frame_len) != frame_len)
+        struct picomesh_size_result frame_read = loop_read(s, frame, frame_len);
+        if (PICOMESH_IS_ERR(frame_read)) { picomesh_error_destroy(frame_read.error); break; }
+        if (frame_read.value != frame_len)
             break;
 
-        size_t resp_len = dispatch_frame(engine, frame, frame_len, value_buf, resp, MSGPACK_FRAME_MAX);
+        struct picomesh_size_result dispatch_res =
+            dispatch_frame(engine, frame, frame_len, value_buf, resp, MSGPACK_FRAME_MAX);
+        if (PICOMESH_IS_ERR(dispatch_res)) {
+            picomesh_error_print(stderr, "msgpack: dispatch_frame", dispatch_res.error);
+            picomesh_error_destroy(dispatch_res.error);
+            break;
+        }
+        size_t resp_len = dispatch_res.value;
         if (resp_len == 0) {
             /* Response could not be framed (overflow) — log before dropping the
              * connection so the failure isn't silent at the root boundary. */
@@ -387,8 +406,8 @@ static void serve_one(struct yloop *l, struct yloop_stream *s, void *ud)
         }
         uint8_t outlen[4];
         write_be32(outlen, (uint32_t)resp_len);
-        yloop_write(s, outlen, 4);
-        yloop_write(s, resp, resp_len);
+        loop_write(s, outlen, 4);
+        loop_write(s, resp, resp_len);
     }
 
     free(frame);
@@ -404,7 +423,7 @@ struct msgpack_frontend_ptr_result msgpack_start(struct picomesh_engine *e,
     const char *host = (cfg && cfg->host) ? cfg->host : "127.0.0.1";
     int port = (cfg && cfg->port > 0) ? cfg->port : 7900;
 
-    struct yloop *l = picomesh_engine_loop(e);
+    struct loop *l = picomesh_engine_loop(e);
     if (!l)
         return PICOMESH_ERR(msgpack_frontend_ptr, "msgpack_start: engine has no loop");
 
@@ -413,10 +432,10 @@ struct msgpack_frontend_ptr_result msgpack_start(struct picomesh_engine *e,
         return PICOMESH_ERR(msgpack_frontend_ptr, "msgpack_start: calloc failed");
     f->engine = e;
 
-    struct picomesh_void_result lr = yloop_listen_tcp(l, host, port, serve_one, f);
+    struct picomesh_void_result lr = loop_listen_tcp(l, host, port, serve_one, f);
     if (PICOMESH_IS_ERR(lr)) {
         free(f);
-        return PICOMESH_ERR(msgpack_frontend_ptr, "msgpack_start: yloop_listen_tcp failed", lr);
+        return PICOMESH_ERR(msgpack_frontend_ptr, "msgpack_start: loop_listen_tcp failed", lr);
     }
     yinfo("msgpack: listening on %s:%d", host, port);
     return PICOMESH_OK(msgpack_frontend_ptr, f);
@@ -424,7 +443,7 @@ struct msgpack_frontend_ptr_result msgpack_start(struct picomesh_engine *e,
 
 void msgpack_stop(struct msgpack_frontend *f)
 {
-    /* The listener is owned by the yloop and torn down when the loop closes. */
+    /* The listener is owned by the loop and torn down when the loop closes. */
     if (!f)
         return;
     free(f);

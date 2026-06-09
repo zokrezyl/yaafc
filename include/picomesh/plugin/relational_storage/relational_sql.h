@@ -34,12 +34,12 @@
 #define PICOMESH_PLUGIN_RELATIONAL_STORAGE_RELATIONAL_SQL_H
 
 #include <picomesh/plugin/relational_storage/relational_storage.h>
-#include <picomesh/yengine/engine.h>
-#include <picomesh/yconfig/yconfig.h>
-#include <picomesh/yclass/rpc.h>
-#include <picomesh/yjson/yjson.h>
-#include <picomesh/ycore/result.h>
-#include <picomesh/ycore/ytrace.h>
+#include <picomesh/engine/engine.h>
+#include <picomesh/config/config.h>
+#include <picomesh/picoclass/rpc.h>
+#include <picomesh/json/json.h>
+#include <picomesh/core/result.h>
+#include <picomesh/core/ytrace.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -119,15 +119,15 @@ rel_query(struct rel_handle *h, struct yheaders *hdrs, const char *sql, const ch
     return relational_storage_db_query(&h->c, h->obj, hdrs, h->db, h->shard, sql, args_json ? args_json : "[]");
 }
 
-/* Finish a JSON bind-args array (the caller filled via yjson_writer_*). Returns
+/* Finish a JSON bind-args array (the caller filled via json_writer_*). Returns
  * an owned JSON string the caller frees; frees the writer. */
-static inline char *rel_args_take(struct yjson_writer *writer)
+static inline char *rel_args_take(struct json_writer *writer)
 {
-    yjson_writer_end_array(writer);
+    json_writer_end_array(writer);
     size_t len = 0;
-    const char *data = yjson_writer_data(writer, &len);
+    const char *data = json_writer_data(writer, &len);
     char *out = strdup(data ? data : "[]");
-    yjson_writer_free(writer);
+    json_writer_free(writer);
     return out;
 }
 
@@ -157,74 +157,68 @@ rel_ensure_schema(struct rel_handle *h, struct yheaders *hdrs, int *ensured, con
 /* Convenience bind-args builders (owned JSON, caller frees). */
 static inline char *rel_args1s(const char *s)
 {
-    struct yjson_writer *w = yjson_writer_new();
-    yjson_writer_begin_array(w);
-    yjson_writer_string(w, s ? s : "");
+    struct json_writer *w = json_writer_new();
+    json_writer_begin_array(w);
+    json_writer_string(w, s ? s : "");
     return rel_args_take(w);
 }
 static inline char *rel_args1i(int64_t i)
 {
-    struct yjson_writer *w = yjson_writer_new();
-    yjson_writer_begin_array(w);
-    yjson_writer_int(w, i);
+    struct json_writer *w = json_writer_new();
+    json_writer_begin_array(w);
+    json_writer_int(w, i);
     return rel_args_take(w);
 }
 static inline char *rel_args2i(int64_t a, int64_t b)
 {
-    struct yjson_writer *w = yjson_writer_new();
-    yjson_writer_begin_array(w);
-    yjson_writer_int(w, a);
-    yjson_writer_int(w, b);
+    struct json_writer *w = json_writer_new();
+    json_writer_begin_array(w);
+    json_writer_int(w, a);
+    json_writer_int(w, b);
     return rel_args_take(w);
 }
 
-/* `changes` count of a write (rows affected), or -1 on backend error. */
-static inline int rel_exec_changes(struct rel_handle *h, struct yheaders *hdrs,
+/* `changes` count of a write (rows affected) as a Result. A backend failure
+ * propagates; a successful write yields the affected-row count. */
+static inline struct picomesh_int_result rel_exec_changes(struct rel_handle *h, struct yheaders *hdrs,
                                    const char *sql, const char *args_json)
 {
     struct picomesh_json_result r = rel_exec(h, hdrs, sql, args_json);
-    if (PICOMESH_IS_ERR(r)) {
-        yerror("relational exec failed: %s | db=%s shard=%u sql=%.120s",
-               r.error.msg ? r.error.msg : "?", h->db ? h->db : "?", h->shard, sql);
-        picomesh_error_destroy(r.error);
-        return -1;
-    }
+    if (PICOMESH_IS_ERR(r))
+        return PICOMESH_ERR(picomesh_int, "relational exec failed", r);
     int changes = -1;
-    struct yjson_doc *doc = yjson_parse(r.value ? r.value : "{}", r.value ? strlen(r.value) : 2);
+    struct json_doc *doc = json_parse(r.value ? r.value : "{}", r.value ? strlen(r.value) : 2);
     if (doc) {
-        changes = (int)yjson_as_int(yjson_object_get(yjson_doc_root(doc), "changes"), -1);
-        yjson_doc_free(doc);
+        changes = (int)json_as_int(json_object_get(json_doc_root(doc), "changes"), -1);
+        json_doc_free(doc);
     }
     free(r.value);
-    return changes;
+    return PICOMESH_OK(picomesh_int, changes);
 }
 
-/* First row's `col` as int64. `*found` (if non-NULL) is set to 1 when a row
- * matched. Returns `fallback` when no row / error / null. */
-static inline int64_t rel_query_int(struct rel_handle *h, struct yheaders *hdrs,
+/* First row's `col` as int64, AS A RESULT. `*found` (if non-NULL) is set to 1
+ * when a row matched. A backend failure propagates; a query that ran but
+ * matched no row (or a null value) is NOT an error and yields `fallback`. */
+static inline struct picomesh_int64_result rel_query_int(struct rel_handle *h, struct yheaders *hdrs,
                                     const char *sql, const char *args_json,
                                     const char *col, int64_t fallback, int *found)
 {
     if (found) *found = 0;
     struct picomesh_json_result r = rel_query(h, hdrs, sql, args_json);
-    if (PICOMESH_IS_ERR(r)) {
-        yerror("relational query failed: %s | db=%s shard=%u sql=%.120s",
-               r.error.msg ? r.error.msg : "?", h->db ? h->db : "?", h->shard, sql);
-        picomesh_error_destroy(r.error);
-        return fallback;
-    }
+    if (PICOMESH_IS_ERR(r))
+        return PICOMESH_ERR(picomesh_int64, "relational query failed", r);
     int64_t value = fallback;
-    struct yjson_doc *doc = yjson_parse(r.value ? r.value : "[]", r.value ? strlen(r.value) : 2);
+    struct json_doc *doc = json_parse(r.value ? r.value : "[]", r.value ? strlen(r.value) : 2);
     if (doc) {
-        const struct yjson_value *arr = yjson_doc_root(doc);
-        if (arr && yjson_array_size(arr) > 0) {
+        const struct json_value *arr = json_doc_root(doc);
+        if (arr && json_array_size(arr) > 0) {
             if (found) *found = 1;
-            value = yjson_as_int(yjson_object_get(yjson_array_at(arr, 0), col), fallback);
+            value = json_as_int(json_object_get(json_array_at(arr, 0), col), fallback);
         }
-        yjson_doc_free(doc);
+        json_doc_free(doc);
     }
     free(r.value);
-    return value;
+    return PICOMESH_OK(picomesh_int64, value);
 }
 
 /* First row's `col` as int64, AS A RESULT. Unlike rel_query_int (which collapses
@@ -239,41 +233,38 @@ rel_query_int_result(struct rel_handle *h, struct yheaders *hdrs,
 {
     struct picomesh_json_result r = rel_query(h, hdrs, sql, args_json);
     if (PICOMESH_IS_ERR(r)) return PICOMESH_ERR(picomesh_int64, "relational: query failed", r);
-    struct yjson_doc *doc = yjson_parse(r.value ? r.value : "[]", r.value ? strlen(r.value) : 2);
+    struct json_doc *doc = json_parse(r.value ? r.value : "[]", r.value ? strlen(r.value) : 2);
     if (!doc) { free(r.value); return PICOMESH_ERR(picomesh_int64, "relational: malformed query result"); }
     int64_t value = fallback;
-    const struct yjson_value *arr = yjson_doc_root(doc);
-    if (arr && yjson_array_size(arr) > 0)
-        value = yjson_as_int(yjson_object_get(yjson_array_at(arr, 0), col), fallback);
-    yjson_doc_free(doc);
+    const struct json_value *arr = json_doc_root(doc);
+    if (arr && json_array_size(arr) > 0)
+        value = json_as_int(json_object_get(json_array_at(arr, 0), col), fallback);
+    json_doc_free(doc);
     free(r.value);
     return PICOMESH_OK(picomesh_int64, value);
 }
 
-/* First row's `col` as an owned string (caller frees), or NULL when no row /
- * error / null value. */
-static inline char *rel_query_str(struct rel_handle *h, struct yheaders *hdrs,
+/* First row's `col` as an owned string (caller frees), AS A RESULT. A backend
+ * failure propagates; the OK value is the owned string, or NULL when no row /
+ * null value. */
+static inline struct picomesh_string_result rel_query_str(struct rel_handle *h, struct yheaders *hdrs,
                                   const char *sql, const char *args_json, const char *col)
 {
     struct picomesh_json_result r = rel_query(h, hdrs, sql, args_json);
-    if (PICOMESH_IS_ERR(r)) {
-        yerror("relational query failed: %s | db=%s shard=%u sql=%.120s",
-               r.error.msg ? r.error.msg : "?", h->db ? h->db : "?", h->shard, sql);
-        picomesh_error_destroy(r.error);
-        return NULL;
-    }
+    if (PICOMESH_IS_ERR(r))
+        return PICOMESH_ERR(picomesh_string, "relational query failed", r);
     char *out = NULL;
-    struct yjson_doc *doc = yjson_parse(r.value ? r.value : "[]", r.value ? strlen(r.value) : 2);
+    struct json_doc *doc = json_parse(r.value ? r.value : "[]", r.value ? strlen(r.value) : 2);
     if (doc) {
-        const struct yjson_value *arr = yjson_doc_root(doc);
-        if (arr && yjson_array_size(arr) > 0) {
-            const char *s = yjson_as_string(yjson_object_get(yjson_array_at(arr, 0), col), NULL);
+        const struct json_value *arr = json_doc_root(doc);
+        if (arr && json_array_size(arr) > 0) {
+            const char *s = json_as_string(json_object_get(json_array_at(arr, 0), col), NULL);
             if (s) out = strdup(s);
         }
-        yjson_doc_free(doc);
+        json_doc_free(doc);
     }
     free(r.value);
-    return out;
+    return PICOMESH_OK(picomesh_string, out);
 }
 
 /* Aggregate fan-out: sum an integer column (e.g. COUNT(*)) over EVERY shard.
@@ -427,26 +418,26 @@ rel_query_page(struct rel_handle *h, struct yheaders *hdrs, const char *base_sql
         const char *body = r.value ? r.value : "[]";
         size_t body_len = strlen(body);
 
-        struct yjson_doc *doc = yjson_parse(body, body_len);
-        const struct yjson_value *arr = doc ? yjson_doc_root(doc) : NULL;
-        if (!doc || !arr || !yjson_is_array(arr)) {
+        struct json_doc *doc = json_parse(body, body_len);
+        const struct json_value *arr = doc ? json_doc_root(doc) : NULL;
+        if (!doc || !arr || !json_is_array(arr)) {
             /* A shard that returned non-array / malformed JSON must fail the
              * whole listing, not silently contribute zero rows (same posture as
              * the aggregate fan-out). */
-            if (doc) yjson_doc_free(doc);
+            if (doc) json_doc_free(doc);
             h->shard = saved;
             for (int j = 0; j <= i; ++j) free(shard_results[j]);
             free(shard_results); free(rows);
             return PICOMESH_ERR(picomesh_json, "relational: malformed shard result in pagination");
         }
-        size_t shard_n = yjson_array_size(arr);
+        size_t shard_n = json_array_size(arr);
         if (shard_n) {
             if (nrows + shard_n > rows_cap) {
                 size_t ncap = rows_cap ? rows_cap * 2 : 64;
                 while (ncap < nrows + shard_n) ncap *= 2;
                 struct rel_page_row *grown = (struct rel_page_row *)realloc(rows, ncap * sizeof(*rows));
                 if (!grown) {
-                    yjson_doc_free(doc);
+                    json_doc_free(doc);
                     h->shard = saved;
                     for (int j = 0; j <= i; ++j) free(shard_results[j]);
                     free(shard_results); free(rows);
@@ -459,19 +450,19 @@ rel_query_page(struct rel_handle *h, struct yheaders *hdrs, const char *base_sql
                 /* The hand-written span scanner and the JSON parser disagree on
                  * the row count — a row would be silently dropped from the page.
                  * Fail rather than truncate. */
-                yjson_doc_free(doc);
+                json_doc_free(doc);
                 h->shard = saved;
                 for (int j = 0; j <= i; ++j) free(shard_results[j]);
                 free(shard_results); free(rows);
                 return PICOMESH_ERR(picomesh_json, "relational: pagination row-count mismatch");
             }
             for (size_t k = 0; k < got; ++k) {
-                rows[nrows + k].key = yjson_as_int(yjson_object_get(yjson_array_at(arr, k), order_col), 0);
+                rows[nrows + k].key = json_as_int(json_object_get(json_array_at(arr, k), order_col), 0);
                 rows[nrows + k].seq = (uint32_t)(nrows + k);
             }
             nrows += got;
         }
-        yjson_doc_free(doc);
+        json_doc_free(doc);
     }
     h->shard = saved;
 

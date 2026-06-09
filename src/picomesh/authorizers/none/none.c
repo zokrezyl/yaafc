@@ -11,7 +11,7 @@
 #include <stdio.h>
 
 static struct picomesh_void_ptr_result none_create(struct picomesh_engine *engine,
-                                                   const struct yconfig_node *config)
+                                                   const struct config_node *config)
 {
     (void)engine; (void)config;
     /* No state; return a non-NULL sentinel so the registry treats it as built. */
@@ -19,13 +19,13 @@ static struct picomesh_void_ptr_result none_create(struct picomesh_engine *engin
     return PICOMESH_OK(picomesh_void_ptr, &sentinel);
 }
 
-static struct picomesh_authz_decision none_authorize(void *state, const char *endpoint,
-                                                     const struct yjson_value *args, const char *jwt)
+static struct picomesh_authz_decision_result none_authorize(void *state, const char *endpoint,
+                                                     const struct json_value *args, const char *jwt)
 {
     (void)state; (void)endpoint; (void)args; (void)jwt;
     struct picomesh_authz_decision allow = {.allowed = 1, .status = 0};
     snprintf(allow.reason, sizeof(allow.reason), "no authorizer configured");
-    return allow;
+    return PICOMESH_OK(picomesh_authz_decision, allow);
 }
 
 static void none_destroy(void *state) { (void)state; }

@@ -5,7 +5,9 @@
 
 #include <stddef.h>
 
-struct yloop;
+#include <picomesh/core/result.h>
+
+struct loop;
 
 struct gateway_url {
     char host[128];
@@ -24,19 +26,20 @@ int gateway_url_parse(const char *url, struct gateway_url *out);
 
 /* POST `body` (length `body_len`) to `path` on `gw` with the given
  * Content-Type, plus optional Authorization: Bearer header and
- * picomesh-sid cookie-as-header. Returns 0 on success (response fields
- * populated), -1 on transport failure.
+ * picomesh-sid cookie-as-header. The OK value is 0 on success (response
+ * fields populated) or -1 on transport failure (the cause chain is also
+ * rendered to the log).
  *
- * Must be called from inside a yloop coroutine — internally yields
+ * Must be called from inside a loop coroutine — internally yields
  * the calling coro across connect / read / write. */
-int http_post(struct yloop *loop, const struct gateway_url *gw,
+struct picomesh_int_result http_post(struct loop *loop, const struct gateway_url *gw,
               const char *path, const char *content_type,
               const char *bearer, const char *sid,
               const char *body, size_t body_len,
               struct http_response *resp);
 
 /* Convenience wrapper: POST with Content-Type: application/json. */
-int http_post_json(struct yloop *loop, const struct gateway_url *gw,
+struct picomesh_int_result http_post_json(struct loop *loop, const struct gateway_url *gw,
                    const char *path,
                    const char *bearer, const char *sid,
                    const char *body, size_t body_len,

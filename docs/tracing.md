@@ -13,14 +13,14 @@ see `docs/perf.md`); this document covers the real distributed tracer.
 
 ```
 service / gateway process
-  └─ ytelemetry (sender, core module: ycore/ytelemetry.{h,c})
+  └─ ytelemetry (sender, core module: core/ytelemetry.{h,c})
        ├─ W3C traceparent in/out + yheaders trace context
        └─ on span end → fire-and-forget yrpc call to the collector's
           trace_collector_ingest method, over THIS worker's own connection
                                                    │
 trace_collector plugin (a normal yrpc backend)      ▼
   ├─ trace_collector_ingest(span_json)  receives spans
-  ├─ in-memory bounded store        (ycore/ytelemetry_store.{h,c})
+  ├─ in-memory bounded store        (core/ytelemetry_store.{h,c})
   └─ query methods                  trace_collector_traces / _get_trace /
                                     _services / _operations / _latency /
                                     _errors / _stats
