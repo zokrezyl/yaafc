@@ -1,0 +1,38 @@
+# picomesh — darwin/amd64 build (local backend on the macOS agent).
+#
+# Mirrors yetty's macos.yml shape: run `make build-desktop-release` directly on
+# the host (Xcode command-line tools provide clang/make; cmake + ninja must be
+# on the agent's PATH, e.g. via Homebrew).
+#
+# NOTE: there are no prebuilt macOS 3rdparty tarballs published yet
+# (.github/workflows/build-3rdparty-*.yml only build linux-{x86_64,aarch64,
+# riscv64}). On macOS every dependency therefore takes the CMake fetch's
+# from-source fallback (build-tools/3rdparty/<lib>/_build.sh, bash + upstream
+# CMake). That is the intended path until macOS prebuilts are cut.
+
+labels:
+  platform: darwin/amd64
+
+when:
+  - event: [push, manual, pull_request, tag]
+
+steps:
+  build:
+    image: bash
+    commands:
+      - make build-desktop-release
+      - ls -lh build-desktop-release/picomesh build-desktop-release/picoforge-webapp
+
+  # Workspace gets cleaned post-pipeline. The local backend ALSO sandboxes
+  # $HOME into the per-pipeline temp tree, so a $HOME-relative path won't
+  # outlive the pipeline — use the absolute agent-user home explicitly.
+  archive:
+    image: bash
+    when:
+      status: [success]
+    commands:
+      - DEST="/Users/mihaly.elekes/woodpecker-artifacts/picomesh/macos/$CI_PIPELINE_NUMBER"
+      - mkdir -p "$DEST"
+      - cp build-desktop-release/picomesh "$DEST/"
+      - cp build-desktop-release/picoforge-webapp "$DEST/"
+      - ls -lh "$DEST"

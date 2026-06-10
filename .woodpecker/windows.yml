@@ -1,0 +1,59 @@
+# picomesh — windows/amd64 build (local backend on the Windows agent).
+#
+# Mirrors yetty's windows.yml shape (cmd shell, build, archive to a host
+# artifact dir). picomesh already carries a Windows platform backend
+# (src/picomesh/platform/time/windows.c) so the code intends to support it.
+#
+# ── Known gaps (this pipeline is the FRONTIER, not yet green) ──────────────
+#   1. No prebuilt Windows 3rdparty tarballs are published — the
+#      .github/workflows/build-3rdparty-*.yml matrices only cover
+#      linux-{x86_64,aarch64,riscv64}. On Windows the CMake fetch therefore
+#      tries its from-source fallback (build-tools/3rdparty/<lib>/_build.sh),
+#      which is bash + upstream CMake — so a POSIX shell (git-bash/MSYS) must
+#      be on PATH for that fallback, or per-lib windows-x86_64 tarballs must
+#      first be published.
+#   2. The compiler must be clang (clang-cl/clang) + Ninja: the root
+#      CMakeLists uses gcc/clang-style flags (-Wall -Wextra
+#      -Werror=incompatible-pointer-types) that MSVC `cl` does not accept.
+#
+# Until both are addressed this pipeline will not pass; it is intentionally
+# scoped to `manual` + `tag` so it never blocks ordinary push/PR pipelines.
+# Once a Windows toolchain story lands (a build-tools\windows\build.bat or
+# published windows-x86_64 3rdparty tarballs), widen `when` and replace the
+# inline cmake below with that wrapper.
+
+labels:
+  platform: windows/amd64
+
+when:
+  - event: manual
+  - event: tag
+
+steps:
+  build:
+    image: cmd
+    commands:
+      # Configure + build the release variant with Ninja + clang. Assumes
+      # cmake, ninja and clang are on the agent PATH (e.g. an LLVM install and
+      # a Ninja shipped via the VS "C++ Clang tools" workload). A POSIX shell
+      # on PATH is required for the 3rdparty from-source fallback (see gaps).
+      - cmake -S . -B build-desktop-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang
+      - cmake --build build-desktop-release --parallel
+      - dir build-desktop-release\picomesh.exe build-desktop-release\picoforge-webapp.exe
+
+  # Workspace lives under %TEMP%\woodpecker-local-NNN and is cleaned when the
+  # pipeline ends; the local backend also sandboxes %USERPROFILE% into that
+  # temp tree, so use the absolute agent-user home explicitly.
+  archive:
+    image: cmd
+    when:
+      status: [success]
+    commands:
+      - set "DEST=C:\Users\misi\woodpecker-artifacts\picomesh\windows\%CI_PIPELINE_NUMBER%"
+      - mkdir "%DEST%" 2>nul
+      - copy /Y build-desktop-release\picomesh.exe "%DEST%\"
+      - copy /Y build-desktop-release\picoforge-webapp.exe "%DEST%\"
+      # Flat-copy any DLLs the build stages (3rdparty runtime deps) next to
+      # the executables so they run standalone from the artifact dir.
+      - for /r build-desktop-release %%f in (*.dll) do @copy /Y "%%f" "%DEST%\" >nul
+      - dir "%DEST%"

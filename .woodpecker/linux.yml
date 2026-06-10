@@ -1,0 +1,40 @@
+# picomesh — linux/amd64 build (docker backend).
+#
+# Builds the host release variant via `make build-desktop-release`, which
+# produces the mesh binary `picomesh` and the page tier `picoforge-webapp`
+# (plus picotrace / picoforge-perf). The 3rdparty deps are pulled as prebuilt
+# linux-x86_64 tarballs from the GitHub releases (lib-<name>-<version>), with a
+# from-source fallback baked into the CMake fetch logic.
+#
+# A normal release build does NOT run codegen (PICOMESH_ENABLE_CODEGEN is OFF
+# and the *.gen.* outputs are checked in), so no `uv`/clang-AST toolchain is
+# needed here — just cmake + ninja + a C compiler + curl for the 3rdparty
+# download.
+
+labels:
+  platform: linux/amd64
+  backend: docker
+
+when:
+  - event: [push, manual, pull_request, tag]
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+
+steps:
+  # Self-contained toolchain on a public base image. If a baked
+  # `picomesh-build:latest` image is later published to the LAN registry
+  # (cmake/ninja/gcc/curl preinstalled), swap the `image:` line for it and
+  # drop the `apt-get install` line for a faster build.
+  build:
+    image: ubuntu:24.04
+    environment:
+      DEBIAN_FRONTEND: noninteractive
+    commands:
+      - apt-get update -y
+      - >-
+        apt-get install -y --no-install-recommends
+        build-essential cmake ninja-build git curl ca-certificates tar
+      - make build-desktop-release
+      - ls -lh build-desktop-release/picomesh build-desktop-release/picoforge-webapp
