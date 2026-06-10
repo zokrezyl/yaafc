@@ -58,7 +58,16 @@ OSSL_TAR_CACHE="$CACHE_DIR/${OSSL_TAR_NAME}"
 URL_BASE="${PICOMESH_3RDPARTY_URL_BASE:-https://github.com/zokrezyl/picomesh/releases/download}"
 OSSL_URL="${URL_BASE}/lib-openssl-${OSSL_VERSION}/${OSSL_TAR_NAME}"
 
-if [ ! -f "$OSSL_DIR/lib/libssl.a" ]; then
+# Resolve the staged openssl archives — lib{ssl,crypto}.a on POSIX,
+# lib{ssl,crypto}.lib on native MSVC.
+ossl_archive() {  # $1 = ssl | crypto
+    for _cand in "$OSSL_DIR/lib/lib$1.a" "$OSSL_DIR/lib/lib$1.lib"; do
+        [ -f "$_cand" ] && { echo "$_cand"; return 0; }
+    done
+    return 1
+}
+
+if ! ossl_archive ssl >/dev/null; then
     rm -rf "$OSSL_DIR"; mkdir -p "$OSSL_DIR"
     if [ ! -f "$OSSL_TAR_CACHE" ]; then
         echo "==> fetching prebuilt openssl ${OSSL_VERSION} ($TARGET_PLATFORM)"
@@ -77,7 +86,8 @@ if [ ! -f "$OSSL_DIR/lib/libssl.a" ]; then
     fi
     tar -C "$OSSL_DIR" -xzf "$OSSL_TAR_CACHE"
 fi
-[ -f "$OSSL_DIR/lib/libssl.a" ]        || { echo "openssl staging failed: no libssl.a"  >&2; exit 1; }
+OSSL_SSL_LIB="$(ossl_archive ssl)"       || { echo "openssl staging failed: no libssl"    >&2; exit 1; }
+OSSL_CRYPTO_LIB="$(ossl_archive crypto)" || { echo "openssl staging failed: no libcrypto" >&2; exit 1; }
 [ -f "$OSSL_DIR/include/openssl/ssl.h" ] || { echo "openssl staging failed: no ssl.h"   >&2; exit 1; }
 
 # --- fetch curl ----------------------------------------------------------
@@ -109,6 +119,14 @@ linux-riscv64)
     ;;
 macos-x86_64) CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=x86_64") ;;
 macos-arm64)  CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=arm64")  ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). cmake picks
+    # up cl.exe via auto-detection. SCHANNEL is forced OFF so curl uses our
+    # prebuilt OpenSSL only (one TLS backend across every platform).
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    CMAKE_EXTRA+=("-DCURL_USE_SCHANNEL=OFF")
+    ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac
 
@@ -127,8 +145,8 @@ cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCURL_USE_OPENSSL=ON \
     -DOPENSSL_ROOT_DIR="$OSSL_DIR" \
     -DOPENSSL_INCLUDE_DIR="$OSSL_DIR/include" \
-    -DOPENSSL_SSL_LIBRARY="$OSSL_DIR/lib/libssl.a" \
-    -DOPENSSL_CRYPTO_LIBRARY="$OSSL_DIR/lib/libcrypto.a" \
+    -DOPENSSL_SSL_LIBRARY="$OSSL_SSL_LIB" \
+    -DOPENSSL_CRYPTO_LIBRARY="$OSSL_CRYPTO_LIB" \
     -DCURL_ZLIB=OFF \
     -DCURL_BROTLI=OFF \
     -DCURL_ZSTD=OFF \
@@ -162,7 +180,9 @@ for _D in lib lib64; do
 done
 cp -a "$INSTALL_DIR/include" "$STAGE/"
 
-[ -f "$STAGE/lib/libcurl.a" ]          || { echo "missing libcurl.a in stage" >&2; find "$STAGE" -maxdepth 3 >&2; exit 1; }
+# POSIX builds produce libcurl.a; native MSVC produces libcurl.lib.
+[ -f "$STAGE/lib/libcurl.a" ] || [ -f "$STAGE/lib/libcurl.lib" ] || {
+    echo "missing libcurl.a / libcurl.lib in stage" >&2; find "$STAGE" -maxdepth 3 >&2; exit 1; }
 [ -f "$STAGE/include/curl/curl.h" ]    || { echo "missing include/curl/curl.h" >&2; exit 1; }
 
 # The consumer wraps the archive as an IMPORTED target; CMake/pkgconfig modules

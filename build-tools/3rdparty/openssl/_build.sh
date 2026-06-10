@@ -75,6 +75,10 @@ CFG_ARGS=(
     no-sm4
 )
 
+# Build driver + perl default to the POSIX toolchain; the windows-x86_64
+# branch overrides them to nmake + Strawberry Perl.
+MAKE_CMD="make"
+PERL="perl"
 case "$TARGET_PLATFORM" in
 linux-x86_64)
     CFG_TARGET="linux-x86_64"
@@ -96,6 +100,20 @@ macos-x86_64)
 macos-arm64)
     CFG_TARGET="darwin64-arm64-cc"
     ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). openssl's
+    # Configure target VC-WIN64A drives cl.exe; the build uses nmake (not
+    # make). Use Strawberry Perl: Configure pulls Locale::Maketext::Simple
+    # via Params/Check, which Git Bash's bundled perl lacks. Strawberry is
+    # preinstalled on the GitHub windows runner; on a dev box install it
+    # (or set PERL to a full perl).
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    CFG_TARGET="VC-WIN64A"
+    MAKE_CMD="nmake"
+    PERL=/c/Strawberry/perl/bin/perl.exe
+    [ -x "$PERL" ] || PERL="$(command -v perl)"
+    ;;
 *)
     echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2
     exit 1
@@ -104,13 +122,19 @@ esac
 
 cd "$SRC_DIR"
 echo "==> configuring openssl ${VERSION} for ${CFG_TARGET}"
-perl ./Configure "$CFG_TARGET" "${CFG_ARGS[@]}"
+"$PERL" ./Configure "$CFG_TARGET" "${CFG_ARGS[@]}"
 
-echo "==> building (-j${NCPU})"
-make -j"$NCPU" build_libs
+# nmake is single-threaded by design and rejects -j; GNU make takes it.
+if [ "$MAKE_CMD" = "nmake" ]; then
+    echo "==> building (nmake, serial)"
+    "$MAKE_CMD" build_libs
+else
+    echo "==> building (-j${NCPU})"
+    "$MAKE_CMD" -j"$NCPU" build_libs
+fi
 
 echo "==> installing libs + headers"
-make install_dev
+"$MAKE_CMD" install_dev
 
 # Modern openssl produces libssl.a + libcrypto.a directly; normalise from lib64/
 # if the install picked that path.
@@ -122,7 +146,14 @@ for _D in lib lib64; do
 done
 cp -a "$INSTALL_DIR/include" "$STAGE/"
 
-for _LIB in libssl.a libcrypto.a; do
+# POSIX produces libssl.a + libcrypto.a; native MSVC produces
+# libssl.lib + libcrypto.lib.
+if [ "$TARGET_PLATFORM" = "windows-x86_64" ]; then
+    _OSSL_LIBS=(libssl.lib libcrypto.lib)
+else
+    _OSSL_LIBS=(libssl.a libcrypto.a)
+fi
+for _LIB in "${_OSSL_LIBS[@]}"; do
     [ -f "$STAGE/lib/$_LIB" ] || { echo "missing library: $STAGE/lib/$_LIB" >&2; exit 1; }
 done
 [ -f "$STAGE/include/openssl/ssl.h" ] || { echo "missing headers: $STAGE/include/openssl/" >&2; exit 1; }

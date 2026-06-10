@@ -58,6 +58,7 @@ mkdir -p "$STAGE" "$BUILD_DIR"
 
 CC=cc
 CXX=c++
+CMAKE_GEN="Unix Makefiles"
 CMAKE_EXTRA=()
 case "$TARGET_PLATFORM" in
 linux-x86_64) CC=gcc; CXX=g++ ;;
@@ -77,6 +78,14 @@ linux-riscv64)
     ;;
 macos-x86_64) CC=clang; CXX=clang++; CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=x86_64") ;;
 macos-arm64)  CC=clang; CXX=clang++; CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=arm64")  ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). Use Ninja +
+    # cl.exe (no `make` for the Unix Makefiles generator on Windows).
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    CC=cl; CXX=cl
+    CMAKE_GEN="Ninja"
+    ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac
 
@@ -91,7 +100,18 @@ ZLIBNG_TAR_CACHE="$HOME/.cache/picomesh-3rdparty/${ZLIBNG_TAR_NAME}"
 URL_BASE="${PICOMESH_3RDPARTY_URL_BASE:-https://github.com/zokrezyl/picomesh/releases/download}"
 ZLIBNG_URL="${URL_BASE}/lib-zlib-ng-${ZLIBNG_VERSION}/${ZLIBNG_TAR_NAME}"
 
-if [ ! -f "$ZLIBNG_DIR/lib/libz.a" ]; then
+# Resolve the staged zlib-ng static archive — libz.a on POSIX, zlibstatic.lib
+# (or zlib.lib) on native MSVC.
+zlibng_archive() {
+    for _cand in "$ZLIBNG_DIR/lib/libz.a" \
+                 "$ZLIBNG_DIR/lib/zlibstatic.lib" \
+                 "$ZLIBNG_DIR/lib/zlib.lib"; do
+        [ -f "$_cand" ] && { echo "$_cand"; return 0; }
+    done
+    return 1
+}
+
+if ! zlibng_archive >/dev/null; then
     rm -rf "$ZLIBNG_DIR"; mkdir -p "$ZLIBNG_DIR"
     if [ ! -f "$ZLIBNG_TAR_CACHE" ]; then
         echo "==> fetching prebuilt zlib-ng ${ZLIBNG_VERSION} ($TARGET_PLATFORM)"
@@ -109,7 +129,7 @@ if [ ! -f "$ZLIBNG_DIR/lib/libz.a" ]; then
     fi
     tar -C "$ZLIBNG_DIR" -xzf "$ZLIBNG_TAR_CACHE"
 fi
-[ -f "$ZLIBNG_DIR/lib/libz.a" ]     || { echo "zlib-ng staging failed: no libz.a"   >&2; exit 1; }
+ZLIBNG_LIB="$(zlibng_archive)" || { echo "zlib-ng staging failed: no static archive" >&2; exit 1; }
 [ -f "$ZLIBNG_DIR/include/zlib.h" ] || { echo "zlib-ng staging failed: no zlib.h"   >&2; exit 1; }
 
 echo "==> configuring libgit2 (zlib-ng @ $ZLIBNG_DIR)"
@@ -117,7 +137,7 @@ echo "==> configuring libgit2 (zlib-ng @ $ZLIBNG_DIR)"
 # builtin http-parser. zlib comes from zlib-ng (USE_BUNDLED_ZLIB=OFF) for SIMD
 # deflate/inflate. We only need libgit2 for local-filesystem repo work (init,
 # tree, blob, commit walks).
-cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G "Unix Makefiles" \
+cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G "$CMAKE_GEN" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_CXX_COMPILER="$CXX" \
@@ -133,7 +153,7 @@ cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G "Unix Makefiles" \
     -DUSE_NTLMCLIENT=OFF \
     -DUSE_BUNDLED_ZLIB=OFF \
     -DZLIB_ROOT="$ZLIBNG_DIR" \
-    -DZLIB_LIBRARY="$ZLIBNG_DIR/lib/libz.a" \
+    -DZLIB_LIBRARY="$ZLIBNG_LIB" \
     -DZLIB_INCLUDE_DIR="$ZLIBNG_DIR/include" \
     -DREGEX_BACKEND=builtin \
     -DUSE_HTTP_PARSER=builtin \
@@ -147,7 +167,9 @@ cmake --install "$BUILD_DIR"
 
 # libgit2's CMake install lays out lib/libgit2.a + include/git2.h +
 # include/git2/. Confirm we got what the consumer expects.
-[ -f "$STAGE/lib/libgit2.a" ]    || { echo "missing libgit2.a in $STAGE/lib" >&2; ls -la "$STAGE/lib" || true; exit 1; }
+# POSIX builds produce libgit2.a; native MSVC produces git2.lib.
+[ -f "$STAGE/lib/libgit2.a" ] || [ -f "$STAGE/lib/git2.lib" ] || {
+    echo "missing libgit2.a / git2.lib in $STAGE/lib" >&2; ls -la "$STAGE/lib" || true; exit 1; }
 [ -f "$STAGE/include/git2.h" ]   || { echo "missing git2.h in $STAGE/include" >&2; exit 1; }
 
 # Trim non-essential install artefacts so the tarball stays slim. The

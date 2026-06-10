@@ -89,6 +89,19 @@ macos-arm64)
     CC=clang
     CFLAGS_EXTRA="-arch arm64"
     ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). cl.exe +
+    # lib.exe. /MT links the static CRT (matches the other static libs).
+    # LIBCO_MP is still REQUIRED (picomesh drives one coroutine scheduler
+    # per worker thread) — keep it as /DLIBCO_MP so co_active_* stay
+    # thread-local; without it concurrent co_switch() corrupts the context.
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    CC=cl
+    AR=lib
+    CFLAGS_BASE="/nologo /O2 /MT /DLIBCO_MP /D_CRT_SECURE_NO_WARNINGS"
+    CFLAGS_EXTRA=""
+    ;;
 *)
     echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2
     exit 1
@@ -98,13 +111,25 @@ esac
 CFLAGS="$CFLAGS_BASE $CFLAGS_EXTRA"
 
 echo "==> compiling libco for $TARGET_PLATFORM"
-$CC $CFLAGS -I"$SRC_DIR" -c "$SRC_DIR/libco.c" -o "$WORK_DIR/libco.o"
-$AR rcs "$INSTALL_DIR/lib/libco.a" "$WORK_DIR/libco.o"
+if [ "$TARGET_PLATFORM" = "windows-x86_64" ]; then
+    # cl/lib want Windows-form paths; cygpath converts the MSYS/Git-Bash
+    # paths and MSYS2_ARG_CONV_EXCL stops the shell mangling the /flags.
+    _SRC_W=$(cygpath -w "$SRC_DIR/libco.c")
+    _OBJ_W=$(cygpath -w "$WORK_DIR/libco.obj")
+    _OUT_W=$(cygpath -w "$INSTALL_DIR/lib/libco.lib")
+    _SRC_DIR_W=$(cygpath -w "$SRC_DIR")
+    MSYS2_ARG_CONV_EXCL='*' $CC $CFLAGS "/I${_SRC_DIR_W}" /c "$_SRC_W" "/Fo${_OBJ_W}"
+    MSYS2_ARG_CONV_EXCL='*' $AR /nologo "/OUT:${_OUT_W}" "${_OBJ_W}"
+else
+    $CC $CFLAGS -I"$SRC_DIR" -c "$SRC_DIR/libco.c" -o "$WORK_DIR/libco.o"
+    $AR rcs "$INSTALL_DIR/lib/libco.a" "$WORK_DIR/libco.o"
+fi
 cp "$SRC_DIR/libco.h" "$INSTALL_DIR/include/"
 
 cp -a "$INSTALL_DIR/lib"     "$STAGE/"
 cp -a "$INSTALL_DIR/include" "$STAGE/"
-[ -f "$STAGE/lib/libco.a"     ] || { echo "missing libco.a in stage" >&2; exit 1; }
+{ [ -f "$STAGE/lib/libco.a" ] || [ -f "$STAGE/lib/libco.lib" ]; } \
+    || { echo "missing libco.a / libco.lib in stage" >&2; exit 1; }
 [ -f "$STAGE/include/libco.h" ] || { echo "missing libco.h in stage" >&2; exit 1; }
 
 echo "==> packaging -> $TARBALL"

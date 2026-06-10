@@ -93,6 +93,13 @@ linux-riscv64)
     ;;
 macos-x86_64) CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=x86_64") ;;
 macos-arm64)  CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=arm64")  ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). cmake's
+    # default Ninja + cl.exe pickup builds libyaml's CMake project; the
+    # static archive installs as yaml.lib (already handled in staging below).
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac
 

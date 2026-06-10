@@ -55,6 +55,7 @@ rm -rf "$STAGE" "$BUILD_DIR"
 mkdir -p "$STAGE" "$BUILD_DIR"
 
 CC=cc
+CMAKE_GEN="Unix Makefiles"
 CMAKE_EXTRA=()
 case "$TARGET_PLATFORM" in
 linux-x86_64) CC=gcc ;;
@@ -72,6 +73,14 @@ linux-riscv64)
     ;;
 macos-x86_64) CC=clang; CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=x86_64") ;;
 macos-arm64)  CC=clang; CMAKE_EXTRA+=("-DCMAKE_OSX_ARCHITECTURES=arm64")  ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). Use Ninja +
+    # cl.exe (there is no `make` for the Unix Makefiles generator on Windows).
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    CC=cl
+    CMAKE_GEN="Ninja"
+    ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac
 
@@ -80,7 +89,7 @@ echo "==> configuring zlib-ng"
 # WITH_OPTIM (default ON) builds the SIMD deflate/inflate paths and selects
 # them at runtime; WITH_NATIVE_INSTRUCTIONS stays OFF so the artefact runs
 # on any CPU of the target arch (no baked-in -march=native).
-cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G "Unix Makefiles" \
+cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G "$CMAKE_GEN" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_INSTALL_PREFIX="$STAGE" \
@@ -101,8 +110,15 @@ echo "==> installing zlib-ng into stage"
 cmake --install "$BUILD_DIR"
 
 # In ZLIB_COMPAT mode the install lays out lib/libz.a + include/zlib.h +
-# include/zconf.h. Confirm we got what the consumer expects.
-[ -f "$STAGE/lib/libz.a" ]     || { echo "missing libz.a in $STAGE/lib" >&2; ls -la "$STAGE/lib" || true; exit 1; }
+# include/zconf.h on POSIX. Native MSVC names the static archive
+# zlibstatic.lib (some configs zlib.lib) — accept either.
+if [ ! -f "$STAGE/lib/libz.a" ] \
+    && [ ! -f "$STAGE/lib/zlibstatic.lib" ] \
+    && [ ! -f "$STAGE/lib/zlib.lib" ]; then
+    echo "missing zlib static lib (libz.a / zlibstatic.lib / zlib.lib) in $STAGE/lib" >&2
+    ls -la "$STAGE/lib" || true
+    exit 1
+fi
 [ -f "$STAGE/include/zlib.h" ] || { echo "missing zlib.h in $STAGE/include" >&2; exit 1; }
 
 # Trim non-essential install artefacts so the tarball stays slim. The

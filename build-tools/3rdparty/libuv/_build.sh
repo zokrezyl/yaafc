@@ -77,6 +77,13 @@ linux-riscv64)
     ;;
 macos-x86_64) CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=x86_64") ;;
 macos-arm64)  CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=arm64") ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). libuv's
+    # upstream CMake supports MSVC; cmake's default Ninja + cl.exe pickup
+    # builds it, so no extra args are needed.
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac
 
@@ -95,11 +102,14 @@ done
 cp -a "$INSTALL_DIR/include" "$STAGE/"
 
 _LIB=""
-for cand in "$STAGE/lib/libuv_a.a" "$STAGE/lib/libuv.a"; do
+# POSIX builds produce libuv_a.a / libuv.a; native MSVC produces libuv.lib
+# (older configs uv_a.lib). Accept whichever CMake staged.
+for cand in "$STAGE/lib/libuv_a.a" "$STAGE/lib/libuv.a" \
+            "$STAGE/lib/libuv.lib" "$STAGE/lib/uv_a.lib"; do
     if [ -f "$cand" ]; then _LIB="$cand"; break; fi
 done
 if [ -z "$_LIB" ]; then
-    echo "missing libuv_a.a / libuv.a in stage" >&2
+    echo "missing libuv static lib (libuv_a.a / libuv.a / libuv.lib) in stage" >&2
     find "$STAGE" >&2
     exit 1
 fi

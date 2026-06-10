@@ -75,15 +75,36 @@ linux-riscv64)
     ;;
 macos-x86_64) CC=clang; CFLAGS_BASE="$CFLAGS_BASE -arch x86_64" ;;
 macos-arm64)  CC=clang; CFLAGS_BASE="$CFLAGS_BASE -arch arm64"  ;;
+windows-x86_64)
+    # Native MSVC — caller must have vcvarsall'd the shell (x64). cl.exe +
+    # lib.exe. The POSIX -pthread/-fPIC/_GNU_SOURCE flags don't apply on
+    # Windows (mdbx.c uses the Win32 threading + file APIs there); rebuild
+    # CFLAGS in MSVC form keeping only the release/debug defines. /MT =
+    # static CRT.
+    command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
+        echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
+    CC=cl
+    AR=lib
+    CFLAGS_BASE="/nologo /O2 /MT /DNDEBUG /DMDBX_DEBUG=0 /D_CRT_SECURE_NO_WARNINGS"
+    ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac
 
 echo "==> compiling libmdbx amalgamation"
-$CC $CFLAGS_BASE -c "$SRC_DIR/mdbx.c" -o "$WORK_DIR/mdbx.o"
-$AR rcs "$STAGE/lib/libmdbx.a" "$WORK_DIR/mdbx.o"
+if [ "$TARGET_PLATFORM" = "windows-x86_64" ]; then
+    _SRC_W=$(cygpath -w "$SRC_DIR/mdbx.c")
+    _OBJ_W=$(cygpath -w "$WORK_DIR/mdbx.obj")
+    _OUT_W=$(cygpath -w "$STAGE/lib/libmdbx.lib")
+    MSYS2_ARG_CONV_EXCL='*' $CC $CFLAGS_BASE /c "$_SRC_W" "/Fo${_OBJ_W}"
+    MSYS2_ARG_CONV_EXCL='*' $AR /nologo "/OUT:${_OUT_W}" "${_OBJ_W}"
+else
+    $CC $CFLAGS_BASE -c "$SRC_DIR/mdbx.c" -o "$WORK_DIR/mdbx.o"
+    $AR rcs "$STAGE/lib/libmdbx.a" "$WORK_DIR/mdbx.o"
+fi
 cp "$SRC_DIR/mdbx.h" "$STAGE/include/"
 
-[ -f "$STAGE/lib/libmdbx.a" ] || { echo "missing libmdbx.a" >&2; exit 1; }
+{ [ -f "$STAGE/lib/libmdbx.a" ] || [ -f "$STAGE/lib/libmdbx.lib" ]; } \
+    || { echo "missing libmdbx.a / libmdbx.lib" >&2; exit 1; }
 
 echo "==> packaging -> $TARBALL"
 tar -C "$STAGE" -czf "$TARBALL" .
