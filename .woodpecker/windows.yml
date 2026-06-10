@@ -4,23 +4,24 @@
 # artifact dir). picomesh already carries a Windows platform backend
 # (src/picomesh/platform/time/windows.c) so the code intends to support it.
 #
-# ── Known gaps (this pipeline is the FRONTIER, not yet green) ──────────────
-#   1. No prebuilt Windows 3rdparty tarballs are published — the
-#      .github/workflows/build-3rdparty-*.yml matrices only cover
-#      linux-{x86_64,aarch64,riscv64}. On Windows the CMake fetch therefore
-#      tries its from-source fallback (build-tools/3rdparty/<lib>/_build.sh),
-#      which is bash + upstream CMake — so a POSIX shell (git-bash/MSYS) must
-#      be on PATH for that fallback, or per-lib windows-x86_64 tarballs must
-#      first be published.
-#   2. The compiler must be clang (clang-cl/clang) + Ninja: the root
-#      CMakeLists uses gcc/clang-style flags (-Wall -Wextra
-#      -Werror=incompatible-pointer-types) that MSVC `cl` does not accept.
+# Toolchain: NATIVE MSVC (cl.exe) + Ninja. The 3rdparty libs are all built
+# with cl and link the dynamic Microsoft C runtime (msvcrt, /MD), so picomesh
+# MUST be compiled by the same toolchain/ABI — building it with clang/mingw
+# would produce an object ABI that cannot link the MSVC .lib archives. The
+# agent must start this step from a "x64 Native Tools Command Prompt for VS"
+# (or have vcvarsall x64 sourced) so cl.exe + the MSVC libs are on PATH.
 #
-# Until both are addressed this pipeline will not pass; it is intentionally
-# scoped to `manual` + `tag` so it never blocks ordinary push/PR pipelines.
-# Once a Windows toolchain story lands (a build-tools\windows\build.bat or
-# published windows-x86_64 3rdparty tarballs), widen `when` and replace the
-# inline cmake below with that wrapper.
+# ── Known gap (this pipeline is the FRONTIER, not yet green) ───────────────
+#   No prebuilt Windows 3rdparty tarballs are published — the
+#   .github/workflows/build-3rdparty-*.yml matrices only cover
+#   linux-{x86_64,aarch64,riscv64}. On Windows the CMake fetch therefore
+#   takes its from-source fallback (build-tools/3rdparty/<lib>/_build.sh,
+#   which builds each lib with cl). That fallback is bash + upstream CMake,
+#   so a POSIX shell (git-bash/MSYS) must also be on PATH — until per-lib
+#   windows-x86_64 tarballs are published.
+#
+# Intentionally scoped to `manual` + `tag` so it never blocks ordinary
+# push/PR pipelines while the Windows prebuilt-tarball story is finished.
 
 labels:
   platform: windows/amd64
@@ -33,11 +34,13 @@ steps:
   build:
     image: cmd
     commands:
-      # Configure + build the release variant with Ninja + clang. Assumes
-      # cmake, ninja and clang are on the agent PATH (e.g. an LLVM install and
-      # a Ninja shipped via the VS "C++ Clang tools" workload). A POSIX shell
-      # on PATH is required for the 3rdparty from-source fallback (see gaps).
-      - cmake -S . -B build-desktop-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang
+      # Configure + build the release variant with Ninja + MSVC cl.exe.
+      # Pin CMAKE_C_COMPILER=cl so cmake never auto-picks a clang/gcc that
+      # happens to be on PATH — the .lib 3rdparty archives are MSVC-ABI and
+      # only cl-built objects link them. The root CMakeLists forces the
+      # dynamic msvcrt runtime (/MD) to match those libs. A POSIX shell on
+      # PATH is required for the 3rdparty from-source fallback (see gap).
+      - cmake -S . -B build-desktop-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl
       - cmake --build build-desktop-release --parallel
       - dir build-desktop-release\picomesh.exe build-desktop-release\picoforge-webapp.exe
 

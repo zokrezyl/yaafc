@@ -68,12 +68,13 @@ macos-arm64)  CC=clang; CFLAGS_BASE="$CFLAGS_BASE -arch arm64"  ;;
 windows-x86_64)
     # Native MSVC — caller must have vcvarsall'd the shell (x64). cl.exe +
     # lib.exe. -O2/-fPIC are GNU-only, so rebuild CFLAGS in MSVC form (the
-    # SQLITE_* feature defines carry over unchanged; /MT = static CRT).
+    # SQLITE_* feature defines carry over unchanged). /MD = dynamic msvcrt,
+    # matching picomesh.exe and the CMake-built libs (cl's /MD default).
     command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
         echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
     CC=cl
     AR=lib
-    CFLAGS_BASE="/nologo /O2 /MT /DSQLITE_THREADSAFE=1 /DSQLITE_ENABLE_RTREE=0 /DSQLITE_OMIT_LOAD_EXTENSION=1 /D_CRT_SECURE_NO_WARNINGS"
+    CFLAGS_BASE="/nologo /O2 /MD /DSQLITE_THREADSAFE=1 /DSQLITE_ENABLE_RTREE=0 /DSQLITE_OMIT_LOAD_EXTENSION=1 /D_CRT_SECURE_NO_WARNINGS"
     ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac

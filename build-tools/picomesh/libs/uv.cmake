@@ -30,6 +30,14 @@ set_target_properties(uv PROPERTIES
     IMPORTED_LOCATION             "${_LIBUV_LIB}"
     INTERFACE_INCLUDE_DIRECTORIES "${_LIBUV_DIR}/include"
 )
-target_link_libraries(uv INTERFACE Threads::Threads ${CMAKE_DL_LIBS} m rt)
+# libuv's transitive system deps differ by platform: POSIX needs libm/librt +
+# dl; native Windows needs the Win32 socket/process/debug libraries instead
+# (m/rt do not exist there).
+if(WIN32)
+    target_link_libraries(uv INTERFACE
+        ws2_32 iphlpapi psapi userenv dbghelp ole32 shell32 advapi32)
+else()
+    target_link_libraries(uv INTERFACE Threads::Threads ${CMAKE_DL_LIBS} m rt)
+endif()
 
 message(STATUS "libuv: prebuilt @${PICOMESH_3RDPARTY_libuv_VERSION} (${_LIBUV_LIB})")

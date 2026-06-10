@@ -79,13 +79,13 @@ windows-x86_64)
     # Native MSVC — caller must have vcvarsall'd the shell (x64). cl.exe +
     # lib.exe. The POSIX -pthread/-fPIC/_GNU_SOURCE flags don't apply on
     # Windows (mdbx.c uses the Win32 threading + file APIs there); rebuild
-    # CFLAGS in MSVC form keeping only the release/debug defines. /MT =
-    # static CRT.
+    # CFLAGS in MSVC form keeping only the release/debug defines. /MD =
+    # dynamic msvcrt, matching picomesh.exe and the CMake-built libs.
     command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
         echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
     CC=cl
     AR=lib
-    CFLAGS_BASE="/nologo /O2 /MT /DNDEBUG /DMDBX_DEBUG=0 /D_CRT_SECURE_NO_WARNINGS"
+    CFLAGS_BASE="/nologo /O2 /MD /DNDEBUG /DMDBX_DEBUG=0 /D_CRT_SECURE_NO_WARNINGS"
     ;;
 *) echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2; exit 1 ;;
 esac

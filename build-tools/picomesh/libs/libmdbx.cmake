@@ -27,6 +27,12 @@ set_target_properties(libmdbx PROPERTIES
 # and timestamps. -lrt is harmless on systems where clock_gettime is in
 # libc.
 find_package(Threads REQUIRED)
-target_link_libraries(libmdbx INTERFACE Threads::Threads rt)
+# POSIX: pthread + librt (clock_gettime). Native Windows: mdbx.c uses the NT
+# native + Win32 APIs (Rtl*, advapi32 crypto for randomness, user/kernel).
+if(WIN32)
+    target_link_libraries(libmdbx INTERFACE ntdll advapi32 user32 kernel32)
+else()
+    target_link_libraries(libmdbx INTERFACE Threads::Threads rt)
+endif()
 
 message(STATUS "libmdbx: prebuilt v${PICOMESH_3RDPARTY_libmdbx_VERSION} (${_LM_LIB})")

@@ -23,7 +23,13 @@ set_target_properties(sqlite3 PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_SJ_DIR}/include"
 )
 # SQLite needs libdl for run-time loaded VFS shims; not used here
-# (OMIT_LOAD_EXTENSION) but keep the linker happy on minimal images.
-target_link_libraries(sqlite3 INTERFACE ${CMAKE_DL_LIBS} m)
+# (OMIT_LOAD_EXTENSION) but keep the linker happy on minimal images. libm is
+# POSIX-only; the MSVC CRT folds the math functions into msvcrt, so Windows
+# needs nothing extra (CMAKE_DL_LIBS is empty there).
+if(WIN32)
+    target_link_libraries(sqlite3 INTERFACE)
+else()
+    target_link_libraries(sqlite3 INTERFACE ${CMAKE_DL_LIBS} m)
+endif()
 
 message(STATUS "sqlite3: prebuilt v${PICOMESH_3RDPARTY_libsqlite3_VERSION} (${_SJ_LIB})")

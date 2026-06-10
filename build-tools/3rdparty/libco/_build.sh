@@ -91,15 +91,17 @@ macos-arm64)
     ;;
 windows-x86_64)
     # Native MSVC — caller must have vcvarsall'd the shell (x64). cl.exe +
-    # lib.exe. /MT links the static CRT (matches the other static libs).
-    # LIBCO_MP is still REQUIRED (picomesh drives one coroutine scheduler
-    # per worker thread) — keep it as /DLIBCO_MP so co_active_* stay
-    # thread-local; without it concurrent co_switch() corrupts the context.
+    # lib.exe. /MD links the DYNAMIC Microsoft C runtime (msvcrt), matching
+    # picomesh.exe and the CMake-built 3rdparty libs (cl's /MD default) — a
+    # /MT here would clash with the /MD exe at link time. LIBCO_MP is still
+    # REQUIRED (picomesh drives one coroutine scheduler per worker thread) —
+    # keep /DLIBCO_MP so co_active_* stay thread-local; without it concurrent
+    # co_switch() corrupts the context.
     command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1 || {
         echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
     CC=cl
     AR=lib
-    CFLAGS_BASE="/nologo /O2 /MT /DLIBCO_MP /D_CRT_SECURE_NO_WARNINGS"
+    CFLAGS_BASE="/nologo /O2 /MD /DLIBCO_MP /D_CRT_SECURE_NO_WARNINGS"
     CFLAGS_EXTRA=""
     ;;
 *)

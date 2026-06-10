@@ -17,10 +17,22 @@ endif()
 
 option(PICOMESH_ENABLE_CODEGEN "Regenerate checked-in plugin codegen outputs" OFF)
 
-add_compile_options(
-    -Wall -Wextra -Wno-attributes
-    -Werror=incompatible-pointer-types
-)
+if(MSVC)
+    # Native MSVC (cl.exe). The GNU/clang warning flags below are not valid
+    # for cl; use the MSVC equivalents. /W3 is the usual baseline; the
+    # incompatible-pointer-type diagnostic maps to C4133, promoted to an
+    # error to match the -Werror=incompatible-pointer-types intent.
+    add_compile_options(/W3 /we4133 /D_CRT_SECURE_NO_WARNINGS)
+    # Link the DYNAMIC Microsoft C runtime (msvcrt — /MD, /MDd for Debug),
+    # the cl default. The 3rdparty static libs are all built /MD, so the exe
+    # MUST match or the link hits CRT-conflict (LNK4098) / duplicate symbols.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+else()
+    add_compile_options(
+        -Wall -Wextra -Wno-attributes
+        -Werror=incompatible-pointer-types
+    )
+endif()
 
 find_package(Threads REQUIRED)
 

@@ -34,6 +34,13 @@ set_target_properties(libcurl PROPERTIES
     # decorate the API with dllimport.
     INTERFACE_COMPILE_DEFINITIONS "CURL_STATICLIB"
 )
-target_link_libraries(libcurl INTERFACE openssl Threads::Threads ${CMAKE_DL_LIBS})
+# Beyond openssl: POSIX needs pthread + dl; native Windows needs the Win32
+# socket + crypto libs curl calls directly (ws2_32 sockets, wldap32 even with
+# LDAP disabled the import is referenced, crypt32/bcrypt for the cert path).
+if(WIN32)
+    target_link_libraries(libcurl INTERFACE openssl ws2_32 crypt32 bcrypt advapi32 normaliz)
+else()
+    target_link_libraries(libcurl INTERFACE openssl Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 message(STATUS "libcurl: prebuilt v${PICOMESH_3RDPARTY_libcurl_VERSION} (${_CURL_LIB})")

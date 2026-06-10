@@ -32,7 +32,14 @@ set_target_properties(openssl-crypto PROPERTIES
     IMPORTED_LOCATION             "${_OSSL_CRYPTO}"
     INTERFACE_INCLUDE_DIRECTORIES "${_OSSL_DIR}/include"
 )
-target_link_libraries(openssl-crypto INTERFACE Threads::Threads ${CMAKE_DL_LIBS})
+# libcrypto's system deps: POSIX uses pthread + dl; native Windows pulls the
+# Win32 socket/crypto/registry libs (ws2_32 for BIO sockets, crypt32 + bcrypt
+# for the OS RNG/cert store, advapi32/user32 for registry + UI entropy).
+if(WIN32)
+    target_link_libraries(openssl-crypto INTERFACE ws2_32 crypt32 bcrypt advapi32 user32)
+else()
+    target_link_libraries(openssl-crypto INTERFACE Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 add_library(openssl-ssl STATIC IMPORTED GLOBAL)
 set_target_properties(openssl-ssl PROPERTIES

@@ -33,6 +33,14 @@ set_target_properties(libgit2 PROPERTIES
 # pthread — plus librt on glibc for clock_gettime.
 include(${PICOMESH_ROOT}/build-tools/picomesh/libs/zlib-ng.cmake)
 find_package(Threads REQUIRED)
-target_link_libraries(libgit2 INTERFACE zlib-ng Threads::Threads rt)
+# Beyond zlib-ng: POSIX needs librt (clock_gettime on glibc); native Windows
+# needs the Win32 system libs libgit2 calls even in the no-HTTPS/no-SSH config
+# (UUID generation, crypto for object hashing, sockets, registry/SID lookups).
+if(WIN32)
+    target_link_libraries(libgit2 INTERFACE zlib-ng
+        ws2_32 advapi32 rpcrt4 crypt32 ole32 secur32 winhttp)
+else()
+    target_link_libraries(libgit2 INTERFACE zlib-ng Threads::Threads rt)
+endif()
 
 message(STATUS "libgit2: prebuilt v${PICOMESH_3RDPARTY_libgit2_VERSION} (${_LG_LIB})")
