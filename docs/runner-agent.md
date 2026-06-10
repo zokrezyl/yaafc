@@ -293,17 +293,45 @@ The MVP above is implemented and exercised end-to-end by
   added — it reuses `picomesh_jwt_build_claims` / `picomesh_authctx`.
 - **`git_pipeline` job lifecycle** (`src/picomesh/plugins/git_pipeline/store.c`)
   gained, additively: `enqueue_job(repo_id, ref, pipeline_path, timeout)`,
-  `lease_job(runner_id, labels) → descriptor|null` (the runner's lease entry
-  point; legacy `lease` stays), `job_descriptor(job_id)`,
+  `lease_job(runner_id, labels, wait_ms) → descriptor|null` (the runner's lease
+  entry point — `wait_ms>0` long-polls; legacy `lease` stays),
+  `job_descriptor(job_id)`,
   `append_log(job_id, offset, chunk)` and `complete_job(job_id, status,
   summary)` (both reject a caller that does not own the active lease),
   `read_log(job_id)`, and `requeue_expired()` (sweeps timed-out leases back to
   queued). Every lease records a `lease_expiry`.
 - **Runner agent process**: `tools/picoforge/runner-agent/runner-agent.py`
-  (stdlib only) — registers, then runs the 1s-jitter / 2-5-15s-backoff lease
-  loop, executes the job (a stub build when no real `pipeline_path` is present),
-  streams `append_log`, reports `complete_job`, and heartbeats. `--once` runs a
-  single job and exits.
+  (stdlib only) — registers, runs the lease loop, executes the job (a stub
+  build when no real `pipeline_path` is present), streams `append_log`, reports
+  `complete_job`, and heartbeats. `--once` runs a single job and exits.
+
+### Long polling + curl transport (implemented)
+
+`lease_job` gained an optional `wait_ms` argument so the runner can long-poll,
+GitLab/GitHub-runner style, instead of busy-polling every second:
+
+```text
+lease_job(runner_id, labels, wait_ms)
+  wait_ms == 0  → classic immediate poll (claim once, reply null if empty)
+  wait_ms  > 0  → HOLD the call open, re-claiming every ~500ms, until a job is
+                  claimed or wait_ms elapses (capped server-side at 30s)
+```
+
+Server side (`git_pipeline/store.c`): when the queue is empty and `wait_ms>0`,
+`lease_job` yields its coroutine in slices via `loop_sleep_ms` — the libuv loop
+keeps leasing to and enqueuing from every other connection meanwhile, so a job
+enqueued during the wait is delivered on the *same held call*, not a later
+poll. The handle is re-opened per slice so nothing relational is held across a
+yield. This is the runner-initiated approximation of the "Later: Persistent
+Connection" section: one in-flight request, near-instant pickup, still no
+inbound listener on the runner.
+
+The agent is **long-poll by default** (`--lease-wait 25`, `0` falls back to the
+1s-jitter / 2-5-15s-backoff short poll). Its HTTP transport is now **curl**,
+isolated in a `CurlTransport` class kept separate from the RPC envelope and
+from job execution — so an `https://` gateway (or mTLS / proxy / custom CA)
+needs only curl flags, no code change. The lease call uses an HTTP budget that
+outlasts the server's hold so the held connection is never cut client-side.
 
 Policy (gateway `security.policy`): admins (`site:owner`) mint/revoke/list
 tokens; runners (`site:runner`) register/heartbeat/get and

@@ -839,10 +839,11 @@ expect_contains 'runner2 complete_job (own job) → 1' "$cj2" '"result":1'
 ( sleep 1
   curl -sS --max-time 10 -o /dev/null -b $SIDE_COOKIES -XPOST "http://127.0.0.1:${WEB}/_rpc" \
        -H "$JSONH" -d '{"path":"git_pipeline.git_pipeline.enqueue_job","args":['"$PIPE_REPO"',"refs/heads/longpoll","",60]}' ) &
+lp_enqueue_pid=$!
 lp=$(curl -sS --max-time 10 -XPOST "http://127.0.0.1:${WEB}/_rpc" \
      -H "Authorization: Bearer ${RUNNER_TOKEN}" -H "$JSONH" \
      -d "{\"path\":\"git_pipeline.git_pipeline.lease_job\",\"args\":[${RUNNER_ID},\"linux\",4000]}")
-wait
+wait "$lp_enqueue_pid" 2>/dev/null || true
 expect_contains 'long-poll lease_job delivers a job enqueued mid-wait' "$lp" 'refs/heads/longpoll'
 LP_JOB=$(printf '%s' "$lp" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["job_id"])' 2>/dev/null)
 curl -sS --max-time 10 -o /dev/null -XPOST "http://127.0.0.1:${WEB}/_rpc" \

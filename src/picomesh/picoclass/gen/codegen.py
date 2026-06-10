@@ -204,8 +204,18 @@ def _annotate_value(attr_node: dict, src: bytes):
     # PICOMESH_CLASS_ANNOTATE("x") macro form. The macro keeps plugin
     # sources compilable under gcc (cross-compiles), while clang's
     # AST dump still produces an AnnotateAttr from the expansion.
-    m = re.search(r'(?:annotate|ANNOTATE)\s*\(\s*"([^"]*)"', blob)
-    return m.group(1) if m else None
+    #
+    # A long annotation gets wrapped by clang-format into several adjacent
+    # string literals — `ANNOTATE("override@dom:" "cls:slot")` — which C
+    # concatenates into one. Capture the whole run of literals and join
+    # their contents so a wrapped annotation reads identically to a
+    # single-line one. (`[^"\\]|\\.` tolerates escaped quotes too.)
+    literal = r'"(?:[^"\\]|\\.)*"'
+    m = re.search(rf'(?:annotate|ANNOTATE)\s*\(\s*((?:{literal}\s*)+)', blob)
+    if not m:
+        return None
+    parts = re.findall(literal, m.group(1))
+    return "".join(part[1:-1] for part in parts)
 
 
 def _collect_annotations(decl: dict, src: bytes) -> list:
