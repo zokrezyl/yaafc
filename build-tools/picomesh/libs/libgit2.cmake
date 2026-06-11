@@ -40,7 +40,10 @@ if(WIN32)
     target_link_libraries(libgit2 INTERFACE zlib-ng
         ws2_32 advapi32 rpcrt4 crypt32 ole32 secur32 winhttp)
 else()
-    target_link_libraries(libgit2 INTERFACE zlib-ng Threads::Threads rt)
+    target_link_libraries(libgit2 INTERFACE zlib-ng Threads::Threads)
+    if(NOT APPLE)
+        target_link_libraries(libgit2 INTERFACE rt)  # glibc clock_gettime; not on macOS
+    endif()
 endif()
 
 message(STATUS "libgit2: prebuilt v${PICOMESH_3RDPARTY_libgit2_VERSION} (${_LG_LIB})")

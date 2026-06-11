@@ -101,13 +101,22 @@ windows-x86_64)
         echo "windows-x86_64 requires MSVC cl on PATH (run vcvarsall x64)" >&2; exit 1; }
     CC=cl
     AR=lib
-    # /std:c17 makes MSVC define __STDC__, which gates libco settings.h's
-    # _MSC_VER branch that maps thread_local -> __declspec(thread) and
-    # alignas -> __declspec(align(...)). Without it neither the C nor C++
-    # branch is taken and `thread_local`/`alignas` stay undefined keywords,
-    # so amd64.c fails to compile under LIBCO_MP.
-    CFLAGS_BASE="/nologo /O2 /MD /std:c17 /DLIBCO_MP /D_CRT_SECURE_NO_WARNINGS"
+    CFLAGS_BASE="/nologo /O2 /MD /DLIBCO_MP /D_CRT_SECURE_NO_WARNINGS"
     CFLAGS_EXTRA=""
+    # Under MSVC C mode __STDC__ is undefined, so libco settings.h leaves
+    # `thread_local` and `alignas` undefined (its mapping to __declspec(...)
+    # is gated on __STDC__/_cplusplus). amd64.c then fails to compile under
+    # LIBCO_MP. libco honours a user-provided definition (#if !defined(...)),
+    # so force-include a shim that defines both before settings.h is reached.
+    LIBCO_MSVC_SHIM="$WORK_DIR/picomesh-libco-msvc-shim.h"
+    cat > "$LIBCO_MSVC_SHIM" <<'SHIM'
+#ifndef thread_local
+#define thread_local __declspec(thread)
+#endif
+#ifndef alignas
+#define alignas(bytes) __declspec(align(bytes))
+#endif
+SHIM
     ;;
 *)
     echo "unknown TARGET_PLATFORM: $TARGET_PLATFORM" >&2
@@ -125,7 +134,8 @@ if [ "$TARGET_PLATFORM" = "windows-x86_64" ]; then
     _OBJ_W=$(cygpath -w "$WORK_DIR/libco.obj")
     _OUT_W=$(cygpath -w "$INSTALL_DIR/lib/libco.lib")
     _SRC_DIR_W=$(cygpath -w "$SRC_DIR")
-    MSYS2_ARG_CONV_EXCL='*' $CC $CFLAGS "/I${_SRC_DIR_W}" /c "$_SRC_W" "/Fo${_OBJ_W}"
+    _SHIM_W=$(cygpath -w "$LIBCO_MSVC_SHIM")
+    MSYS2_ARG_CONV_EXCL='*' $CC $CFLAGS "/FI${_SHIM_W}" "/I${_SRC_DIR_W}" /c "$_SRC_W" "/Fo${_OBJ_W}"
     MSYS2_ARG_CONV_EXCL='*' $AR /nologo "/OUT:${_OUT_W}" "${_OBJ_W}"
 else
     $CC $CFLAGS -I"$SRC_DIR" -c "$SRC_DIR/libco.c" -o "$WORK_DIR/libco.o"

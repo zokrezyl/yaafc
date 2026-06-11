@@ -32,7 +32,10 @@ find_package(Threads REQUIRED)
 if(WIN32)
     target_link_libraries(libmdbx INTERFACE ntdll advapi32 user32 kernel32)
 else()
-    target_link_libraries(libmdbx INTERFACE Threads::Threads rt)
+    target_link_libraries(libmdbx INTERFACE Threads::Threads)
+    if(NOT APPLE)
+        target_link_libraries(libmdbx INTERFACE rt)  # glibc clock_gettime; not on macOS
+    endif()
 endif()
 
 message(STATUS "libmdbx: prebuilt v${PICOMESH_3RDPARTY_libmdbx_VERSION} (${_LM_LIB})")
