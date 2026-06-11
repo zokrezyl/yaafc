@@ -130,9 +130,38 @@ function(picomesh_3rdparty_fetch LIB_NAME)
                 else()
                     file(REMOVE "${_TARBALL}.part")
                     list(GET _DL_STATUS 1 _DL_MSG)
-                    message(STATUS
-                        "3rdparty: no prebuilt ${_FILENAME} (${_DL_MSG}) — "
-                        "building from source")
+                    # CMake's bundled libcurl can't always verify the GitHub TLS
+                    # chain on Windows agents (missing CA bundle, or a Schannel
+                    # revocation check against an unreachable endpoint). Retry
+                    # with the system curl, which uses the OS trust store
+                    # (Schannel on Windows) and --ssl-no-revoke to tolerate that.
+                    # The prebuilt is published for every platform, so we fetch
+                    # it rather than ever building the dependency on the host.
+                    find_program(_PICOMESH_CURL curl)
+                    if(_PICOMESH_CURL)
+                        message(STATUS
+                            "3rdparty: file(DOWNLOAD) failed (${_DL_MSG}); "
+                            "retrying ${_FILENAME} with system curl")
+                        execute_process(
+                            COMMAND "${_PICOMESH_CURL}" -fLsS
+                                --retry 5 --retry-delay 3 --ssl-no-revoke
+                                -o "${_TARBALL}.part" "${_URL}"
+                            RESULT_VARIABLE _CURL_RC)
+                        if(_CURL_RC EQUAL 0 AND EXISTS "${_TARBALL}.part")
+                            file(RENAME "${_TARBALL}.part" "${_TARBALL}")
+                            set(_HAVE_TARBALL TRUE)
+                            message(STATUS
+                                "3rdparty: downloaded ${LIB_NAME} ${_LIBVER} "
+                                "via curl (${_PLATFORM})")
+                        else()
+                            file(REMOVE "${_TARBALL}.part")
+                        endif()
+                    endif()
+                    if(NOT _HAVE_TARBALL)
+                        message(STATUS
+                            "3rdparty: no prebuilt ${_FILENAME} (${_DL_MSG}) — "
+                            "building from source")
+                    endif()
                 endif()
             endif()
 
