@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define ALPINE_REQ_BUF (256 * 1024)
 #define ALPINE_RESP_BUF (1024 * 1024)

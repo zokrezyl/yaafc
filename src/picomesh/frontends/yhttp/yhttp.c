@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define YHTTP_REQ_BUF (256 * 1024)
 #define YHTTP_MAX_HEADERS 64
