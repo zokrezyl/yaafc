@@ -41,6 +41,12 @@ if(WIN32)
     target_link_libraries(libcurl INTERFACE openssl ws2_32 crypt32 bcrypt advapi32 normaliz)
 else()
     target_link_libraries(libcurl INTERFACE openssl Threads::Threads ${CMAKE_DL_LIBS})
+    if(APPLE)
+        # Curl_macos_init reads the system proxy config via SystemConfiguration
+        # (which pulls CoreFoundation: CFRelease, SCDynamicStoreCopyProxies).
+        target_link_libraries(libcurl INTERFACE
+            "-framework CoreFoundation" "-framework SystemConfiguration")
+    endif()
 endif()
 
 message(STATUS "libcurl: prebuilt v${PICOMESH_3RDPARTY_libcurl_VERSION} (${_CURL_LIB})")

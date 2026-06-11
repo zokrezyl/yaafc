@@ -41,7 +41,10 @@ if(WIN32)
         ws2_32 advapi32 rpcrt4 crypt32 ole32 secur32 winhttp)
 else()
     target_link_libraries(libgit2 INTERFACE zlib-ng Threads::Threads)
-    if(NOT APPLE)
+    if(APPLE)
+        # libgit2 normalises HFS+ paths via iconv, a separate lib on macOS.
+        target_link_libraries(libgit2 INTERFACE iconv)
+    else()
         target_link_libraries(libgit2 INTERFACE rt)  # glibc clock_gettime; not on macOS
     endif()
 endif()
